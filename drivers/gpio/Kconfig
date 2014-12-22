@@ -1011,6 +1011,14 @@ config GPIO_ZX
 	help
 	  Say yes here to support the GPIO device on ZTE ZX SoCs.
 
+config GPIO_A10SYCON
+	tristate "Altera Arria10 System Controller GPIO"
+	depends on ARCH_SOCFPGA
+	select MFD_A10SYCON
+	help
+	  Driver for Arria10 GPIO expansion which includes reads of
+	  pushbuttons and DIP switches as well as writes to LEDs and
+	  peripheral reset.
 endmenu
 
 menu "USB GPIO expanders"
