@@ -644,6 +644,18 @@
 			reg = <0xffff0000 0x10000>;
 		};
 
+		qspi: spi@0xff705000 {
+			compatible = "cdns,qspi-nor";
+			reg = <0xff705000 0x1000>,
+				<0xffa00000 0x1000>;
+			interrupts = <0 151 4>;
+			ext-decoder = <0>;
+			clocks = <&qspi_clk>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			fifo-depth = <128>;
+			status = "disabled";
+		};
 		spi0: spi@fff00000 {
 			compatible = "snps,dw-apb-ssi";
 			#address-cells = <1>;
