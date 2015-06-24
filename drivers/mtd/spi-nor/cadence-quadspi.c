@@ -87,7 +87,7 @@ struct cqspi_st {
 
 /* Operation timeout value */
 #define CQSPI_TIMEOUT_MS			500
-#define CQSPI_READ_TIMEOUT_MS			10
+#define CQSPI_READ_TIMEOUT_MS			50
 
 /* Instruction type */
 #define CQSPI_INST_TYPE_SINGLE			0
