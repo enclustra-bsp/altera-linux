@@ -71,7 +71,7 @@ struct cqspi_st {
 
 /* Operation timeout value */
 #define CQSPI_TIMEOUT_MS			500
-#define CQSPI_READ_TIMEOUT_MS			10
+#define CQSPI_READ_TIMEOUT_MS			50
 #define CQSPI_POLL_IDLE_RETRY			3
 
 #define CQSPI_FIFO_WIDTH			4
