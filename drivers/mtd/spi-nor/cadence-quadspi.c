@@ -267,24 +267,13 @@ static void cqspi_fifo_read(void *dest, const void *src_ahb_addr,
 	}
 }
 
-static void cqspi_fifo_write(struct spi_nor *nor, void *dest_ahb_addr,
+static void cqspi_fifo_write(void *dest_ahb_addr,
 			     const void *src, unsigned int bytes)
 {
 	unsigned int temp;
 	int remaining = bytes;
 	unsigned int *dest_ptr = (unsigned int *)dest_ahb_addr;
 	unsigned int *src_ptr = (unsigned int *)src;
-	unsigned int retry;
-	unsigned int sram_level;
-	struct cqspi_st *cqspi = nor->priv;
-	void __iomem *reg_base = cqspi->iobase;
-
-	retry = 10000;
-        while (retry--) {
-	        sram_level = CQSPI_GET_WR_SRAM_LEVEL(reg_base);
-		if (sram_level <= 50)
-		break;
-        }
 
 	while (remaining > CQSPI_FIFO_WIDTH) {
 		writel(*src_ptr, dest_ptr);
@@ -688,7 +677,7 @@ static int cqspi_indirect_write_execute(struct spi_nor *nor,
 	/* Write a page or remaining bytes. */
 	write_bytes = remaining > page_size ? page_size : remaining;
 	/* Fill up the data at the beginning */
-	cqspi_fifo_write(nor, ahb_base, txbuf, write_bytes);
+	cqspi_fifo_write(ahb_base, txbuf, write_bytes);
 	txbuf += write_bytes;
 	remaining -= write_bytes;
 
@@ -703,7 +692,7 @@ static int cqspi_indirect_write_execute(struct spi_nor *nor,
 		}
 
 		write_bytes = remaining > page_size ? page_size : remaining;
-		cqspi_fifo_write(nor, ahb_base, txbuf, write_bytes);
+		cqspi_fifo_write(ahb_base, txbuf, write_bytes);
 		txbuf += write_bytes;
 		remaining -= write_bytes;
 	}
