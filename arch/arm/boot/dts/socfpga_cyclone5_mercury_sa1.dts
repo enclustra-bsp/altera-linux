@@ -89,12 +89,12 @@
 
 		part0: partition@0 {
 			label = "Flash 0 Raw Data";
-			reg = < 0x00000000 0x00800000 >;
+			reg = < 0x00000000 0x01000000 >;
 		};
 
 		part1: partition@800000 {
 			label = "Flash 1 jffs2 Filesystem";
-			reg = < 0x00800000 0x00800000 >;
+			reg = < 0x01000000 0x03000000 >;
 		};
 	};
 };
