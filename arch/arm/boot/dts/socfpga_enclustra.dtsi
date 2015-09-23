@@ -507,6 +507,14 @@
 			status = "disabled";
 		};
 
+		hps_0_fpgamgr: fpgamgr@0xff706000 {
+                        compatible = "altr,fpga-mgr-1.0", "altr,fpga-mgr";
+                        transport = "mmio";
+                        reg = <0xFF706000 0x1000
+                        0xFFB90000 0x1000>;
+                        interrupts = <0 175 4>;
+                };
+
 		i2c0: i2c@ffc04000 {
 			#address-cells = <1>;
 			#size-cells = <0>;
