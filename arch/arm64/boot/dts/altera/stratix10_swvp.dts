@@ -14,6 +14,8 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <dt-bindings/reset/altr,rst-mgr-s10.h>
+
 /dts-v1/;
 
 /memreserve/   0x0000000000000000 0x0000000000010000;
@@ -504,6 +506,8 @@
 			phy-mode = "rgmii";
 			phy-addr = <0xffffffff>;
 			snps,max-mtu = <0x0>;
+			resets = <&rst EMAC0_RESET>;
+			reset-names = "stmmaceth";
 		};
 
 		ethernet@ff802000 {
@@ -518,6 +522,8 @@
 			status = "okay";
 			phy-mode = "rgmii";
 			phy-addr = <0xffffffff>;
+			resets = <&rst EMAC1_RESET>;
+			reset-names = "stmmaceth";
 		};
 
 		ethernet@ff804000 {
@@ -532,6 +538,8 @@
 			status = "okay";
 			phy-mode = "rgmii";
 			phy-addr = <0xffffffff>;
+			resets = <&rst EMAC2_RESET>;
+			reset-names = "stmmaceth";
 		};
 
 		gpio@ffc03200 {
@@ -638,12 +646,12 @@
 			reg = <0xffe00000 0x100000>;
 		};
 
-		rstmgr@ffd11000 {
+		rst: rstmgr@ffd11000 {
 			#reset-cells = <0x1>;
 			compatible = "altr,rst-mgr";
 			reg = <0xffd11000 0x1000>;
-			interrupts = <0x0 0x78 0x4>;
-		};
+			altr,modrst-offset = <0x20>;
+			};
 
 		sysmgr: sysmgr@ffd12000 {
 			compatible = "altr,sys-mgr", "syscon";
