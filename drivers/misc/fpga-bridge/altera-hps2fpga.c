@@ -189,6 +189,7 @@ static struct of_device_id altera_fpga_of_match[] = {
 MODULE_DEVICE_TABLE(of, altera_fpga_of_match);
 
 static struct platform_driver altera_fpga_driver = {
+	.probe = alt_fpga_bridge_probe,
 	.remove = alt_fpga_bridge_remove,
 	.driver = {
 		.name	= "altera_hps2fpga_bridge",
@@ -197,19 +198,7 @@ static struct platform_driver altera_fpga_driver = {
 	},
 };
 
-static int __init alt_fpga_bridge_init(void)
-{
-	return platform_driver_probe(&altera_fpga_driver,
-				     alt_fpga_bridge_probe);
-}
-
-static void __exit alt_fpga_bridge_exit(void)
-{
-	platform_driver_unregister(&altera_fpga_driver);
-}
-
-arch_initcall(alt_fpga_bridge_init);
-module_exit(alt_fpga_bridge_exit);
+module_platform_driver(altera_fpga_driver);
 
 MODULE_DESCRIPTION("Altera SoCFPGA HPS to FPGA Bridge");
 MODULE_AUTHOR("Alan Tull <atull@altera.com>");
