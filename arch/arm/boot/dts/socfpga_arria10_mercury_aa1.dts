@@ -1,5 +1,5 @@
 /dts-v1/;
-#include "socfpga_arria10_socdk.dtsi"
+#include "socfpga_arria10.dtsi"
 
 / {
 	model = "Enclustra Mercury AA1";
@@ -20,6 +20,10 @@
 	clock-frequency = <33330000>;
 };
 
+&uart0 {
+	status = "okay";
+};
+
 &mmc {
 	status = "okay";
 	num-slots = <1>;
@@ -30,12 +34,4 @@
 	altr,dw-mshc-sdr-timing = <0 3>;
 	clock-freq-min-max = <400000 25000000>;
 	pwr-en = <0>;
-};
-
-&uart0 {
-	status = "okay";
-};
-
-&uart1 {
-	status = "disabled";
 };
