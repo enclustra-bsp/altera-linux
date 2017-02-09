@@ -24,6 +24,10 @@
 	status = "okay";
 };
 
+&usb0 {
+	status = "okay";
+};
+
 /* Following mappings are taken from arria10 socdk dts */
 &mmc {
 	status = "okay";
