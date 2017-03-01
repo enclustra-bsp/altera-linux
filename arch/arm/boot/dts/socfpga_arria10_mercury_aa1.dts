@@ -26,6 +26,7 @@
 
 &usb0 {
 	status = "okay";
+	dr_mode = "host";
 };
 
 /* Following mappings are taken from arria10 socdk dts */
