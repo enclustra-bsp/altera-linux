@@ -480,6 +480,7 @@
 						compatible = "altr,socfpga-gate-clk";
 						clocks = <&f2s_periph_ref_clk>, <&main_qspi_clk>, <&per_qspi_clk>;
 						clk-gate = <0xa0 11>;
+						fixed-divider = <2>;
 					};
 
 					ddr_dqs_clk_gate: ddr_dqs_clk_gate {
