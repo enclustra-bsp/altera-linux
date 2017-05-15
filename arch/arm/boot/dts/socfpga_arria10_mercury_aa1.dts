@@ -5,6 +5,10 @@
 	model = "Enclustra Mercury AA1";
 	compatible = "altr,socfpga-arria10", "altr,socfpga";
 
+	aliases {
+		ethernet0 = &gmac0;
+	};
+
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
