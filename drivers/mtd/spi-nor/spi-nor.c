@@ -2920,6 +2920,24 @@ static const struct flash_info *spi_nor_match_id(const char *name)
 	return NULL;
 }
 
+void spi_nor_shutdown(struct spi_nor *nor)
+{
+	struct mtd_info *mtd = &nor->mtd;
+	int code;
+
+	if (mtd->size > 0x1000000){
+		if (spi_nor_wait_till_ready(nor))
+			return;
+
+		code = SPINOR_OP_BRWR;
+		nor->cmd_buf[0] = 0;
+
+		nor->write_reg(nor, code, nor->cmd_buf, 1);
+	}
+}
+
+EXPORT_SYMBOL_GPL(spi_nor_shutdown);
+
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Huang Shijie <shijie8@gmail.com>");
 MODULE_AUTHOR("Mike Lavender");
