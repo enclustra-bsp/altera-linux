@@ -1142,6 +1142,16 @@ static int cqspi_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static void cqspi_shutdown(struct platform_device *pdev)
+{
+	struct cqspi_st *cqspi = platform_get_drvdata(pdev);
+	int i;
+
+	for (i = 0; i < CQSPI_MAX_CHIPSELECT; i++)
+		if (cqspi->f_pdata[i].mtd.name)
+			spi_nor_shutdown(&cqspi->f_pdata[i].nor);
+}
+
 static int cqspi_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
@@ -1307,6 +1317,7 @@ MODULE_DEVICE_TABLE(of, cqspi_dt_ids);
 static struct platform_driver cqspi_platform_driver = {
 	.probe = cqspi_probe,
 	.remove = cqspi_remove,
+	.shutdown = cqspi_shutdown,
 	.driver = {
 		.name = CQSPI_NAME,
 		.pm = CQSPI_DEV_PM_OPS,
