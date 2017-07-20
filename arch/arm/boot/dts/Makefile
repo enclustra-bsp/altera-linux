@@ -828,6 +828,8 @@ dtb-$(CONFIG_ARCH_SOCFPGA) += \
 	socfpga_cyclone5_vining_fpga.dtb \
 	socfpga_cyclone5_mercury_sa1.dtb \
 	socfpga_cyclone5_mercury_sa2.dtb \
+	socfpga_cyclone5_mars_ma3.dtb \
+	socfpga_cyclone5_trcom.dtb \
 	socfpga_vt.dtb
 dtb-$(CONFIG_ARCH_SPEAR13XX) += \
 	spear1310-evb.dtb \
