@@ -50,14 +50,14 @@
 	status = "okay";
 	phy-mode = "rgmii";
 
-	rxd0-skew-ps = <0>;
-	rxd1-skew-ps = <0>;
+	rxd0-skew-ps = <60>;
+	rxd1-skew-ps = <60>;
 	rxd2-skew-ps = <0>;
-	rxd3-skew-ps = <0>;
+	rxd3-skew-ps = <60>;
 	txen-skew-ps = <0>;
-	txc-skew-ps = <2600>;
+	txc-skew-ps = <1800>;
 	rxdv-skew-ps = <0>;
-	rxc-skew-ps = <2000>;
+	rxc-skew-ps = <1800>;
 };
 
 &mmc0 {
