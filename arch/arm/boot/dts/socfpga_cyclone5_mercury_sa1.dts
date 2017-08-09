@@ -103,6 +103,10 @@
 	status = "okay";
 };
 
+&isl12022 {
+	status = "okay";
+};
+
 &spi0 {
 	status = "okay";
 	spidev@0 {
