@@ -64,4 +64,15 @@
 	rxc-skew-ps = <1680>; /* 780ps */
 	max-frame-size = <3800>;
 	status = "okay";
+
+	phy-handle = <&phy3>;
+
+	mdio0 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "snps,dwmac-mdio";
+		phy3: ethernet-phy@3 {
+			reg = <3>;
+		};
+	};
 };
