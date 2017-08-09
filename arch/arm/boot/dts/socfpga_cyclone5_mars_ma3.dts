@@ -113,3 +113,7 @@
 &i2c0 {
 	status = "okay";
 };
+
+&pcf85063 {
+	status = "okay";
+};
