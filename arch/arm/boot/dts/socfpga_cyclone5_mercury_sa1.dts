@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "socfpga_mercury_sa1.dtsi"
+#include "socfpga_cyclone5_enclustra.dtsi"
 
 / {
 	model = "Enclustra Mercury SA1 SOM";
