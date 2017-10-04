@@ -1,0 +1,14 @@
+/dts-v1/;
+#include "socfpga_arria10.dtsi"
+
+/ {
+	model = "Enclustra Mercury AA1 (Rev1)";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+};
+
+&uart0 {
+	status = "okay";
+};
