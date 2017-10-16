@@ -1,5 +1,5 @@
 /dts-v1/;
-#include "socfpga_arria10.dtsi"
+#include "socfpga_arria10_mercury_aa1_common.dtsi"
 
 / {
 	model = "Enclustra Mercury AA1 (Rev1)";
