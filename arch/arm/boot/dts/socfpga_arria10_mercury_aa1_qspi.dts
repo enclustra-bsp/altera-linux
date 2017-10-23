@@ -1,0 +1,45 @@
+/dts-v1/;
+#include "socfpga_arria10_mercury_aa1_common.dtsi"
+
+/ {
+	chosen {
+		stdout-path = "serial1:115200n8";
+	};
+};
+
+&uart1 {
+	status = "okay";
+};
+
+&mmc {
+	status = "disabled";
+};
+
+&qspi {
+	status = "okay";
+
+	flash0: n25q00@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "n25q00";
+		reg = <0>;
+		spi-max-frequency = <50000000>;
+		cdns,page-size = <256>;
+		cdns,block-size = <16>;
+		m25p,fast-read;
+		cdns,read-delay = <6>;
+		cdns,tshsl-ns = <200>;
+		cdns,tsd2d-ns = <255>;
+		cdns,tchsh-ns = <20>;
+		cdns,tslch-ns = <20>;
+
+		part0: qspi-boot@0 {
+			label = "Flash 0 Raw Data";
+			reg = <0x0 0x01340000>;
+		};
+		part1: qspi-rootfs@1320000 {
+			label = "Flash 1 jffs2 Filesystem";
+			reg = <0x01340000 0x2cc0000>;
+		};
+	};
+};
