@@ -547,6 +547,8 @@ dtb-$(CONFIG_ARCH_SOCFPGA) += \
 	socfpga_arria10_swvp.dtb \
 	socfpga_arria10_mercury_aa1.dtb \
 	socfpga_arria10_mercury_aa1_rev1.dtb \
+	socfpga_arria10_mercury_aa1_qspi.dtb \
+	socfpga_arria10_mercury_aa1_rev1_qspi.dtb \
 	socfpga_cyclone5_socdk.dtb \
 	socfpga_cyclone5_de0_sockit.dtb \
 	socfpga_cyclone5_sockit.dtb \
