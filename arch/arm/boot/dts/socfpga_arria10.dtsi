@@ -659,7 +659,7 @@
 		qspi: spi@ff809000 {
 			#address-cells = <1>;
 			#size-cells = <0>;
-			compatible = "cadence,qspi";
+			compatible = "cdns,qspi-nor";
 			reg = <0xff809000 0x100>,
 				<0xffa00000 0x100000>;
 			interrupts = <0 100 IRQ_TYPE_LEVEL_HIGH>;
