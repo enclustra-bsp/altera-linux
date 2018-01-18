@@ -28,6 +28,13 @@
 #define SOCFPGA_A10_RSTMGR_CTRL		0xC
 #define SOCFPGA_A10_RSTMGR_MODMPURST	0x20
 
+/* A10 System Manager Boot ROM code control register */
+#define SOCFPGA_A10_SYSMGR_ROMCODE_CTRL	0x204
+
+/* Boot ROM code control register bits */
+#define ROMCODE_CTRL_WARMRSTCFGPINMUX	0x1	/* Reset pinmux on warm reset */
+#define ROMCODE_CTRL_WARMRSTCFGIO	0x2	/* Reset IO config on warm reset */
+
 /* System Manager bits */
 #define RSTMGR_CTRL_SWCOLDRSTREQ	0x1	/* Cold Reset */
 #define RSTMGR_CTRL_SWWARMRSTREQ	0x2	/* Warm Reset */

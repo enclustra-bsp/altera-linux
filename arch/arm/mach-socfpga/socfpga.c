@@ -88,6 +88,10 @@ static void socfpga_cyclone5_restart(enum reboot_mode mode, const char *cmd)
 	/* Turn on all periph PLL clocks */
 	writel(0xffff, clkmgr_base_addr + SOCFPGA_ENABLE_PLL_REG);
 
+	temp = readl(sys_manager_base_addr + SOCFPGA_A10_SYSMGR_ROMCODE_CTRL);
+	temp |= ROMCODE_CTRL_WARMRSTCFGIO | ROMCODE_CTRL_WARMRSTCFGPINMUX;
+	writel(temp, sys_manager_base_addr + SOCFPGA_A10_SYSMGR_ROMCODE_CTRL);
+
 	temp = readl(rst_manager_base_addr + SOCFPGA_RSTMGR_CTRL);
 
 	if (mode == REBOOT_HARD)
