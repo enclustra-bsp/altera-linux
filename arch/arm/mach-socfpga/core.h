@@ -39,8 +39,15 @@
 #define SOCFPGA_A10_SYSMGR_ECC_INTMASK_SET	0x94
 #define SOCFPGA_A10_SYSMGR_ECC_INTMASK_CLR	0x98
 
+/* A10 System Manager Boot ROM code control register */
+#define SOCFPGA_A10_SYSMGR_ROMCODE_CTRL	0x204
+
 #define SOCFPGA_A10_MPU_CTRL_L2_ECC_EN		BIT(0)
 #define SOCFPGA_A10_ECC_INTMASK_CLR_EN		BIT(0)
+
+/* Boot ROM code control register bits */
+#define ROMCODE_CTRL_WARMRSTCFGPINMUX	0x1	/* Reset pinmux on warm reset */
+#define ROMCODE_CTRL_WARMRSTCFGIO	0x2	/* Reset IO config on warm reset */
 
 /* System Manager bits */
 #define RSTMGR_CTRL_SWCOLDRSTREQ	0x1	/* Cold Reset */
