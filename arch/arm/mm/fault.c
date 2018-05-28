@@ -8,7 +8,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
-#include <linux/module.h>
+#include <linux/extable.h>
 #include <linux/signal.h>
 #include <linux/mm.h>
 #include <linux/hardirq.h>
@@ -16,10 +16,12 @@
 #include <linux/kprobes.h>
 #include <linux/uaccess.h>
 #include <linux/page-flags.h>
-#include <linux/sched.h>
+#include <linux/sched/signal.h>
+#include <linux/sched/debug.h>
 #include <linux/highmem.h>
 #include <linux/perf_event.h>
 
+#include <asm/cp15.h>
 #include <asm/exception.h>
 #include <asm/pgtable.h>
 #include <asm/system_misc.h>
@@ -180,6 +182,7 @@ __do_user_fault(struct task_struct *tsk, unsigned long addr,
 	si.si_errno = 0;
 	si.si_code = code;
 	si.si_addr = (void __user *)addr;
+
 	force_sig_info(sig, &si, tsk);
 }
 
@@ -243,7 +246,7 @@ good_area:
 		goto out;
 	}
 
-	return handle_mm_fault(mm, vma, addr & PAGE_MASK, flags);
+	return handle_mm_fault(vma, addr & PAGE_MASK, flags);
 
 check_stack:
 	/* Don't allow expansion below FIRST_USER_ADDRESS */
@@ -314,8 +317,11 @@ retry:
 	 * signal first. We do not need to release the mmap_sem because
 	 * it would already be released in __lock_page_or_retry in
 	 * mm/filemap.c. */
-	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
+	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current)) {
+		if (!user_mode(regs))
+			goto no_context;
 		return 0;
+	}
 
 	/*
 	 * Major/minor page fault accounting is only done on the
@@ -346,7 +352,7 @@ retry:
 	up_read(&mm->mmap_sem);
 
 	/*
-	 * Handle the "normal" case first - VM_FAULT_MAJOR / VM_FAULT_MINOR
+	 * Handle the "normal" case first - VM_FAULT_MAJOR
 	 */
 	if (likely(!(fault & (VM_FAULT_ERROR | VM_FAULT_BADMAP | VM_FAULT_BADACCESS))))
 		return 0;
@@ -392,9 +398,36 @@ no_context:
 	__do_kernel_fault(mm, addr, fsr, regs);
 	return 0;
 }
+
+static int
+do_pabt_page_fault(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
+{
+	if (addr > TASK_SIZE) {
+		switch(read_cpuid_part()) {
+		case ARM_CPU_PART_CORTEX_A8:
+		case ARM_CPU_PART_CORTEX_A9:
+		case ARM_CPU_PART_CORTEX_A12:
+		case ARM_CPU_PART_CORTEX_A17:
+			write_sysreg(0, BPIALL);
+			break;
+
+		case ARM_CPU_PART_CORTEX_A15:
+			write_sysreg(0, ICIALLU);
+			break;
+		}
+	}
+
+	return do_page_fault(addr, fsr, regs);
+}
 #else					/* CONFIG_MMU */
 static int
 do_page_fault(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
+{
+	return 0;
+}
+
+static int
+do_pabt_page_fault(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 {
 	return 0;
 }
@@ -610,9 +643,9 @@ static int __init early_abort_handler(unsigned long addr, unsigned int fsr,
 
 void __init early_abt_enable(void)
 {
-	fsr_info[22].fn = early_abort_handler;
+	fsr_info[FSR_FS_AEA].fn = early_abort_handler;
 	local_abt_enable();
-	fsr_info[22].fn = do_bad;
+	fsr_info[FSR_FS_AEA].fn = do_bad;
 }
 
 #ifndef CONFIG_ARM_LPAE

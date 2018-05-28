@@ -9,8 +9,7 @@
     |       alpha: | TODO |
     |         arc: | TODO |
     |         arm: | TODO |
-    |       arm64: | TODO |
-    |       avr32: | TODO |
+    |       arm64: |  ok  |
     |    blackfin: | TODO |
     |         c6x: | TODO |
     |        cris: | TODO |
@@ -35,6 +34,6 @@
     |        tile: | TODO |
     |          um: | TODO |
     |   unicore32: | TODO |
-    |         x86: |  ok  |
+    |         x86: |  ok  | 64-bit only
     |      xtensa: | TODO |
     -----------------------

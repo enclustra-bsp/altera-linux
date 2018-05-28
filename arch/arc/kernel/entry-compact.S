@@ -25,12 +25,12 @@
  *
  * vineetg: Nov 2009 (Everything needed for TIF_RESTORE_SIGMASK)
  *  -do_signal()invoked upon TIF_RESTORE_SIGMASK as well
- *  -Wrappers for sys_{,rt_}sigsuspend() nolonger needed as they don't
+ *  -Wrappers for sys_{,rt_}sigsuspend() no longer needed as they don't
  *   need ptregs anymore
  *
  * Vineetg: Oct 2009
  *  -In a rare scenario, Process gets a Priv-V exception and gets scheduled
- *   out. Since we don't do FAKE RTIE for Priv-V, CPU excpetion state remains
+ *   out. Since we don't do FAKE RTIE for Priv-V, CPU exception state remains
  *   active (AE bit enabled).  This causes a double fault for a subseq valid
  *   exception. Thus FAKE RTIE needed in low level Priv-Violation handler.
  *   Instr Error could also cause similar scenario, so same there as well.
@@ -59,7 +59,7 @@
  */
 
 #include <linux/errno.h>
-#include <linux/linkage.h>	/* {EXTRY,EXIT} */
+#include <linux/linkage.h>	/* {ENTRY,EXIT} */
 #include <asm/entry.h>
 #include <asm/irqflags.h>
 
@@ -80,8 +80,8 @@
 	.align 4
 
 /* Each entry in the vector table must occupy 2 words. Since it is a jump
- * across sections (.vector to .text) we are gauranteed that 'j somewhere'
- * will use the 'j limm' form of the intrsuction as long as somewhere is in
+ * across sections (.vector to .text) we are guaranteed that 'j somewhere'
+ * will use the 'j limm' form of the instruction as long as somewhere is in
  * a section other than .vector.
  */
 
@@ -91,27 +91,13 @@ VECTOR   mem_service             ; 0x8, Mem exception   (0x1)
 VECTOR   instr_service           ; 0x10, Instrn Error   (0x2)
 
 ; ******************** Device ISRs **********************
-#ifdef CONFIG_ARC_IRQ3_LV2
+#ifdef CONFIG_ARC_COMPACT_IRQ_LEVELS
 VECTOR   handle_interrupt_level2
 #else
 VECTOR   handle_interrupt_level1
 #endif
 
-VECTOR   handle_interrupt_level1
-
-#ifdef CONFIG_ARC_IRQ5_LV2
-VECTOR   handle_interrupt_level2
-#else
-VECTOR   handle_interrupt_level1
-#endif
-
-#ifdef CONFIG_ARC_IRQ6_LV2
-VECTOR   handle_interrupt_level2
-#else
-VECTOR   handle_interrupt_level1
-#endif
-
-.rept   25
+.rept   28
 VECTOR   handle_interrupt_level1 ; Other devices
 .endr
 
@@ -119,13 +105,13 @@ VECTOR   handle_interrupt_level1 ; Other devices
 
 ; ******************** Exceptions **********************
 VECTOR   EV_MachineCheck         ; 0x100, Fatal Machine check   (0x20)
-VECTOR   EV_TLBMissI             ; 0x108, Intruction TLB miss   (0x21)
+VECTOR   EV_TLBMissI             ; 0x108, Instruction TLB miss  (0x21)
 VECTOR   EV_TLBMissD             ; 0x110, Data TLB miss         (0x22)
 VECTOR   EV_TLBProtV             ; 0x118, Protection Violation  (0x23)
 				 ;         or Misaligned Access
 VECTOR   EV_PrivilegeV           ; 0x120, Privilege Violation   (0x24)
 VECTOR   EV_Trap                 ; 0x128, Trap exception        (0x25)
-VECTOR   EV_Extension            ; 0x130, Extn Intruction Excp  (0x26)
+VECTOR   EV_Extension            ; 0x130, Extn Instruction Excp (0x26)
 
 .rept   24
 VECTOR   reserved                ; Reserved Exceptions
@@ -142,15 +128,11 @@ int1_saved_reg:
 	.zero 4
 
 /* Each Interrupt level needs its own scratch */
-#ifdef CONFIG_ARC_COMPACT_IRQ_LEVELS
-
 ARCFP_DATA int2_saved_reg
 	.type   int2_saved_reg, @object
 	.size   int2_saved_reg, 4
 int2_saved_reg:
 	.zero 4
-
-#endif
 
 ; ---------------------------------------------
 	.section .text, "ax",@progbits
@@ -216,6 +198,31 @@ END(handle_interrupt_level2)
 #endif
 
 ; ---------------------------------------------
+; User Mode Memory Bus Error Interrupt Handler
+; (Kernel mode memory errors handled via separate exception vectors)
+; ---------------------------------------------
+ENTRY(mem_service)
+
+	INTERRUPT_PROLOGUE 2
+
+	mov r0, ilink2
+	mov r1, sp
+
+	; User process needs to be killed with SIGBUS, but first need to get
+	; out of the L2 interrupt context (drop to pure kernel mode) and jump
+	; off to "C" code where SIGBUS in enqueued
+	lr  r3, [status32]
+	bclr r3, r3, STATUS_A2_BIT
+	or  r3, r3, (STATUS_E1_MASK|STATUS_E2_MASK)
+	sr  r3, [status32_l2]
+	mov ilink2, 1f
+	rtie
+1:
+	bl  do_memory_error
+	b   ret_from_exception
+END(mem_service)
+
+; ---------------------------------------------
 ;  Level 1 ISR
 ; ---------------------------------------------
 ENTRY(handle_interrupt_level1)
@@ -252,7 +259,7 @@ ENTRY(EV_TLBProtV)
 
 	EXCEPTION_PROLOGUE
 
-	lr  r2, [ecr]
+	mov r2, r9	; ECR set into r9 already
 	lr  r0, [efa]	; Faulting Data address (not part of pt_regs saved above)
 
 	; Exception auto-disables further Intr/exceptions.
@@ -266,7 +273,7 @@ ENTRY(EV_TLBProtV)
 	;------ (5) Type of Protection Violation? ----------
 	;
 	; ProtV Hardware Exception is triggered for Access Faults of 2 types
-	;   -Access Violaton	: 00_23_(00|01|02|03)_00
+	;   -Access Violation	: 00_23_(00|01|02|03)_00
 	;			         x  r  w  r+w
 	;   -Unaligned Access	: 00_23_04_00
 	;
@@ -320,12 +327,15 @@ END(call_do_page_fault)
 
 .Lrestore_regs:
 
+	# Interrupts are actually disabled from this point on, but will get
+	# reenabled after we return from interrupt/exception.
+	# But irq tracer needs to be told now...
 	TRACE_ASM_IRQ_ENABLE
 
 	lr	r10, [status32]
 
 	; Restore REG File. In case multiple Events outstanding,
-	; use the same priorty as rtie: EXCPN, L2 IRQ, L1 IRQ, None
+	; use the same priority as rtie: EXCPN, L2 IRQ, L1 IRQ, None
 	; Note that we use realtime STATUS32 (not pt_regs->status32) to
 	; decide that.
 

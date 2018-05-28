@@ -30,8 +30,8 @@ static void dp_detach_port_notify(struct vport *vport)
 	struct datapath *dp;
 
 	dp = vport->dp;
-	notify = ovs_vport_cmd_build_info(vport, 0, 0,
-					  OVS_VPORT_CMD_DEL);
+	notify = ovs_vport_cmd_build_info(vport, ovs_dp_get_net(dp),
+					  0, 0, OVS_VPORT_CMD_DEL);
 	ovs_dp_detach_port(vport);
 	if (IS_ERR(notify)) {
 		genl_set_err(&dp_vport_genl_family, ovs_dp_get_net(dp), 0,
@@ -58,7 +58,7 @@ void ovs_dp_notify_wq(struct work_struct *work)
 			struct hlist_node *n;
 
 			hlist_for_each_entry_safe(vport, n, &dp->ports[i], dp_hash_node) {
-				if (vport->ops->type != OVS_VPORT_TYPE_NETDEV)
+				if (vport->ops->type == OVS_VPORT_TYPE_INTERNAL)
 					continue;
 
 				if (!(vport->dev->priv_flags & IFF_OVS_DATAPATH))

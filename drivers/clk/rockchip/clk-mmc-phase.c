@@ -121,7 +121,8 @@ static int rockchip_mmc_set_phase(struct clk_hw *hw, int degrees)
 	raw_value = delay_num ? ROCKCHIP_MMC_DELAY_SEL : 0;
 	raw_value |= delay_num << ROCKCHIP_MMC_DELAYNUM_OFFSET;
 	raw_value |= nineties;
-	writel(HIWORD_UPDATE(raw_value, 0x07ff, mmc_clock->shift), mmc_clock->reg);
+	writel(HIWORD_UPDATE(raw_value, 0x07ff, mmc_clock->shift),
+	       mmc_clock->reg);
 
 	pr_debug("%s->set_phase(%d) delay_nums=%u reg[0x%p]=0x%03x actual_degrees=%d\n",
 		clk_hw_get_name(hw), degrees, delay_num,
@@ -148,9 +149,10 @@ struct clk *rockchip_clk_register_mmc(const char *name,
 
 	mmc_clock = kmalloc(sizeof(*mmc_clock), GFP_KERNEL);
 	if (!mmc_clock)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	init.name = name;
+	init.flags = 0;
 	init.num_parents = num_parents;
 	init.parent_names = parent_names;
 	init.ops = &rockchip_mmc_clk_ops;
@@ -161,11 +163,7 @@ struct clk *rockchip_clk_register_mmc(const char *name,
 
 	clk = clk_register(NULL, &mmc_clock->hw);
 	if (IS_ERR(clk))
-		goto err_free;
+		kfree(mmc_clock);
 
 	return clk;
-
-err_free:
-	kfree(mmc_clock);
-	return NULL;
 }

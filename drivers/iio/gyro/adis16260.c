@@ -321,7 +321,6 @@ static const struct iio_info adis16260_info = {
 	.read_raw = &adis16260_read_raw,
 	.write_raw = &adis16260_write_raw,
 	.update_scan_mode = adis_update_scan_mode,
-	.driver_module = THIS_MODULE,
 };
 
 static const char * const adis1620_status_error_msgs[] = {
@@ -435,7 +434,6 @@ MODULE_DEVICE_TABLE(spi, adis16260_id);
 static struct spi_driver adis16260_driver = {
 	.driver = {
 		.name = "adis16260",
-		.owner = THIS_MODULE,
 	},
 	.probe = adis16260_probe,
 	.remove = adis16260_remove,

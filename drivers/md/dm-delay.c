@@ -44,9 +44,9 @@ struct dm_delay_info {
 
 static DEFINE_MUTEX(delayed_bios_lock);
 
-static void handle_delayed_timer(unsigned long data)
+static void handle_delayed_timer(struct timer_list *t)
 {
-	struct delay_c *dc = (struct delay_c *)data;
+	struct delay_c *dc = from_timer(dc, t, delay_timer);
 
 	queue_work(dc->kdelayd_wq, &dc->flush_expired_bios);
 }
@@ -122,6 +122,7 @@ static void flush_expired_bios(struct work_struct *work)
  *    <device> <offset> <delay> [<write_device> <write_offset> <write_delay>]
  *
  * With separate write parameters, the first set is only used for reads.
+ * Offsets are specified in sectors.
  * Delays are specified in milliseconds.
  */
 static int delay_ctr(struct dm_target *ti, unsigned int argc, char **argv)
@@ -132,7 +133,7 @@ static int delay_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	int ret;
 
 	if (argc != 3 && argc != 6) {
-		ti->error = "requires exactly 3 or 6 arguments";
+		ti->error = "Requires exactly 3 or 6 arguments";
 		return -EINVAL;
 	}
 
@@ -194,7 +195,7 @@ out:
 		goto bad_queue;
 	}
 
-	setup_timer(&dc->delay_timer, handle_delayed_timer, (unsigned long)dc);
+	timer_setup(&dc->delay_timer, handle_delayed_timer, 0);
 
 	INIT_WORK(&dc->flush_expired_bios, flush_expired_bios);
 	INIT_LIST_HEAD(&dc->delayed_bios);
@@ -203,7 +204,7 @@ out:
 
 	ti->num_flush_bios = 1;
 	ti->num_discard_bios = 1;
-	ti->per_bio_data_size = sizeof(struct dm_delay_info);
+	ti->per_io_data_size = sizeof(struct dm_delay_info);
 	ti->private = dc;
 	return 0;
 
@@ -237,7 +238,7 @@ static int delay_bio(struct delay_c *dc, int delay, struct bio *bio)
 	unsigned long expires = 0;
 
 	if (!delay || !atomic_read(&dc->may_delay))
-		return 1;
+		return DM_MAPIO_REMAPPED;
 
 	delayed = dm_per_bio_data(bio, sizeof(struct dm_delay_info));
 
@@ -257,7 +258,7 @@ static int delay_bio(struct delay_c *dc, int delay, struct bio *bio)
 
 	queue_timeout(dc, expires);
 
-	return 0;
+	return DM_MAPIO_SUBMITTED;
 }
 
 static void delay_presuspend(struct dm_target *ti)
@@ -281,7 +282,7 @@ static int delay_map(struct dm_target *ti, struct bio *bio)
 	struct delay_c *dc = ti->private;
 
 	if ((bio_data_dir(bio) == WRITE) && (dc->dev_write)) {
-		bio->bi_bdev = dc->dev_write->bdev;
+		bio_set_dev(bio, dc->dev_write->bdev);
 		if (bio_sectors(bio))
 			bio->bi_iter.bi_sector = dc->start_write +
 				dm_target_offset(ti, bio->bi_iter.bi_sector);
@@ -289,7 +290,7 @@ static int delay_map(struct dm_target *ti, struct bio *bio)
 		return delay_bio(dc, dc->write_delay, bio);
 	}
 
-	bio->bi_bdev = dc->dev_read->bdev;
+	bio_set_dev(bio, dc->dev_read->bdev);
 	bio->bi_iter.bi_sector = dc->start_read +
 		dm_target_offset(ti, bio->bi_iter.bi_sector);
 
@@ -339,6 +340,7 @@ out:
 static struct target_type delay_target = {
 	.name	     = "delay",
 	.version     = {1, 2, 1},
+	.features    = DM_TARGET_PASSES_INTEGRITY,
 	.module      = THIS_MODULE,
 	.ctr	     = delay_ctr,
 	.dtr	     = delay_dtr,

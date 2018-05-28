@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2016 Intel Corporation. All rights reserved
  * Copyright (C) 2016 Altera Corporation. All rights reserved
  *
  * This program is free software; you can redistribute it and/or modify
@@ -13,7 +14,7 @@
  * You should have received a copy of the GNU General Public License along with
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * copied from Steffen Trumtrar's "altr,rst-mgr-a10.h"
+ * derived from Steffen Trumtrar's "altr,rst-mgr-a10.h"
  */
 
 #ifndef _DT_BINDINGS_RESET_ALTR_RST_MGR_S10_H
@@ -87,6 +88,7 @@
 #define F2SSDRAM0_RESET		99
 #define F2SSDRAM1_RESET		100
 #define F2SSDRAM2_RESET		101
+#define DDRSCH_RESET		102
 
 /* COLDMODRST */
 #define CPUPO0_RESET		160
@@ -94,19 +96,11 @@
 #define CPUPO2_RESET		162
 #define CPUPO3_RESET		163
 /* 164-167 is empty */
-#define PRESETDBG_RESET		168
-/* 169-175 is empty */
-#define L2_RESET		176
-/* 177-183 is empty */
-#define TIMESTAMPCOLD_RESET	184
-
-/* MPFEMODRST */
-#define DDRSCH_RESET		192
+#define L2_RESET		168
 
 /* DBGMODRST */
 #define DBG_RESET		224
-/* 225-239 reserved */
-#define SYSDBG_RESET		240
+#define CSDAP_RESET		225
 
 /* TAPMODRST */
 #define TAP_RESET		256

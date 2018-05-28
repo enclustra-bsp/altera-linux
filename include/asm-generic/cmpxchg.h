@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Generic UP xchg and cmpxchg using interrupt disablement.  Does not
  * support SMP.
@@ -79,8 +80,10 @@ unsigned long __xchg(unsigned long x, volatile void *ptr, int size)
 	}
 }
 
-#define xchg(ptr, x) \
-	((__typeof__(*(ptr))) __xchg((unsigned long)(x), (ptr), sizeof(*(ptr))))
+#define xchg(ptr, x) ({							\
+	((__typeof__(*(ptr)))						\
+		__xchg((unsigned long)(x), (ptr), sizeof(*(ptr))));	\
+})
 
 #endif /* xchg */
 
@@ -90,9 +93,10 @@ unsigned long __xchg(unsigned long x, volatile void *ptr, int size)
 #include <asm-generic/cmpxchg-local.h>
 
 #ifndef cmpxchg_local
-#define cmpxchg_local(ptr, o, n)				  	       \
+#define cmpxchg_local(ptr, o, n) ({					       \
 	((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr), (unsigned long)(o),\
-			(unsigned long)(n), sizeof(*(ptr))))
+			(unsigned long)(n), sizeof(*(ptr))));		       \
+})
 #endif
 
 #ifndef cmpxchg64_local

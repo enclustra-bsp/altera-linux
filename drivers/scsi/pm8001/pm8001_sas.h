@@ -106,7 +106,9 @@ do {						\
 #define DEV_IS_EXPANDER(type)	((type == SAS_EDGE_EXPANDER_DEVICE) || (type == SAS_FANOUT_EXPANDER_DEVICE))
 #define IS_SPCV_12G(dev)	((dev->device == 0X8074)		\
 				|| (dev->device == 0X8076)		\
-				|| (dev->device == 0X8077))
+				|| (dev->device == 0X8077)		\
+				|| (dev->device == 0X8070)		\
+				|| (dev->device == 0X8072))
 
 #define PM8001_NAME_LENGTH		32/* generic length of strings */
 extern struct list_head hba_list;
@@ -261,7 +263,14 @@ struct pm8001_phy {
 	u8			phy_state;
 	enum sas_linkrate	minimum_linkrate;
 	enum sas_linkrate	maximum_linkrate;
+	struct completion	*reset_completion;
+	bool			port_reset_status;
+	bool			reset_success;
 };
+
+/* port reset status */
+#define PORT_RESET_SUCCESS	0x00
+#define PORT_RESET_TMO		0x01
 
 struct pm8001_device {
 	enum sas_device_type	dev_type;
@@ -402,6 +411,8 @@ union main_cfg_table {
 	u32			port_recovery_timer;
 	u32			interrupt_reassertion_delay;
 	u32			fatal_n_non_fatal_dump;	        /* 0x28 */
+	u32			ila_version;
+	u32			inc_fw_version;
 	} pm80xx_tbl;
 };
 
@@ -519,8 +530,6 @@ struct pm8001_hba_info {
 	struct pm8001_device	*devices;
 	struct pm8001_ccb_info	*ccb_info;
 #ifdef PM8001_USE_MSIX
-	struct msix_entry	msix_entries[PM8001_MAX_MSIX_VEC];
-					/*for msi-x interrupt*/
 	int			number_of_intr;/*will be used in remove()*/
 #endif
 #ifdef PM8001_USE_TASKLET
@@ -531,6 +540,7 @@ struct pm8001_hba_info {
 	u32			smp_exp_mode;
 	const struct firmware 	*fw_image;
 	struct isr_param irq_vector[PM8001_MAX_MSIX_VEC];
+	u32			reset_in_progress;
 };
 
 struct pm8001_work {
@@ -708,6 +718,8 @@ int pm80xx_set_thermal_config(struct pm8001_hba_info *pm8001_ha);
 int pm8001_bar4_shift(struct pm8001_hba_info *pm8001_ha, u32 shiftValue);
 void pm8001_set_phy_profile(struct pm8001_hba_info *pm8001_ha,
 	u32 length, u8 *buf);
+void pm8001_set_phy_profile_single(struct pm8001_hba_info *pm8001_ha,
+		u32 phy, u32 length, u32 *buf);
 int pm80xx_bar4_shift(struct pm8001_hba_info *pm8001_ha, u32 shiftValue);
 ssize_t pm80xx_get_fatal_dump(struct device *cdev,
 		struct device_attribute *attr, char *buf);

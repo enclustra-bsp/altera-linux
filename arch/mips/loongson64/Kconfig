@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0
 if MACH_LOONGSON64
 
 choice
@@ -119,11 +120,6 @@ config RS780_HPET
 	  this option at first, otherwise, You will get wrong system time.
 
 	  If unsure, say Yes.
-
-config LOONGSON_SUSPEND
-	bool
-	default y
-	depends on CPU_SUPPORTS_CPUFREQ && SUSPEND
 
 config LOONGSON_UART_BASE
 	bool

@@ -168,7 +168,7 @@ static unsigned long ti_fapll_recalc_rate(struct clk_hw *hw,
 {
 	struct fapll_data *fd = to_fapll(hw);
 	u32 fapll_n, fapll_p, v;
-	long long rate;
+	u64 rate;
 
 	if (ti_fapll_clock_is_bypass(fd))
 		return parent_rate;
@@ -268,7 +268,7 @@ static int ti_fapll_set_rate(struct clk_hw *hw, unsigned long rate,
 	return 0;
 }
 
-static struct clk_ops ti_fapll_ops = {
+static const struct clk_ops ti_fapll_ops = {
 	.enable = ti_fapll_enable,
 	.disable = ti_fapll_disable,
 	.is_enabled = ti_fapll_is_enabled,
@@ -314,7 +314,7 @@ static unsigned long ti_fapll_synth_recalc_rate(struct clk_hw *hw,
 {
 	struct fapll_synth *synth = to_synth(hw);
 	u32 synth_div_m;
-	long long rate;
+	u64 rate;
 
 	/* The audio_pll_clk1 is hardwired to produce 32.768KiHz clock */
 	if (!synth->div)
@@ -478,7 +478,7 @@ static int ti_fapll_synth_set_rate(struct clk_hw *hw, unsigned long rate,
 	return 0;
 }
 
-static struct clk_ops ti_fapll_synt_ops = {
+static const struct clk_ops ti_fapll_synt_ops = {
 	.enable = ti_fapll_synth_enable,
 	.disable = ti_fapll_synth_disable,
 	.is_enabled = ti_fapll_synth_is_enabled,

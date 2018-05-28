@@ -1,11 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Blackfin On-Chip Serial Driver
  *
  * Copyright 2006-2011 Analog Devices Inc.
  *
  * Enter bugs at http://blackfin.uclinux.org/
- *
- * Licensed under the GPL-2 or later.
  */
 
 #if defined(CONFIG_SERIAL_BFIN_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
@@ -213,7 +212,7 @@ static void bfin_serial_stop_rx(struct uart_port *port)
 static void bfin_serial_rx_chars(struct bfin_serial_port *uart)
 {
 	unsigned int status, ch, flg;
-	static struct timeval anomaly_start = { .tv_sec = 0 };
+	static u64 anomaly_start;
 
 	status = UART_GET_LSR(uart);
 	UART_CLEAR_LSR(uart);
@@ -246,27 +245,24 @@ static void bfin_serial_rx_chars(struct bfin_serial_port *uart)
 		 * character time +/- some percent.  So 1.5 sounds good.  All other
 		 * Blackfin families operate properly.  Woo.
 		 */
-		if (anomaly_start.tv_sec) {
-			struct timeval curr;
-			suseconds_t usecs;
+		if (anomaly_start > 0) {
+			u64 curr, nsecs, threshold_ns;
 
 			if ((~ch & (~ch + 1)) & 0xff)
 				goto known_good_char;
 
-			do_gettimeofday(&curr);
-			if (curr.tv_sec - anomaly_start.tv_sec > 1)
+			curr = ktime_get_ns();
+			nsecs = curr - anomaly_start;
+			if (nsecs >> 32)
 				goto known_good_char;
 
-			usecs = 0;
-			if (curr.tv_sec != anomaly_start.tv_sec)
-				usecs += USEC_PER_SEC;
-			usecs += curr.tv_usec - anomaly_start.tv_usec;
-
-			if (usecs > UART_GET_ANOMALY_THRESHOLD(uart))
+			threshold_ns = UART_GET_ANOMALY_THRESHOLD(uart)
+							* NSEC_PER_USEC;
+			if (nsecs > threshold_ns)
 				goto known_good_char;
 
 			if (ch)
-				anomaly_start.tv_sec = 0;
+				anomaly_start = 0;
 			else
 				anomaly_start = curr;
 
@@ -274,14 +270,14 @@ static void bfin_serial_rx_chars(struct bfin_serial_port *uart)
 
  known_good_char:
 			status &= ~BI;
-			anomaly_start.tv_sec = 0;
+			anomaly_start = 0;
 		}
 	}
 
 	if (status & BI) {
 		if (ANOMALY_05000363)
 			if (bfin_revid() < 5)
-				do_gettimeofday(&anomaly_start);
+				anomaly_start = ktime_get_ns();
 		uart->port.icount.brk++;
 		if (uart_handle_break(&uart->port))
 			goto ignore_char;
@@ -459,8 +455,9 @@ static void bfin_serial_dma_rx_chars(struct bfin_serial_port *uart)
 	tty_flip_buffer_push(&uart->port.state->port);
 }
 
-void bfin_serial_rx_dma_timeout(struct bfin_serial_port *uart)
+void bfin_serial_rx_dma_timeout(struct timer_list *t)
 {
+	struct bfin_serial_port *uart = from_timer(uart, t, rx_dma_timer);
 	int x_pos, pos;
 	unsigned long flags;
 
@@ -627,8 +624,6 @@ static int bfin_serial_startup(struct uart_port *port)
 	set_dma_start_addr(uart->rx_dma_channel, (unsigned long)uart->rx_dma_buf.buf);
 	enable_dma(uart->rx_dma_channel);
 
-	uart->rx_dma_timer.data = (unsigned long)(uart);
-	uart->rx_dma_timer.function = (void *)bfin_serial_rx_dma_timeout;
 	uart->rx_dma_timer.expires = jiffies + DMA_RX_FLUSH_JIFFIES;
 	add_timer(&(uart->rx_dma_timer));
 #else
@@ -1319,7 +1314,7 @@ static int bfin_serial_probe(struct platform_device *pdev)
 		}
 		uart->rx_dma_channel = res->start;
 
-		init_timer(&(uart->rx_dma_timer));
+		timer_setup(&uart->rx_dma_timer, bfin_serial_rx_dma_timeout, 0);
 #endif
 
 #if defined(SERIAL_BFIN_CTSRTS) || \

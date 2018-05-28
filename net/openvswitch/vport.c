@@ -71,7 +71,7 @@ static struct hlist_head *hash_bucket(const struct net *net, const char *name)
 	return &dev_table[hash & (VPORT_HASH_BUCKETS - 1)];
 }
 
-int ovs_vport_ops_register(struct vport_ops *ops)
+int __ovs_vport_ops_register(struct vport_ops *ops)
 {
 	int err = -EEXIST;
 	struct vport_ops *o;
@@ -87,7 +87,7 @@ errout:
 	ovs_unlock();
 	return err;
 }
-EXPORT_SYMBOL_GPL(ovs_vport_ops_register);
+EXPORT_SYMBOL_GPL(__ovs_vport_ops_register);
 
 void ovs_vport_ops_unregister(struct vport_ops *ops)
 {
@@ -256,8 +256,8 @@ int ovs_vport_set_options(struct vport *vport, struct nlattr *options)
  *
  * @vport: vport to delete.
  *
- * Detaches @vport from its datapath and destroys it.  It is possible to fail
- * for reasons such as lack of memory.  ovs_mutex must be held.
+ * Detaches @vport from its datapath and destroys it.  ovs_mutex must
+ * be held.
  */
 void ovs_vport_del(struct vport *vport)
 {
@@ -444,6 +444,7 @@ int ovs_vport_receive(struct vport *vport, struct sk_buff *skb,
 
 	OVS_CB(skb)->input_vport = vport;
 	OVS_CB(skb)->mru = 0;
+	OVS_CB(skb)->cutlen = 0;
 	if (unlikely(dev_net(skb->dev) != ovs_dp_get_net(vport->dp))) {
 		u32 mark;
 
@@ -462,20 +463,60 @@ int ovs_vport_receive(struct vport *vport, struct sk_buff *skb,
 	ovs_dp_process_packet(skb, &key);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(ovs_vport_receive);
 
-static void free_vport_rcu(struct rcu_head *rcu)
+static unsigned int packet_length(const struct sk_buff *skb,
+				  struct net_device *dev)
 {
-	struct vport *vport = container_of(rcu, struct vport, rcu);
+	unsigned int length = skb->len - dev->hard_header_len;
 
-	ovs_vport_free(vport);
+	if (!skb_vlan_tag_present(skb) &&
+	    eth_type_vlan(skb->protocol))
+		length -= VLAN_HLEN;
+
+	/* Don't subtract for multiple VLAN tags. Most (all?) drivers allow
+	 * (ETH_LEN + VLAN_HLEN) in addition to the mtu value, but almost none
+	 * account for 802.1ad. e.g. is_skb_forwardable().
+	 */
+
+	return length;
 }
 
-void ovs_vport_deferred_free(struct vport *vport)
+void ovs_vport_send(struct vport *vport, struct sk_buff *skb, u8 mac_proto)
 {
-	if (!vport)
-		return;
+	int mtu = vport->dev->mtu;
 
-	call_rcu(&vport->rcu, free_vport_rcu);
+	switch (vport->dev->type) {
+	case ARPHRD_NONE:
+		if (mac_proto == MAC_PROTO_ETHERNET) {
+			skb_reset_network_header(skb);
+			skb_reset_mac_len(skb);
+			skb->protocol = htons(ETH_P_TEB);
+		} else if (mac_proto != MAC_PROTO_NONE) {
+			WARN_ON_ONCE(1);
+			goto drop;
+		}
+		break;
+	case ARPHRD_ETHER:
+		if (mac_proto != MAC_PROTO_ETHERNET)
+			goto drop;
+		break;
+	default:
+		goto drop;
+	}
+
+	if (unlikely(packet_length(skb, vport->dev) > mtu &&
+		     !skb_is_gso(skb))) {
+		net_warn_ratelimited("%s: dropped over-mtu packet: %d > %d\n",
+				     vport->dev->name,
+				     packet_length(skb, vport->dev), mtu);
+		vport->dev->stats.tx_errors++;
+		goto drop;
+	}
+
+	skb->dev = vport->dev;
+	vport->ops->send(skb);
+	return;
+
+drop:
+	kfree_skb(skb);
 }
-EXPORT_SYMBOL_GPL(ovs_vport_deferred_free);

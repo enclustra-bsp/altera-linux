@@ -1,30 +1,29 @@
 /*
-    comedi/drivers/serial2002.c
-    Skeleton code for a Comedi driver
-
-    COMEDI - Linux Control and Measurement Device Interface
-    Copyright (C) 2002 Anders Blomdell <anders.blomdell@control.lth.se>
-
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-*/
+ * serial2002.c
+ * Comedi driver for serial connected hardware
+ *
+ * COMEDI - Linux Control and Measurement Device Interface
+ * Copyright (C) 2002 Anders Blomdell <anders.blomdell@control.lth.se>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
 
 /*
-Driver: serial2002
-Description: Driver for serial connected hardware
-Devices:
-Author: Anders Blomdell
-Updated: Fri,  7 Jun 2002 12:56:45 -0700
-Status: in development
-
-*/
+ * Driver: serial2002
+ * Description: Driver for serial connected hardware
+ * Devices:
+ * Author: Anders Blomdell
+ * Updated: Fri,  7 Jun 2002 12:56:45 -0700
+ * Status: in development
+ */
 
 #include <linux/module.h>
 #include "../comedidev.h"
@@ -96,27 +95,19 @@ struct serial_data {
 #define S2002_CFG_SIGN(x)		(((x) >> 13) & 0x1)
 #define S2002_CFG_BASE(x)		(((x) >> 14) & 0xfffff)
 
-static long serial2002_tty_ioctl(struct file *f, unsigned op,
+static long serial2002_tty_ioctl(struct file *f, unsigned int op,
 				 unsigned long param)
 {
 	if (f->f_op->unlocked_ioctl)
 		return f->f_op->unlocked_ioctl(f, op, param);
 
-	return -ENOSYS;
+	return -ENOTTY;
 }
 
 static int serial2002_tty_write(struct file *f, unsigned char *buf, int count)
 {
-	const char __user *p = (__force const char __user *)buf;
-	int result;
-	loff_t offset = 0;
-	mm_segment_t oldfs;
-
-	oldfs = get_fs();
-	set_fs(KERNEL_DS);
-	result = __vfs_write(f, p, count, &offset);
-	set_fs(oldfs);
-	return result;
+	loff_t pos = 0;
+	return kernel_write(f, buf, count, &pos);
 }
 
 static void serial2002_tty_read_poll_wait(struct file *f, int timeout)
@@ -149,19 +140,14 @@ static int serial2002_tty_read(struct file *f, int timeout)
 {
 	unsigned char ch;
 	int result;
+	loff_t pos = 0;
 
 	result = -1;
 	if (!IS_ERR(f)) {
-		mm_segment_t oldfs;
-		char __user *p = (__force char __user *)&ch;
-		loff_t offset = 0;
-
-		oldfs = get_fs();
-		set_fs(KERNEL_DS);
 		if (f->f_op->poll) {
 			serial2002_tty_read_poll_wait(f, timeout);
 
-			if (__vfs_read(f, p, 1, &offset) == 1)
+			if (kernel_read(f, &ch, 1, &pos) == 1)
 				result = ch;
 		} else {
 			/* Device does not support poll, busy wait */
@@ -172,14 +158,13 @@ static int serial2002_tty_read(struct file *f, int timeout)
 				if (retries >= timeout)
 					break;
 
-				if (__vfs_read(f, p, 1, &offset) == 1) {
+				if (kernel_read(f, &ch, 1, &pos) == 1) {
 					result = ch;
 					break;
 				}
-				udelay(100);
+				usleep_range(100, 1000);
 			}
 		}
-		set_fs(oldfs);
 	}
 	return result;
 }
@@ -380,7 +365,10 @@ static int serial2002_setup_subdevice(struct comedi_subdevice *s,
 				range_table_list[chan] =
 				    (const struct comedi_lrange *)&range[j];
 			}
-			maxdata_list[chan] = ((long long)1 << cfg[j].bits) - 1;
+			if (cfg[j].bits < 32)
+				maxdata_list[chan] = (1u << cfg[j].bits) - 1;
+			else
+				maxdata_list[chan] = 0xffffffff;
 			chan++;
 		}
 	}

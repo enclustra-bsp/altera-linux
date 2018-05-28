@@ -300,7 +300,7 @@ static const struct i2c_algorithm netup_i2c_algorithm = {
 	.functionality	= netup_i2c_func,
 };
 
-static struct i2c_adapter netup_i2c_adapter = {
+static const struct i2c_adapter netup_i2c_adapter = {
 	.owner		= THIS_MODULE,
 	.name		= NETUP_UNIDVB_NAME,
 	.class		= I2C_CLASS_HWMON | I2C_CLASS_SPD,
@@ -320,18 +320,15 @@ static int netup_i2c_init(struct netup_unidvb_dev *ndev, int bus_num)
 	i2c = &ndev->i2c[bus_num];
 	spin_lock_init(&i2c->lock);
 	init_waitqueue_head(&i2c->wq);
-	i2c->regs = (struct netup_i2c_regs *)(ndev->bmmio0 +
+	i2c->regs = (struct netup_i2c_regs __iomem *)(ndev->bmmio0 +
 		(bus_num == 0 ? NETUP_I2C_BUS0_ADDR : NETUP_I2C_BUS1_ADDR));
 	netup_i2c_reset(i2c);
 	i2c->adap = netup_i2c_adapter;
 	i2c->adap.dev.parent = &ndev->pci_dev->dev;
 	i2c_set_adapdata(&i2c->adap, i2c);
 	ret = i2c_add_adapter(&i2c->adap);
-	if (ret) {
-		dev_err(&ndev->pci_dev->dev,
-			"%s(): failed to add I2C adapter\n", __func__);
+	if (ret)
 		return ret;
-	}
 	dev_info(&ndev->pci_dev->dev,
 		"%s(): registered I2C bus %d at 0x%x\n",
 		__func__,

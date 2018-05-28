@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/console.h>
@@ -894,7 +895,7 @@ static int etraxfs_uart_probe(struct platform_device *pdev)
 	up->regi_ser = of_iomap(np, 0);
 	up->port.dev = &pdev->dev;
 
-	up->gpios = mctrl_gpio_init(&pdev->dev, 0);
+	up->gpios = mctrl_gpio_init_noauto(&pdev->dev, 0);
 	if (IS_ERR(up->gpios))
 		return PTR_ERR(up->gpios);
 

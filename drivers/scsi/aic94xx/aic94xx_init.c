@@ -70,10 +70,9 @@ static struct scsi_host_template aic94xx_sht = {
 	.max_sectors		= SCSI_DEFAULT_MAX_SECTORS,
 	.use_clustering		= ENABLE_CLUSTERING,
 	.eh_device_reset_handler	= sas_eh_device_reset_handler,
-	.eh_bus_reset_handler	= sas_eh_bus_reset_handler,
+	.eh_target_reset_handler	= sas_eh_target_reset_handler,
 	.target_destroy		= sas_target_destroy,
 	.ioctl			= sas_ioctl,
-	.use_blk_tags		= 1,
 	.track_queue_depth	= 1,
 };
 
@@ -707,7 +706,6 @@ static int asd_unregister_sas_ha(struct asd_ha_struct *asd_ha)
 	err = sas_unregister_ha(&asd_ha->sas_ha);
 
 	sas_remove_host(asd_ha->sas_ha.core.shost);
-	scsi_remove_host(asd_ha->sas_ha.core.shost);
 	scsi_host_put(asd_ha->sas_ha.core.shost);
 
 	kfree(asd_ha->sas_ha.sas_phy);
@@ -958,11 +956,11 @@ static int asd_scan_finished(struct Scsi_Host *shost, unsigned long time)
 	return 1;
 }
 
-static ssize_t asd_version_show(struct device_driver *driver, char *buf)
+static ssize_t version_show(struct device_driver *driver, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%s\n", ASD_DRIVER_VERSION);
 }
-static DRIVER_ATTR(version, S_IRUGO, asd_version_show, NULL);
+static DRIVER_ATTR_RO(version);
 
 static int asd_create_driver_attrs(struct device_driver *driver)
 {

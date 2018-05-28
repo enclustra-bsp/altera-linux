@@ -60,7 +60,7 @@
  */
 
 #include <linux/init.h>
-#include <linux/module.h>
+#include <linux/export.h>
 #include <linux/list.h>
 #include <linux/hash.h>
 #include <linux/sched.h>
@@ -71,7 +71,7 @@
 
 #include <asm/cache.h>
 #include <asm/setup.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <asm/xen/page.h>
 #include <asm/xen/hypercall.h>
@@ -182,7 +182,7 @@ static void * __ref alloc_p2m_page(void)
 	if (unlikely(!slab_is_available()))
 		return alloc_bootmem_align(PAGE_SIZE, PAGE_SIZE);
 
-	return (void *)__get_free_page(GFP_KERNEL | __GFP_REPEAT);
+	return (void *)__get_free_page(GFP_KERNEL);
 }
 
 static void __ref free_p2m_page(void *p)
@@ -212,8 +212,7 @@ void __ref xen_build_mfn_list_list(void)
 	unsigned int level, topidx, mididx;
 	unsigned long *mid_mfn_p;
 
-	if (xen_feature(XENFEAT_auto_translated_physmap) ||
-	    xen_start_info->flags & SIF_VIRT_P2M_4TOOLS)
+	if (xen_start_info->flags & SIF_VIRT_P2M_4TOOLS)
 		return;
 
 	/* Pre-initialize p2m_top_mfn to be completely missing */
@@ -269,9 +268,6 @@ void __ref xen_build_mfn_list_list(void)
 
 void xen_setup_mfn_list_list(void)
 {
-	if (xen_feature(XENFEAT_auto_translated_physmap))
-		return;
-
 	BUG_ON(HYPERVISOR_shared_info == &xen_dummy_shared_info);
 
 	if (xen_start_info->flags & SIF_VIRT_P2M_4TOOLS)
@@ -290,9 +286,6 @@ void xen_setup_mfn_list_list(void)
 void __init xen_build_dynamic_phys_to_machine(void)
 {
 	unsigned long pfn;
-
-	 if (xen_feature(XENFEAT_auto_translated_physmap))
-		return;
 
 	xen_p2m_addr = (unsigned long *)xen_start_info->mfn_list;
 	xen_p2m_size = ALIGN(xen_start_info->nr_pages, P2M_PER_PAGE);
@@ -530,7 +523,7 @@ static pte_t *alloc_p2m_pmd(unsigned long addr, pte_t *pte_pg)
  * the new pages are installed with cmpxchg; if we lose the race then
  * simply free the page we allocated and use the one that's there.
  */
-static bool alloc_p2m(unsigned long pfn)
+int xen_alloc_p2m_entry(unsigned long pfn)
 {
 	unsigned topidx;
 	unsigned long *top_mfn_p, *mid_mfn;
@@ -548,13 +541,13 @@ static bool alloc_p2m(unsigned long pfn)
 		/* PMD level is missing, allocate a new one */
 		ptep = alloc_p2m_pmd(addr, pte_pg);
 		if (!ptep)
-			return false;
+			return -ENOMEM;
 	}
 
 	if (p2m_top_mfn && pfn < MAX_P2M_PFN) {
 		topidx = p2m_top_index(pfn);
 		top_mfn_p = &p2m_top_mfn[topidx];
-		mid_mfn = ACCESS_ONCE(p2m_top_mfn_p[topidx]);
+		mid_mfn = READ_ONCE(p2m_top_mfn_p[topidx]);
 
 		BUG_ON(virt_to_mfn(mid_mfn) != *top_mfn_p);
 
@@ -566,7 +559,7 @@ static bool alloc_p2m(unsigned long pfn)
 
 			mid_mfn = alloc_p2m_page();
 			if (!mid_mfn)
-				return false;
+				return -ENOMEM;
 
 			p2m_mid_mfn_init(mid_mfn, p2m_missing);
 
@@ -592,7 +585,7 @@ static bool alloc_p2m(unsigned long pfn)
 
 		p2m = alloc_p2m_page();
 		if (!p2m)
-			return false;
+			return -ENOMEM;
 
 		if (p2m_pfn == PFN_DOWN(__pa(p2m_missing)))
 			p2m_init(p2m);
@@ -625,8 +618,9 @@ static bool alloc_p2m(unsigned long pfn)
 		HYPERVISOR_shared_info->arch.max_pfn = xen_p2m_last_pfn;
 	}
 
-	return true;
+	return 0;
 }
+EXPORT_SYMBOL(xen_alloc_p2m_entry);
 
 unsigned long __init set_phys_range_identity(unsigned long pfn_s,
 				      unsigned long pfn_e)
@@ -635,9 +629,6 @@ unsigned long __init set_phys_range_identity(unsigned long pfn_s,
 
 	if (unlikely(pfn_s >= xen_p2m_size))
 		return 0;
-
-	if (unlikely(xen_feature(XENFEAT_auto_translated_physmap)))
-		return pfn_e - pfn_s;
 
 	if (pfn_s > pfn_e)
 		return 0;
@@ -655,10 +646,6 @@ bool __set_phys_to_machine(unsigned long pfn, unsigned long mfn)
 {
 	pte_t *ptep;
 	unsigned int level;
-
-	/* don't track P2M changes in autotranslate guests */
-	if (unlikely(xen_feature(XENFEAT_auto_translated_physmap)))
-		return true;
 
 	if (unlikely(pfn >= xen_p2m_size)) {
 		BUG_ON(mfn != INVALID_P2M_ENTRY);
@@ -688,7 +675,10 @@ bool __set_phys_to_machine(unsigned long pfn, unsigned long mfn)
 bool set_phys_to_machine(unsigned long pfn, unsigned long mfn)
 {
 	if (unlikely(!__set_phys_to_machine(pfn, mfn))) {
-		if (!alloc_p2m(pfn))
+		int ret;
+
+		ret = xen_alloc_p2m_entry(pfn);
+		if (ret < 0)
 			return false;
 
 		return __set_phys_to_machine(pfn, mfn);
@@ -703,9 +693,6 @@ int set_foreign_p2m_mapping(struct gnttab_map_grant_ref *map_ops,
 {
 	int i, ret = 0;
 	pte_t *pte;
-
-	if (xen_feature(XENFEAT_auto_translated_physmap))
-		return 0;
 
 	if (kmap_ops) {
 		ret = HYPERVISOR_grant_table_op(GNTTABOP_map_grant_ref,
@@ -748,9 +735,6 @@ int clear_foreign_p2m_mapping(struct gnttab_unmap_grant_ref *unmap_ops,
 			      struct page **pages, unsigned int count)
 {
 	int i, ret = 0;
-
-	if (xen_feature(XENFEAT_auto_translated_physmap))
-		return 0;
 
 	for (i = 0; i < count; i++) {
 		unsigned long mfn = __pfn_to_mfn(page_to_pfn(pages[i]));

@@ -398,7 +398,6 @@ static const struct attribute_group adis16136_attribute_group = {
 };
 
 static const struct iio_info adis16136_info = {
-	.driver_module = THIS_MODULE,
 	.attrs = &adis16136_attribute_group,
 	.read_raw = &adis16136_read_raw,
 	.write_raw = &adis16136_write_raw,
@@ -435,7 +434,9 @@ static int adis16136_initial_setup(struct iio_dev *indio_dev)
 	if (ret)
 		return ret;
 
-	sscanf(indio_dev->name, "adis%u\n", &device_id);
+	ret = sscanf(indio_dev->name, "adis%u\n", &device_id);
+	if (ret != 1)
+		return -EINVAL;
 
 	if (prod_id != device_id)
 		dev_warn(&indio_dev->dev, "Device ID(%u) and product ID(%u) do not match.",
@@ -570,7 +571,6 @@ MODULE_DEVICE_TABLE(spi, adis16136_ids);
 static struct spi_driver adis16136_driver = {
 	.driver = {
 		.name = "adis16136",
-		.owner = THIS_MODULE,
 	},
 	.id_table = adis16136_ids,
 	.probe = adis16136_probe,

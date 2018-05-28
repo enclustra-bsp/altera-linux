@@ -107,8 +107,7 @@ struct attribute_group altera_ilc_attr_group = {
 
 static void ilc_work(struct work_struct *work)
 {
-	unsigned int ilc_value, ret, stp_reg;
-	int offset;
+	unsigned int ilc_value, ret, offset, stp_reg;
 	struct altera_ilc *ilc =
 		container_of(work, struct altera_ilc, ilc_work.work);
 
@@ -139,8 +138,7 @@ static void ilc_work(struct work_struct *work)
 
 static irqreturn_t ilc_interrupt_handler(int irq, void *p)
 {
-	unsigned int stp_reg;
-	int offset;
+	unsigned int offset, stp_reg;
 
 	struct altera_ilc *ilc = (struct altera_ilc *)p;
 

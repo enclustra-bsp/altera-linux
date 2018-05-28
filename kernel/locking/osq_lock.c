@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/percpu.h>
 #include <linux/sched.h>
 #include <linux/osq_lock.h>
@@ -19,6 +20,11 @@ static DEFINE_PER_CPU_SHARED_ALIGNED(struct optimistic_spin_node, osq_node);
 static inline int encode_cpu(int cpu_nr)
 {
 	return cpu_nr + 1;
+}
+
+static inline int node_cpu(struct optimistic_spin_node *node)
+{
+	return node->cpu - 1;
 }
 
 static inline struct optimistic_spin_node *decode_cpu(int encoded_cpu_val)
@@ -75,7 +81,7 @@ osq_wait_next(struct optimistic_spin_queue *lock,
 				break;
 		}
 
-		cpu_relax_lowlatency();
+		cpu_relax();
 	}
 
 	return next;
@@ -93,15 +99,30 @@ bool osq_lock(struct optimistic_spin_queue *lock)
 	node->cpu = curr;
 
 	/*
-	 * ACQUIRE semantics, pairs with corresponding RELEASE
-	 * in unlock() uncontended, or fastpath.
+	 * We need both ACQUIRE (pairs with corresponding RELEASE in
+	 * unlock() uncontended, or fastpath) and RELEASE (to publish
+	 * the node fields we just initialised) semantics when updating
+	 * the lock tail.
 	 */
-	old = atomic_xchg_acquire(&lock->tail, curr);
+	old = atomic_xchg(&lock->tail, curr);
 	if (old == OSQ_UNLOCKED_VAL)
 		return true;
 
 	prev = decode_cpu(old);
 	node->prev = prev;
+
+	/*
+	 * osq_lock()			unqueue
+	 *
+	 * node->prev = prev		osq_wait_next()
+	 * WMB				MB
+	 * prev->next = node		next->prev = prev // unqueue-C
+	 *
+	 * Here 'node->prev' and 'next->prev' are the same variable and we need
+	 * to ensure these stores happen in-order to avoid corrupting the list.
+	 */
+	smp_wmb();
+
 	WRITE_ONCE(prev->next, node);
 
 	/*
@@ -116,11 +137,13 @@ bool osq_lock(struct optimistic_spin_queue *lock)
 	while (!READ_ONCE(node->locked)) {
 		/*
 		 * If we need to reschedule bail... so we can block.
+		 * Use vcpu_is_preempted() to avoid waiting for a preempted
+		 * lock holder:
 		 */
-		if (need_resched())
+		if (need_resched() || vcpu_is_preempted(node_cpu(node->prev)))
 			goto unqueue;
 
-		cpu_relax_lowlatency();
+		cpu_relax();
 	}
 	return true;
 
@@ -146,7 +169,7 @@ unqueue:
 		if (smp_load_acquire(&node->locked))
 			return true;
 
-		cpu_relax_lowlatency();
+		cpu_relax();
 
 		/*
 		 * Or we race against a concurrent unqueue()'s step-B, in which

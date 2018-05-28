@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __LINUX_BRIDGE_NETFILTER_H
 #define __LINUX_BRIDGE_NETFILTER_H
 
@@ -17,7 +18,7 @@ enum nf_br_hook_priorities {
 
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 
-int br_handle_frame_finish(struct sock *sk, struct sk_buff *skb);
+int br_handle_frame_finish(struct net *net, struct sock *sk, struct sk_buff *skb);
 
 static inline void br_drop_fake_rtable(struct sk_buff *skb)
 {

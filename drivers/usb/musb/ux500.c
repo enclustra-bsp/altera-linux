@@ -1,22 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2010 ST-Ericsson AB
  * Mian Yousaf Kaukab <mian.yousaf.kaukab@stericsson.com>
  *
  * Based on omap2430.c
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/module.h>
@@ -30,7 +17,7 @@
 
 #include "musb_core.h"
 
-static struct musb_hdrc_config ux500_musb_hdrc_config = {
+static const struct musb_hdrc_config ux500_musb_hdrc_config = {
 	.multipoint	= true,
 	.dyn_fifo	= true,
 	.num_eps	= 16,
@@ -348,7 +335,9 @@ static int ux500_suspend(struct device *dev)
 	struct ux500_glue	*glue = dev_get_drvdata(dev);
 	struct musb		*musb = glue_to_musb(glue);
 
-	usb_phy_set_suspend(musb->xceiv, 1);
+	if (musb)
+		usb_phy_set_suspend(musb->xceiv, 1);
+
 	clk_disable_unprepare(glue->clk);
 
 	return 0;
@@ -366,7 +355,8 @@ static int ux500_resume(struct device *dev)
 		return ret;
 	}
 
-	usb_phy_set_suspend(musb->xceiv, 0);
+	if (musb)
+		usb_phy_set_suspend(musb->xceiv, 0);
 
 	return 0;
 }

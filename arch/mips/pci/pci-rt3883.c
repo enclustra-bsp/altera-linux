@@ -16,7 +16,6 @@
 #include <linux/init.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
-#include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/of_pci.h>
@@ -208,8 +207,7 @@ static int rt3883_pci_irq_init(struct device *dev,
 
 	irq = irq_of_parse_and_map(rpc->intc_of_node, 0);
 	if (irq == 0) {
-		dev_err(dev, "%s has no IRQ",
-			of_node_full_name(rpc->intc_of_node));
+		dev_err(dev, "%pOF has no IRQ", rpc->intc_of_node);
 		return -EINVAL;
 	}
 
@@ -432,16 +430,15 @@ static int rt3883_pci_probe(struct platform_device *pdev)
 
 	/* find the interrupt controller child node */
 	for_each_child_of_node(np, child) {
-		if (of_get_property(child, "interrupt-controller", NULL) &&
-		    of_node_get(child)) {
+		if (of_get_property(child, "interrupt-controller", NULL)) {
 			rpc->intc_of_node = child;
 			break;
 		}
 	}
 
 	if (!rpc->intc_of_node) {
-		dev_err(dev, "%s has no %s child node",
-			of_node_full_name(rpc->intc_of_node),
+		dev_err(dev, "%pOF has no %s child node",
+			rpc->intc_of_node,
 			"interrupt controller");
 		return -EINVAL;
 	}
@@ -449,16 +446,15 @@ static int rt3883_pci_probe(struct platform_device *pdev)
 	/* find the PCI host bridge child node */
 	for_each_child_of_node(np, child) {
 		if (child->type &&
-		    of_node_cmp(child->type, "pci") == 0 &&
-		    of_node_get(child)) {
+		    of_node_cmp(child->type, "pci") == 0) {
 			rpc->pci_controller.of_node = child;
 			break;
 		}
 	}
 
 	if (!rpc->pci_controller.of_node) {
-		dev_err(dev, "%s has no %s child node",
-			of_node_full_name(rpc->intc_of_node),
+		dev_err(dev, "%pOF has no %s child node",
+			rpc->intc_of_node,
 			"PCI host bridge");
 		err = -EINVAL;
 		goto err_put_intc_node;
@@ -568,7 +564,7 @@ err_put_intc_node:
 	return err;
 }
 
-int __init pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
+int pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	return of_irq_parse_and_map_pci(dev, slot, pin);
 }
@@ -582,7 +578,6 @@ static const struct of_device_id rt3883_pci_ids[] = {
 	{ .compatible = "ralink,rt3883-pci" },
 	{},
 };
-MODULE_DEVICE_TABLE(of, rt3883_pci_ids);
 
 static struct platform_driver rt3883_pci_driver = {
 	.probe = rt3883_pci_probe,

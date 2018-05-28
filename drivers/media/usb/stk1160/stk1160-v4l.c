@@ -33,7 +33,7 @@
 #include <media/v4l2-event.h>
 #include <media/videobuf2-vmalloc.h>
 
-#include <media/saa7115.h>
+#include <media/i2c/saa7115.h>
 
 #include "stk1160.h"
 #include "stk1160-reg.h"
@@ -326,7 +326,7 @@ static int stk1160_stop_streaming(struct stk1160 *dev)
 	return 0;
 }
 
-static struct v4l2_file_operations stk1160_fops = {
+static const struct v4l2_file_operations stk1160_fops = {
 	.owner = THIS_MODULE,
 	.open = v4l2_fh_open,
 	.release = vb2_fop_release,
@@ -664,9 +664,9 @@ static const struct v4l2_ioctl_ops stk1160_ioctl_ops = {
 /*
  * Videobuf2 operations
  */
-static int queue_setup(struct vb2_queue *vq, const struct v4l2_format *v4l_fmt,
+static int queue_setup(struct vb2_queue *vq,
 				unsigned int *nbuffers, unsigned int *nplanes,
-				unsigned int sizes[], void *alloc_ctxs[])
+				unsigned int sizes[], struct device *alloc_devs[])
 {
 	struct stk1160 *dev = vb2_get_drv_priv(vq);
 	unsigned long size;
@@ -679,6 +679,9 @@ static int queue_setup(struct vb2_queue *vq, const struct v4l2_format *v4l_fmt,
 	 */
 	*nbuffers = clamp_t(unsigned int, *nbuffers,
 			STK1160_MIN_VIDEO_BUFFERS, STK1160_MAX_VIDEO_BUFFERS);
+
+	if (*nplanes)
+		return sizes[0] < size ? -EINVAL : 0;
 
 	/* This means a packed colorformat */
 	*nplanes = 1;
@@ -695,8 +698,9 @@ static void buffer_queue(struct vb2_buffer *vb)
 {
 	unsigned long flags;
 	struct stk1160 *dev = vb2_get_drv_priv(vb->vb2_queue);
+	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
 	struct stk1160_buffer *buf =
-		container_of(vb, struct stk1160_buffer, vb);
+		container_of(vbuf, struct stk1160_buffer, vb);
 
 	spin_lock_irqsave(&dev->buf_lock, flags);
 	if (!dev->udev) {
@@ -704,7 +708,7 @@ static void buffer_queue(struct vb2_buffer *vb)
 		 * If the device is disconnected return the buffer to userspace
 		 * directly. The next QBUF call will fail with -ENODEV.
 		 */
-		vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
+		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 	} else {
 
 		buf->mem = vb2_plane_vaddr(vb, 0);
@@ -717,7 +721,7 @@ static void buffer_queue(struct vb2_buffer *vb)
 		 * the buffer to userspace directly.
 		 */
 		if (buf->length < dev->width * dev->height * 2)
-			vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
+			vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 		else
 			list_add_tail(&buf->list, &dev->avail_bufs);
 
@@ -738,7 +742,7 @@ static void stop_streaming(struct vb2_queue *vq)
 	stk1160_stop_streaming(dev);
 }
 
-static struct vb2_ops stk1160_video_qops = {
+static const struct vb2_ops stk1160_video_qops = {
 	.queue_setup		= queue_setup,
 	.buf_queue		= buffer_queue,
 	.start_streaming	= start_streaming,
@@ -747,7 +751,7 @@ static struct vb2_ops stk1160_video_qops = {
 	.wait_finish		= vb2_ops_wait_finish,
 };
 
-static struct video_device v4l_template = {
+static const struct video_device v4l_template = {
 	.name = "stk1160",
 	.tvnorms = V4L2_STD_525_60 | V4L2_STD_625_50,
 	.fops = &stk1160_fops,
@@ -769,9 +773,9 @@ void stk1160_clear_queue(struct stk1160 *dev)
 		buf = list_first_entry(&dev->avail_bufs,
 			struct stk1160_buffer, list);
 		list_del(&buf->list);
-		vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
+		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 		stk1160_dbg("buffer [%p/%d] aborted\n",
-			    buf, buf->vb.v4l2_buf.index);
+			    buf, buf->vb.vb2_buf.index);
 	}
 
 	/* It's important to release the current buffer */
@@ -779,9 +783,9 @@ void stk1160_clear_queue(struct stk1160 *dev)
 		buf = dev->isoc_ctl.buf;
 		dev->isoc_ctl.buf = NULL;
 
-		vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
+		vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_ERROR);
 		stk1160_dbg("buffer [%p/%d] aborted\n",
-			    buf, buf->vb.v4l2_buf.index);
+			    buf, buf->vb.vb2_buf.index);
 	}
 	spin_unlock_irqrestore(&dev->buf_lock, flags);
 }

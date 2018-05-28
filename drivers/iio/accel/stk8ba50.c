@@ -11,7 +11,6 @@
  */
 
 #include <linux/acpi.h>
-#include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
@@ -45,7 +44,6 @@
 #define STK8BA50_ALL_CHANNEL_SIZE		6
 
 #define STK8BA50_DRIVER_NAME			"stk8ba50"
-#define STK8BA50_GPIO				"stk8ba50_gpio"
 #define STK8BA50_IRQ_NAME			"stk8ba50_event"
 
 #define STK8BA50_SCALE_AVAIL			"0.0384 0.0767 0.1534 0.3069"
@@ -181,7 +179,6 @@ static int stk8ba50_data_rdy_trigger_set_state(struct iio_trigger *trig,
 
 static const struct iio_trigger_ops stk8ba50_trigger_ops = {
 	.set_trigger_state = stk8ba50_data_rdy_trigger_set_state,
-	.owner = THIS_MODULE,
 };
 
 static int stk8ba50_set_power(struct stk8ba50_data *data, bool mode)
@@ -309,7 +306,6 @@ static int stk8ba50_write_raw(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info stk8ba50_info = {
-	.driver_module		= THIS_MODULE,
 	.read_raw		= stk8ba50_read_raw,
 	.write_raw		= stk8ba50_write_raw,
 	.attrs			= &stk8ba50_attribute_group,
@@ -388,30 +384,6 @@ static const struct iio_buffer_setup_ops stk8ba50_buffer_setup_ops = {
 	.postdisable = stk8ba50_buffer_postdisable,
 };
 
-static int stk8ba50_gpio_probe(struct i2c_client *client)
-{
-	struct device *dev;
-	struct gpio_desc *gpio;
-	int ret;
-
-	if (!client)
-		return -EINVAL;
-
-	dev = &client->dev;
-
-	/* data ready gpio interrupt pin */
-	gpio = devm_gpiod_get_index(dev, STK8BA50_GPIO, 0, GPIOD_IN);
-	if (IS_ERR(gpio)) {
-		dev_err(dev, "acpi gpio get index failed\n");
-		return PTR_ERR(gpio);
-	}
-
-	ret = gpiod_to_irq(gpio);
-	dev_dbg(dev, "GPIO resource, no:%d irq:%d\n", desc_to_gpio(gpio), ret);
-
-	return ret;
-}
-
 static int stk8ba50_probe(struct i2c_client *client,
 			  const struct i2c_device_id *id)
 {
@@ -465,10 +437,7 @@ static int stk8ba50_probe(struct i2c_client *client,
 		goto err_power_off;
 	}
 
-	if (client->irq < 0)
-		client->irq = stk8ba50_gpio_probe(client);
-
-	if (client->irq >= 0) {
+	if (client->irq > 0) {
 		ret = devm_request_threaded_irq(&client->dev, client->irq,
 						stk8ba50_data_rdy_trig_poll,
 						NULL,

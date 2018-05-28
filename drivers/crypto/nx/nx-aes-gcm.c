@@ -21,6 +21,8 @@
 
 #include <crypto/internal/aead.h>
 #include <crypto/aes.h>
+#include <crypto/algapi.h>
+#include <crypto/gcm.h>
 #include <crypto/scatterwalk.h>
 #include <linux/module.h>
 #include <linux/types.h>
@@ -418,7 +420,7 @@ mac:
 			itag, req->src, req->assoclen + nbytes,
 			crypto_aead_authsize(crypto_aead_reqtfm(req)),
 			SCATTERWALK_FROM_SG);
-		rc = memcmp(itag, otag,
+		rc = crypto_memneq(itag, otag,
 			    crypto_aead_authsize(crypto_aead_reqtfm(req))) ?
 		     -EBADMSG : 0;
 	}
@@ -432,7 +434,7 @@ static int gcm_aes_nx_encrypt(struct aead_request *req)
 	struct nx_gcm_rctx *rctx = aead_request_ctx(req);
 	char *iv = rctx->iv;
 
-	memcpy(iv, req->iv, 12);
+	memcpy(iv, req->iv, GCM_AES_IV_SIZE);
 
 	return gcm_aes_nx_crypt(req, 1, req->assoclen);
 }
@@ -442,7 +444,7 @@ static int gcm_aes_nx_decrypt(struct aead_request *req)
 	struct nx_gcm_rctx *rctx = aead_request_ctx(req);
 	char *iv = rctx->iv;
 
-	memcpy(iv, req->iv, 12);
+	memcpy(iv, req->iv, GCM_AES_IV_SIZE);
 
 	return gcm_aes_nx_crypt(req, 0, req->assoclen);
 }
@@ -497,7 +499,7 @@ struct aead_alg nx_gcm_aes_alg = {
 	},
 	.init        = nx_crypto_ctx_aes_gcm_init,
 	.exit        = nx_crypto_ctx_aead_exit,
-	.ivsize      = 12,
+	.ivsize      = GCM_AES_IV_SIZE,
 	.maxauthsize = AES_BLOCK_SIZE,
 	.setkey      = gcm_aes_nx_set_key,
 	.encrypt     = gcm_aes_nx_encrypt,
@@ -515,7 +517,7 @@ struct aead_alg nx_gcm4106_aes_alg = {
 	},
 	.init        = nx_crypto_ctx_aes_gcm_init,
 	.exit        = nx_crypto_ctx_aead_exit,
-	.ivsize      = 8,
+	.ivsize      = GCM_RFC4106_IV_SIZE,
 	.maxauthsize = AES_BLOCK_SIZE,
 	.setkey      = gcm4106_aes_nx_set_key,
 	.setauthsize = gcm4106_aes_nx_setauthsize,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/kernel.h>
 #include <linux/clk.h>
 #include <linux/io.h>
@@ -77,9 +78,9 @@ struct clk_pllv2 {
 static unsigned long __clk_pllv2_recalc_rate(unsigned long parent_rate,
 		u32 dp_ctl, u32 dp_op, u32 dp_mfd, u32 dp_mfn)
 {
-	long mfi, mfn, mfd, pdf, ref_clk, mfn_abs;
+	long mfi, mfn, mfd, pdf, ref_clk;
 	unsigned long dbl;
-	s64 temp;
+	u64 temp;
 
 	dbl = dp_ctl & MXC_PLL_DP_CTL_DPDCK0_2_EN;
 
@@ -87,23 +88,20 @@ static unsigned long __clk_pllv2_recalc_rate(unsigned long parent_rate,
 	mfi = (dp_op & MXC_PLL_DP_OP_MFI_MASK) >> MXC_PLL_DP_OP_MFI_OFFSET;
 	mfi = (mfi <= 5) ? 5 : mfi;
 	mfd = dp_mfd & MXC_PLL_DP_MFD_MASK;
-	mfn = mfn_abs = dp_mfn & MXC_PLL_DP_MFN_MASK;
-	/* Sign extend to 32-bits */
-	if (mfn >= 0x04000000) {
-		mfn |= 0xFC000000;
-		mfn_abs = -mfn;
-	}
+	mfn = dp_mfn & MXC_PLL_DP_MFN_MASK;
+	mfn = sign_extend32(mfn, 26);
 
 	ref_clk = 2 * parent_rate;
 	if (dbl != 0)
 		ref_clk *= 2;
 
 	ref_clk /= (pdf + 1);
-	temp = (u64) ref_clk * mfn_abs;
+	temp = (u64) ref_clk * abs(mfn);
 	do_div(temp, mfd + 1);
 	if (mfn < 0)
-		temp = -temp;
-	temp = (ref_clk * mfi) + temp;
+		temp = (ref_clk * mfi) - temp;
+	else
+		temp = (ref_clk * mfi) + temp;
 
 	return temp;
 }
@@ -130,7 +128,7 @@ static int __clk_pllv2_set_rate(unsigned long rate, unsigned long parent_rate,
 {
 	u32 reg;
 	long mfi, pdf, mfn, mfd = 999999;
-	s64 temp64;
+	u64 temp64;
 	unsigned long quad_parent_rate;
 
 	quad_parent_rate = 4 * parent_rate;
@@ -229,7 +227,7 @@ static void clk_pllv2_unprepare(struct clk_hw *hw)
 	__raw_writel(reg, pllbase + MXC_PLL_DP_CTL);
 }
 
-static struct clk_ops clk_pllv2_ops = {
+static const struct clk_ops clk_pllv2_ops = {
 	.prepare = clk_pllv2_prepare,
 	.unprepare = clk_pllv2_unprepare,
 	.recalc_rate = clk_pllv2_recalc_rate,

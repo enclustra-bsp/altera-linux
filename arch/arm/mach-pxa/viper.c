@@ -36,9 +36,11 @@
 #include <linux/gpio.h>
 #include <linux/jiffies.h>
 #include <linux/i2c-gpio.h>
+#include <linux/gpio/machine.h>
 #include <linux/i2c/pxa-i2c.h>
 #include <linux/serial_8250.h>
 #include <linux/smc91x.h>
+#include <linux/pwm.h>
 #include <linux/pwm_backlight.h>
 #include <linux/usb/isp116x.h>
 #include <linux/mtd/mtd.h>
@@ -46,12 +48,12 @@
 #include <linux/mtd/physmap.h>
 #include <linux/syscore_ops.h>
 
-#include <mach/pxa25x.h>
+#include "pxa25x.h"
 #include <mach/audio.h>
 #include <linux/platform_data/video-pxafb.h>
 #include <mach/regs-uart.h>
 #include <linux/platform_data/pcmcia-pxa2xx_viper.h>
-#include <mach/viper.h>
+#include "viper.h"
 
 #include <asm/setup.h>
 #include <asm/mach-types.h>
@@ -350,6 +352,11 @@ static struct pxafb_mach_info fb_info = {
 	.lcd_conn		= LCD_COLOR_TFT_16BPP | LCD_PCLK_EDGE_FALL,
 };
 
+static struct pwm_lookup viper_pwm_lookup[] = {
+	PWM_LOOKUP("pxa25x-pwm.0", 0, "pwm-backlight.0", NULL, 1000000,
+		   PWM_POLARITY_NORMAL),
+};
+
 static int viper_backlight_init(struct device *dev)
 {
 	int ret;
@@ -398,10 +405,8 @@ static void viper_backlight_exit(struct device *dev)
 }
 
 static struct platform_pwm_backlight_data viper_backlight_data = {
-	.pwm_id		= 0,
 	.max_brightness	= 100,
 	.dft_brightness	= 100,
-	.pwm_period_ns	= 1000000,
 	.enable_gpio	= -1,
 	.init		= viper_backlight_init,
 	.notify		= viper_backlight_notify,
@@ -454,9 +459,17 @@ static struct platform_device smc91x_device = {
 };
 
 /* i2c */
+static struct gpiod_lookup_table viper_i2c_gpiod_table = {
+	.dev_id		= "i2c-gpio",
+	.table		= {
+		GPIO_LOOKUP_IDX("gpio-pxa", VIPER_RTC_I2C_SDA_GPIO,
+				NULL, 0, GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN),
+		GPIO_LOOKUP_IDX("gpio-pxa", VIPER_RTC_I2C_SCL_GPIO,
+				NULL, 1, GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN),
+	},
+};
+
 static struct i2c_gpio_platform_data i2c_bus_data = {
-	.sda_pin = VIPER_RTC_I2C_SDA_GPIO,
-	.scl_pin = VIPER_RTC_I2C_SCL_GPIO,
 	.udelay  = 10,
 	.timeout = HZ,
 };
@@ -775,12 +788,20 @@ static int __init viper_tpm_setup(char *str)
 
 __setup("tpm=", viper_tpm_setup);
 
+struct gpiod_lookup_table viper_tpm_i2c_gpiod_table = {
+	.dev_id = "i2c-gpio",
+	.table = {
+		GPIO_LOOKUP_IDX("gpio-pxa", VIPER_TPM_I2C_SDA_GPIO,
+				NULL, 0, GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN),
+		GPIO_LOOKUP_IDX("gpio-pxa", VIPER_TPM_I2C_SCL_GPIO,
+				NULL, 1, GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN),
+	},
+};
+
 static void __init viper_tpm_init(void)
 {
 	struct platform_device *tpm_device;
 	struct i2c_gpio_platform_data i2c_tpm_data = {
-		.sda_pin = VIPER_TPM_I2C_SDA_GPIO,
-		.scl_pin = VIPER_TPM_I2C_SCL_GPIO,
 		.udelay  = 10,
 		.timeout = HZ,
 	};
@@ -790,6 +811,7 @@ static void __init viper_tpm_init(void)
 	if (!viper_tpm)
 		return;
 
+	gpiod_add_lookup_table(&viper_tpm_i2c_gpiod_table);
 	tpm_device = platform_device_alloc("i2c-gpio", 2);
 	if (tpm_device) {
 		if (!platform_device_add_data(tpm_device,
@@ -939,6 +961,8 @@ static void __init viper_init(void)
 		smc91x_device.num_resources--;
 
 	pxa_set_i2c_info(NULL);
+	gpiod_add_lookup_table(&viper_i2c_gpiod_table);
+	pwm_add_table(viper_pwm_lookup, ARRAY_SIZE(viper_pwm_lookup));
 	platform_add_devices(viper_devs, ARRAY_SIZE(viper_devs));
 
 	viper_init_vcore_gpios();

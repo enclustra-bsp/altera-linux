@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * arch/h8300/boot/compressed/misc.c
  *
@@ -9,7 +10,7 @@
  * Adapted for h8300 by Yoshinori Sato 2006
  */
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 /*
  * gzip declarations
@@ -28,11 +29,17 @@ static unsigned long free_mem_end_ptr;
 
 extern char input_data[];
 extern int input_len;
-static unsigned char *output;
+extern char output[];
 
 #define HEAP_SIZE             0x10000
 
+#ifdef CONFIG_KERNEL_GZIP
 #include "../../../../lib/decompress_inflate.c"
+#endif
+
+#ifdef CONFIG_KERNEL_LZO
+#include "../../../../lib/decompress_unlzo.c"
+#endif
 
 void *memset(void *s, int c, size_t n)
 {
@@ -56,14 +63,9 @@ void *memcpy(void *dest, const void *src, size_t n)
 
 static void error(char *x)
 {
-
 	while (1)
 		;	/* Halt */
 }
-
-#define STACK_SIZE (4096)
-long user_stack[STACK_SIZE];
-long *stack_start = &user_stack[STACK_SIZE];
 
 void decompress_kernel(void)
 {

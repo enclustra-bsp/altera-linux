@@ -499,7 +499,7 @@ static struct attribute *ads7846_attributes[] = {
 	NULL,
 };
 
-static struct attribute_group ads7846_attr_group = {
+static const struct attribute_group ads7846_attr_group = {
 	.attrs = ads7846_attributes,
 	.is_visible = ads7846_is_visible,
 };
@@ -529,10 +529,8 @@ static int ads784x_hwmon_register(struct spi_device *spi, struct ads7846 *ts)
 
 	ts->hwmon = hwmon_device_register_with_groups(&spi->dev, spi->modalias,
 						      ts, ads7846_attr_groups);
-	if (IS_ERR(ts->hwmon))
-		return PTR_ERR(ts->hwmon);
 
-	return 0;
+	return PTR_ERR_OR_ZERO(ts->hwmon);
 }
 
 static void ads784x_hwmon_unregister(struct spi_device *spi,
@@ -601,7 +599,7 @@ static struct attribute *ads784x_attributes[] = {
 	NULL,
 };
 
-static struct attribute_group ads784x_attr_group = {
+static const struct attribute_group ads784x_attr_group = {
 	.attrs = ads784x_attributes,
 };
 
@@ -873,7 +871,7 @@ static irqreturn_t ads7846_irq(int irq, void *handle)
 				   msecs_to_jiffies(TS_POLL_PERIOD));
 	}
 
-	if (ts->pendown) {
+	if (ts->pendown && !ts->stopped) {
 		struct input_dev *input = ts->input;
 
 		input_report_key(input, BTN_TOUCH, 0);
@@ -1464,8 +1462,6 @@ static int ads7846_remove(struct spi_device *spi)
 {
 	struct ads7846 *ts = spi_get_drvdata(spi);
 
-	device_init_wakeup(&spi->dev, false);
-
 	sysfs_remove_group(&spi->dev.kobj, &ads784x_attr_group);
 
 	ads7846_disable(ts);
@@ -1475,7 +1471,6 @@ static int ads7846_remove(struct spi_device *spi)
 
 	ads784x_hwmon_unregister(spi, ts);
 
-	regulator_disable(ts->reg);
 	regulator_put(ts->reg);
 
 	if (!ts->get_pendown_state) {
@@ -1500,7 +1495,6 @@ static int ads7846_remove(struct spi_device *spi)
 static struct spi_driver ads7846_driver = {
 	.driver = {
 		.name	= "ads7846",
-		.owner	= THIS_MODULE,
 		.pm	= &ads7846_pm,
 		.of_match_table = of_match_ptr(ads7846_dt_ids),
 	},

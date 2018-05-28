@@ -28,7 +28,7 @@
 #include <linux/platform_device.h>
 #include <linux/of.h>
 #include <linux/of_gpio.h>
-#include <linux/i2c/twl.h>
+#include <linux/mfd/twl.h>
 #include <linux/slab.h>
 #include <linux/gpio.h>
 #include <sound/core.h>
@@ -232,7 +232,7 @@ static struct twl4030_codec_data *twl4030_get_pdata(struct snd_soc_codec *codec)
 	struct twl4030_codec_data *pdata = dev_get_platdata(codec->dev);
 	struct device_node *twl4030_codec_node = NULL;
 
-	twl4030_codec_node = of_find_node_by_name(codec->dev->parent->of_node,
+	twl4030_codec_node = of_get_child_by_name(codec->dev->parent->of_node,
 						  "codec");
 
 	if (!pdata && twl4030_codec_node) {
@@ -241,9 +241,11 @@ static struct twl4030_codec_data *twl4030_get_pdata(struct snd_soc_codec *codec)
 				     GFP_KERNEL);
 		if (!pdata) {
 			dev_err(codec->dev, "Can not allocate memory\n");
+			of_node_put(twl4030_codec_node);
 			return NULL;
 		}
 		twl4030_setup_pdata_of(pdata, twl4030_codec_node);
+		of_node_put(twl4030_codec_node);
 	}
 
 	return pdata;
@@ -1612,19 +1614,16 @@ static void twl4030_constraints(struct twl4030_priv *twl4030,
 		return;
 
 	/* Set the constraints according to the already configured stream */
-	snd_pcm_hw_constraint_minmax(slv_substream->runtime,
+	snd_pcm_hw_constraint_single(slv_substream->runtime,
 				SNDRV_PCM_HW_PARAM_RATE,
-				twl4030->rate,
 				twl4030->rate);
 
-	snd_pcm_hw_constraint_minmax(slv_substream->runtime,
+	snd_pcm_hw_constraint_single(slv_substream->runtime,
 				SNDRV_PCM_HW_PARAM_SAMPLE_BITS,
-				twl4030->sample_bits,
 				twl4030->sample_bits);
 
-	snd_pcm_hw_constraint_minmax(slv_substream->runtime,
+	snd_pcm_hw_constraint_single(slv_substream->runtime,
 				SNDRV_PCM_HW_PARAM_CHANNELS,
-				twl4030->channels,
 				twl4030->channels);
 }
 
@@ -1669,9 +1668,9 @@ static int twl4030_startup(struct snd_pcm_substream *substream,
 			/* In option2 4 channel is not supported, set the
 			 * constraint for the first stream for channels, the
 			 * second stream will 'inherit' this cosntraint */
-			snd_pcm_hw_constraint_minmax(substream->runtime,
+			snd_pcm_hw_constraint_single(substream->runtime,
 						     SNDRV_PCM_HW_PARAM_CHANNELS,
-						     2, 2);
+						     2);
 		}
 		twl4030->master_substream = substream;
 	}
@@ -2194,7 +2193,7 @@ static int twl4030_soc_remove(struct snd_soc_codec *codec)
 	return 0;
 }
 
-static struct snd_soc_codec_driver soc_codec_dev_twl4030 = {
+static const struct snd_soc_codec_driver soc_codec_dev_twl4030 = {
 	.probe = twl4030_soc_probe,
 	.remove = twl4030_soc_remove,
 	.read = twl4030_read,
@@ -2202,12 +2201,14 @@ static struct snd_soc_codec_driver soc_codec_dev_twl4030 = {
 	.set_bias_level = twl4030_set_bias_level,
 	.idle_bias_off = true,
 
-	.controls = twl4030_snd_controls,
-	.num_controls = ARRAY_SIZE(twl4030_snd_controls),
-	.dapm_widgets = twl4030_dapm_widgets,
-	.num_dapm_widgets = ARRAY_SIZE(twl4030_dapm_widgets),
-	.dapm_routes = intercon,
-	.num_dapm_routes = ARRAY_SIZE(intercon),
+	.component_driver = {
+		.controls		= twl4030_snd_controls,
+		.num_controls		= ARRAY_SIZE(twl4030_snd_controls),
+		.dapm_widgets		= twl4030_dapm_widgets,
+		.num_dapm_widgets	= ARRAY_SIZE(twl4030_dapm_widgets),
+		.dapm_routes		= intercon,
+		.num_dapm_routes	= ARRAY_SIZE(intercon),
+	},
 };
 
 static int twl4030_codec_probe(struct platform_device *pdev)

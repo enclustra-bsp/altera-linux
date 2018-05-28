@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /* thread_info.h: h8300 low-level thread information
  * adapted from the i386 and PPC versions by Yoshinori Sato <ysato@users.sourceforge.jp>
  *
@@ -13,6 +14,12 @@
 
 #ifdef __KERNEL__
 
+/*
+ * Size of kernel stack for each process. This must be a power of 2...
+ */
+#define THREAD_SIZE_ORDER	1
+#define THREAD_SIZE		8192	/* 2 pages */
+
 #ifndef __ASSEMBLY__
 
 /*
@@ -25,7 +32,6 @@ struct thread_info {
 	int		   cpu;			/* cpu we're on */
 	int		   preempt_count;	/* 0 => preemptable, <0 => BUG */
 	mm_segment_t		addr_limit;
-	struct restart_block restart_block;
 };
 
 /*
@@ -38,21 +44,10 @@ struct thread_info {
 	.cpu =		0,			\
 	.preempt_count = INIT_PREEMPT_COUNT,	\
 	.addr_limit	= KERNEL_DS,		\
-	.restart_block	= {			\
-		.fn = do_no_restart_syscall,	\
-	},					\
 }
 
 #define init_thread_info	(init_thread_union.thread_info)
 #define init_stack		(init_thread_union.stack)
-
-
-/*
- * Size of kernel stack for each process. This must be a power of 2...
- */
-#define THREAD_SIZE_ORDER	1
-#define THREAD_SIZE		8192	/* 2 pages */
-
 
 /* how to get the thread information struct from C */
 static inline struct thread_info *current_thread_info(void)

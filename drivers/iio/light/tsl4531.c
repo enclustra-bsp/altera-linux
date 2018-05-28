@@ -144,7 +144,6 @@ static const struct iio_info tsl4531_info = {
 	.read_raw = tsl4531_read_raw,
 	.write_raw = tsl4531_write_raw,
 	.attrs = &tsl4531_attribute_group,
-	.driver_module = THIS_MODULE,
 };
 
 static int tsl4531_check_id(struct i2c_client *client)
@@ -158,9 +157,9 @@ static int tsl4531_check_id(struct i2c_client *client)
 	case TSL45313_ID:
 	case TSL45315_ID:
 	case TSL45317_ID:
-		return 1;
-	default:
 		return 0;
+	default:
+		return -ENODEV;
 	}
 }
 
@@ -180,9 +179,10 @@ static int tsl4531_probe(struct i2c_client *client,
 	data->client = client;
 	mutex_init(&data->lock);
 
-	if (!tsl4531_check_id(client)) {
+	ret = tsl4531_check_id(client);
+	if (ret) {
 		dev_err(&client->dev, "no TSL4531 sensor\n");
-		return -ENODEV;
+		return ret;
 	}
 
 	ret = i2c_smbus_write_byte_data(data->client, TSL4531_CONTROL,

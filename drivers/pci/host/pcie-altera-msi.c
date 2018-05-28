@@ -1,4 +1,8 @@
 /*
+ * Altera PCIe MSI support
+ *
+ * Author: Ley Foon Tan <lftan@altera.com>
+ *
  * Copyright Altera Corporation (C) 2013-2015. All rights reserved
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -16,7 +20,7 @@
 
 #include <linux/interrupt.h>
 #include <linux/irqchip/chained_irq.h>
-#include <linux/module.h>
+#include <linux/init.h>
 #include <linux/msi.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
@@ -60,13 +64,11 @@ static void altera_msi_isr(struct irq_desc *desc)
 	struct irq_chip *chip = irq_desc_get_chip(desc);
 	struct altera_msi *msi;
 	unsigned long status;
-	u32 num_of_vectors;
 	u32 bit;
 	u32 virq;
 
 	chained_irq_enter(chip, desc);
 	msi = irq_desc_get_handler_data(desc);
-	num_of_vectors = msi->num_of_vectors;
 
 	while ((status = msi_readl(msi, MSI_STATUS)) != 0) {
 		for_each_set_bit(bit, &status, msi->num_of_vectors) {
@@ -181,6 +183,8 @@ static const struct irq_domain_ops msi_domain_ops = {
 
 static int altera_allocate_domains(struct altera_msi *msi)
 {
+	struct fwnode_handle *fwnode = of_node_to_fwnode(msi->pdev->dev.of_node);
+
 	msi->inner_domain = irq_domain_add_linear(NULL, msi->num_of_vectors,
 					     &msi_domain_ops, msi);
 	if (!msi->inner_domain) {
@@ -188,7 +192,7 @@ static int altera_allocate_domains(struct altera_msi *msi)
 		return -ENOMEM;
 	}
 
-	msi->msi_domain = pci_msi_create_irq_domain(msi->pdev->dev.of_node,
+	msi->msi_domain = pci_msi_create_irq_domain(fwnode,
 				&altera_msi_domain_info, msi->inner_domain);
 	if (!msi->msi_domain) {
 		dev_err(&msi->pdev->dev, "failed to create MSI domain\n");
@@ -235,11 +239,6 @@ static int altera_msi_probe(struct platform_device *pdev)
 	msi->pdev = pdev;
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "csr");
-	if (!res) {
-		dev_err(&pdev->dev, "no csr memory resource defined\n");
-		return -ENODEV;
-	}
-
 	msi->csr_base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(msi->csr_base)) {
 		dev_err(&pdev->dev, "failed to map csr memory\n");
@@ -248,11 +247,6 @@ static int altera_msi_probe(struct platform_device *pdev)
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 					   "vector_slave");
-	if (!res) {
-		dev_err(&pdev->dev, "no vector_slave memory resource defined\n");
-		return -ENODEV;
-	}
-
 	msi->vector_base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(msi->vector_base)) {
 		dev_err(&pdev->dev, "failed to map vector_slave memory\n");
@@ -271,9 +265,9 @@ static int altera_msi_probe(struct platform_device *pdev)
 		return ret;
 
 	msi->irq = platform_get_irq(pdev, 0);
-	if (msi->irq <= 0) {
+	if (msi->irq < 0) {
 		dev_err(&pdev->dev, "failed to map IRQ: %d\n", msi->irq);
-		ret = -ENODEV;
+		ret = msi->irq;
 		goto err;
 	}
 
@@ -306,7 +300,3 @@ static int __init altera_msi_init(void)
 	return platform_driver_register(&altera_msi_driver);
 }
 subsys_initcall(altera_msi_init);
-
-MODULE_AUTHOR("Ley Foon Tan <lftan@altera.com>");
-MODULE_DESCRIPTION("Altera PCIe MSI support");
-MODULE_LICENSE("GPL v2");

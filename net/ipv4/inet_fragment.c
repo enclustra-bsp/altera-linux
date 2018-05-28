@@ -147,7 +147,7 @@ inet_evict_bucket(struct inet_frags *f, struct inet_frag_bucket *hb)
 	spin_unlock(&hb->chain_lock);
 
 	hlist_for_each_entry_safe(fq, n, &expired, list_evictor)
-		f->frag_expire((unsigned long) fq);
+		f->frag_expire(&fq->timer);
 
 	return evicted;
 }
@@ -164,7 +164,7 @@ static void inet_frag_worker(struct work_struct *work)
 
 	local_bh_disable();
 
-	for (i = ACCESS_ONCE(f->next_bucket); budget; --budget) {
+	for (i = READ_ONCE(f->next_bucket); budget; --budget) {
 		evicted += inet_evict_bucket(f, &f->hash[i]);
 		i = (i + 1) & (INETFRAGS_HASHSZ - 1);
 		if (evicted > INETFRAGS_EVICT_MAX)
@@ -209,12 +209,6 @@ int inet_frags_init(struct inet_frags *f)
 }
 EXPORT_SYMBOL(inet_frags_init);
 
-void inet_frags_init_net(struct netns_frags *nf)
-{
-	init_frag_mem_limit(nf);
-}
-EXPORT_SYMBOL(inet_frags_init_net);
-
 void inet_frags_fini(struct inet_frags *f)
 {
 	cancel_work_sync(&f->frags_work);
@@ -240,10 +234,8 @@ evict_again:
 	cond_resched();
 
 	if (read_seqretry(&f->rnd_seqlock, seq) ||
-	    percpu_counter_sum(&nf->mem))
+	    sum_frag_mem_limit(nf))
 		goto evict_again;
-
-	percpu_counter_destroy(&nf->mem);
 }
 EXPORT_SYMBOL(inet_frags_exit_net);
 
@@ -282,22 +274,14 @@ static inline void fq_unlink(struct inet_frag_queue *fq, struct inet_frags *f)
 void inet_frag_kill(struct inet_frag_queue *fq, struct inet_frags *f)
 {
 	if (del_timer(&fq->timer))
-		atomic_dec(&fq->refcnt);
+		refcount_dec(&fq->refcnt);
 
 	if (!(fq->flags & INET_FRAG_COMPLETE)) {
 		fq_unlink(fq, f);
-		atomic_dec(&fq->refcnt);
+		refcount_dec(&fq->refcnt);
 	}
 }
 EXPORT_SYMBOL(inet_frag_kill);
-
-static inline void frag_kfree_skb(struct netns_frags *nf, struct inet_frags *f,
-				  struct sk_buff *skb)
-{
-	if (f->skb_free)
-		f->skb_free(skb);
-	kfree_skb(skb);
-}
 
 void inet_frag_destroy(struct inet_frag_queue *q, struct inet_frags *f)
 {
@@ -315,7 +299,7 @@ void inet_frag_destroy(struct inet_frag_queue *q, struct inet_frags *f)
 		struct sk_buff *xp = fp->next;
 
 		sum_truesize += fp->truesize;
-		frag_kfree_skb(nf, f, fp);
+		kfree_skb(fp);
 		fp = xp;
 	}
 	sum = sum_truesize + f->qsize;
@@ -343,7 +327,7 @@ static struct inet_frag_queue *inet_frag_intern(struct netns_frags *nf,
 	 */
 	hlist_for_each_entry(qp, &hb->chain, list) {
 		if (qp->net == nf && f->match(qp, arg)) {
-			atomic_inc(&qp->refcnt);
+			refcount_inc(&qp->refcnt);
 			spin_unlock(&hb->chain_lock);
 			qp_in->flags |= INET_FRAG_COMPLETE;
 			inet_frag_put(qp_in, f);
@@ -353,9 +337,9 @@ static struct inet_frag_queue *inet_frag_intern(struct netns_frags *nf,
 #endif
 	qp = qp_in;
 	if (!mod_timer(&qp->timer, jiffies + nf->timeout))
-		atomic_inc(&qp->refcnt);
+		refcount_inc(&qp->refcnt);
 
-	atomic_inc(&qp->refcnt);
+	refcount_inc(&qp->refcnt);
 	hlist_add_head(&qp->list, &hb->chain);
 
 	spin_unlock(&hb->chain_lock);
@@ -369,7 +353,7 @@ static struct inet_frag_queue *inet_frag_alloc(struct netns_frags *nf,
 {
 	struct inet_frag_queue *q;
 
-	if (frag_mem_limit(nf) > nf->high_thresh) {
+	if (!nf->high_thresh || frag_mem_limit(nf) > nf->high_thresh) {
 		inet_frag_schedule_worker(f);
 		return NULL;
 	}
@@ -382,9 +366,9 @@ static struct inet_frag_queue *inet_frag_alloc(struct netns_frags *nf,
 	f->constructor(q, arg);
 	add_frag_mem_limit(nf, f->qsize);
 
-	setup_timer(&q->timer, f->frag_expire, (unsigned long)q);
+	timer_setup(&q->timer, f->frag_expire, 0);
 	spin_lock_init(&q->lock);
-	atomic_set(&q->refcnt, 1);
+	refcount_set(&q->refcnt, 1);
 
 	return q;
 }
@@ -419,7 +403,7 @@ struct inet_frag_queue *inet_frag_find(struct netns_frags *nf,
 	spin_lock(&hb->chain_lock);
 	hlist_for_each_entry(q, &hb->chain, list) {
 		if (q->net == nf && f->match(q, key)) {
-			atomic_inc(&q->refcnt);
+			refcount_inc(&q->refcnt);
 			spin_unlock(&hb->chain_lock);
 			return q;
 		}
