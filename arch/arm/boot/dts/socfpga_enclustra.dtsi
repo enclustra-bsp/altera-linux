@@ -451,13 +451,13 @@
 						clk-phase = <0 135>;
 					};
 
-                                        sdmmc_clk_divided: sdmmc_clk_divided {
-                                                #clock-cells = <0>;
-                                                compatible = "altr,socfpga-gate-clk";
-                                                clocks = <&sdmmc_clk>;
-                                                clk-gate = <0xa0 8>;
-                                                fixed-divider = <4>;
-                                        };
+					sdmmc_clk_divided: sdmmc_clk_divided {
+						#clock-cells = <0>;
+						compatible = "altr,socfpga-gate-clk";
+						clocks = <&sdmmc_clk>;
+						clk-gate = <0xa0 8>;
+						fixed-divider = <4>;
+					};
 
 					nand_x_clk: nand_x_clk {
 						#clock-cells = <0>;
@@ -517,12 +517,12 @@
 		};
 
 		hps_0_fpgamgr: fpgamgr@0xff706000 {
-                        compatible = "altr,fpga-mgr-1.0", "altr,fpga-mgr";
-                        transport = "mmio";
-                        reg = <0xFF706000 0x1000
-                        0xFFB90000 0x1000>;
-                        interrupts = <0 175 4>;
-                };
+			compatible = "altr,fpga-mgr-1.0", "altr,fpga-mgr";
+			transport = "mmio";
+			reg = <0xFF706000 0x1000
+			0xFFB90000 0x1000>;
+			interrupts = <0 175 4>;
+		};
 
 		i2c0: i2c@ffc04000 {
 			#address-cells = <1>;
