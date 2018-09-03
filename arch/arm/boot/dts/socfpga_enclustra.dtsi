@@ -664,13 +664,14 @@
 		qspi: spi@0xff705000 {
 			compatible = "cdns,qspi-nor";
 			reg = <0xff705000 0x1000>,
-				<0xffa00000 0x1000>;
+			      <0xffa00000 0x1000>;
 			interrupts = <0 151 4>;
-			ext-decoder = <0>;
 			clocks = <&qspi_clk>;
 			#address-cells = <1>;
 			#size-cells = <0>;
-			fifo-depth = <128>;
+			cdns,fifo-depth = <128>;
+			cdns,fifo-width = <4>;
+			cdns,trigger-address = <0x00000000>;
 			status = "disabled";
 		};
 		spi0: spi@fff00000 {
