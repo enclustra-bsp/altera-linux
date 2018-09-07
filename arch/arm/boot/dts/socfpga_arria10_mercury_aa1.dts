@@ -22,7 +22,7 @@
 		cdns,page-size = <256>;
 		cdns,block-size = <16>;
 		m25p,fast-read;
-		cdns,read-delay = <6>;
+		cdns,read-delay = <4>;
 		cdns,tshsl-ns = <200>;
 		cdns,tsd2d-ns = <255>;
 		cdns,tchsh-ns = <20>;
