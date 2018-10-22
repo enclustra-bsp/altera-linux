@@ -83,6 +83,7 @@ struct cqspi_st {
 	u32			trigger_address;
 	u32			wr_delay;
 	struct cqspi_flash_pdata f_pdata[CQSPI_MAX_CHIPSELECT];
+	bool                    initialized;
 };
 
 /* Operation timeout value */
@@ -777,11 +778,19 @@ static void cqspi_delay(struct spi_nor *nor)
 static void cqspi_config_baudrate_div(struct cqspi_st *cqspi)
 {
 	const unsigned int ref_clk_hz = cqspi->master_ref_clk_hz;
+	unsigned int sclk;
 	void __iomem *reg_base = cqspi->iobase;
 	u32 reg, div;
+	if (cqspi->initialized)
+		sclk = cqspi->sclk;
+	else {
+		/* first read of id is done at 1 MHz */
+		sclk = 1000000;
+		cqspi->initialized = true;
+	}
 
 	/* Recalculate the baudrate divisor based on QSPI specification. */
-	div = DIV_ROUND_UP(ref_clk_hz, 2 * cqspi->sclk) - 1;
+	div = DIV_ROUND_UP(ref_clk_hz, 2 * sclk) - 1;
 
 	reg = readl(reg_base + CQSPI_REG_CONFIG);
 	reg &= ~(CQSPI_REG_CONFIG_BAUD_MASK << CQSPI_REG_CONFIG_BAUD_LSB);
