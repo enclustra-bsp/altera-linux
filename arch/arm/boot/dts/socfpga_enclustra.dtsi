@@ -36,6 +36,7 @@
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
+		enable-method = "altr,socfpga-smp";
 
 		cpu@0 {
 			compatible = "arm,cortex-a9";
@@ -668,6 +669,11 @@
 			compatible = "altr,rst-mgr";
 			reg = <0xffd05000 0x1000>;
 			altr,modrst-offset = <0x10>;
+		};
+
+		scu: snoop-control-unit@fffec000 {
+			compatible = "arm,cortex-a9-scu";
+			reg = <0xfffec000 0x100>;
 		};
 
 		sdr: sdr@ffc25000 {
