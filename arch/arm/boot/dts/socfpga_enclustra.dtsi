@@ -452,14 +452,6 @@
 						clk-phase = <0 135>;
 					};
 
-					sdmmc_clk_divided: sdmmc_clk_divided {
-						#clock-cells = <0>;
-						compatible = "altr,socfpga-gate-clk";
-						clocks = <&sdmmc_clk>;
-						clk-gate = <0xa0 8>;
-						fixed-divider = <4>;
-					};
-
 					nand_x_clk: nand_x_clk {
 						#clock-cells = <0>;
 						compatible = "altr,socfpga-gate-clk";
@@ -641,7 +633,7 @@
 			fifo-depth = <0x400>;
 			#address-cells = <1>;
 			#size-cells = <0>;
-			clocks = <&l4_mp_clk>, <&sdmmc_clk_divided>;
+			clocks = <&l4_mp_clk>, <&sdmmc_clk>;
 			clock-names = "biu", "ciu";
 		};
 
