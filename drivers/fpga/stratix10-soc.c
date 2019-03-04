@@ -1,25 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * FPGA Manager Driver for Intel Stratix10 SoC
  *
  *  Copyright (C) 2018 Intel Corporation
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <linux/completion.h>
 #include <linux/fpga/fpga-mgr.h>
-#include <linux/intel-service-client.h>
+#include <linux/firmware/intel/stratix10-svc-client.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
 
 /*
  * FPGA programming requires a higher level of privilege (EL3), per the SoC
@@ -31,10 +21,13 @@
 /* Indicates buffer is in use if set */
 #define SVC_BUF_LOCK	0
 
-/**
+#define S10_BUFFER_TIMEOUT (msecs_to_jiffies(SVC_RECONFIG_BUFFER_TIMEOUT_MS))
+#define S10_RECONFIG_TIMEOUT (msecs_to_jiffies(SVC_RECONFIG_REQUEST_TIMEOUT_MS))
+
+/*
  * struct s10_svc_buf
- * @buf: virtual address of buf provided by service layer
- * @lock: locked if buffer is in use
+ * buf:  virtual address of buf provided by service layer
+ * lock: locked if buffer is in use
  */
 struct s10_svc_buf {
 	char *buf;
@@ -42,39 +35,37 @@ struct s10_svc_buf {
 };
 
 struct s10_priv {
-	struct intel_svc_chan *chan;
-	struct intel_svc_client client;
+	struct stratix10_svc_chan *chan;
+	struct stratix10_svc_client client;
 	struct completion status_return_completion;
 	struct s10_svc_buf svc_bufs[NUM_SVC_BUFS];
 	unsigned long status;
 };
 
 static int s10_svc_send_msg(struct s10_priv *priv,
-			    enum intel_svc_command_code command,
+			    enum stratix10_svc_command_code command,
 			    void *payload, u32 payload_length)
 {
-	struct intel_svc_chan *chan = priv->chan;
-	struct intel_svc_client_msg msg;
+	struct stratix10_svc_chan *chan = priv->chan;
+	struct device *dev = priv->client.dev;
+	struct stratix10_svc_client_msg msg;
 	int ret;
 
-	pr_debug("%s cmd=%d payload=%p legnth=%d\n",
-		 __func__, command, payload, payload_length);
+	dev_dbg(dev, "%s cmd=%d payload=%p length=%d\n",
+		__func__, command, payload, payload_length);
 
 	msg.command = command;
 	msg.payload = payload;
 	msg.payload_length = payload_length;
 
-	ret = intel_svc_send(chan, &msg);
-	pr_debug("intel_svc_send returned status %d\n", ret);
+	ret = stratix10_svc_send(chan, &msg);
+	dev_dbg(dev, "stratix10_svc_send returned status %d\n", ret);
 
 	return ret;
 }
 
-/**
- * s10_free_buffers
+/*
  * Free buffers allocated from the service layer's pool that are not in use.
- * @mgr: fpga manager struct
- * Free all buffers that are not in use.
  * Return true when all buffers are freed.
  */
 static bool s10_free_buffers(struct fpga_manager *mgr)
@@ -91,8 +82,8 @@ static bool s10_free_buffers(struct fpga_manager *mgr)
 
 		if (!test_and_set_bit_lock(SVC_BUF_LOCK,
 					   &priv->svc_bufs[i].lock)) {
-			intel_svc_free_memory(priv->chan,
-					      priv->svc_bufs[i].buf);
+			stratix10_svc_free_memory(priv->chan,
+						  priv->svc_bufs[i].buf);
 			priv->svc_bufs[i].buf = NULL;
 			num_free++;
 		}
@@ -101,11 +92,8 @@ static bool s10_free_buffers(struct fpga_manager *mgr)
 	return num_free == NUM_SVC_BUFS;
 }
 
-/**
- * s10_free_buffer_count
- * Count how many buffers are not in use.
- * @mgr: fpga manager struct
- * Return # of buffers that are not in use.
+/*
+ * Returns count of how many buffers are not in use.
  */
 static uint s10_free_buffer_count(struct fpga_manager *mgr)
 {
@@ -120,13 +108,13 @@ static uint s10_free_buffer_count(struct fpga_manager *mgr)
 	return num_free;
 }
 
-/**
+/*
  * s10_unlock_bufs
  * Given the returned buffer address, match that address to our buffer struct
  * and unlock that buffer.  This marks it as available to be refilled and sent
  * (or freed).
- * @priv: private data
- * @kaddr: kernel address of buffer that was returned from service layer
+ * priv: private data
+ * kaddr: kernel address of buffer that was returned from service layer
  */
 static void s10_unlock_bufs(struct s10_priv *priv, void *kaddr)
 {
@@ -145,21 +133,20 @@ static void s10_unlock_bufs(struct s10_priv *priv, void *kaddr)
 	WARN(1, "Unknown buffer returned from service layer %p\n", kaddr);
 }
 
-/**
- * s10_receive_callback
- * Callback for service layer to use to provide client (this driver) messages
- * received through the mailbox.
- * @client: service layer client struct
- * @data: message
+/*
+ * s10_receive_callback - callback for service layer to use to provide client
+ * (this driver) messages received through the mailbox.
+ * client: service layer client struct
+ * data: message from service layer
  */
-static void s10_receive_callback(struct intel_svc_client *client,
-				 struct intel_svc_c_data *data)
+static void s10_receive_callback(struct stratix10_svc_client *client,
+				 struct stratix10_svc_cb_data *data)
 {
 	struct s10_priv *priv = client->priv;
 	u32 status;
 	int i;
 
-	WARN_ONCE(!data, "%s: intel_svc_rc_data = NULL", __func__);
+	WARN_ONCE(!data, "%s: stratix10_svc_rc_data = NULL", __func__);
 
 	status = data->status;
 
@@ -180,14 +167,9 @@ static void s10_receive_callback(struct intel_svc_client *client,
 	complete(&priv->status_return_completion);
 }
 
-/**
- * s10_ops_write_init
- * Prepare for FPGA reconfiguration by requesting partial reconfig and
- * allocating buffers from the service layer.
- * @mgr: fpga manager
- * @info: fpga image info
- * @buf: fpga image buffer
- * @count: size of buf in bytes
+/*
+ * s10_ops_write_init - prepare for FPGA reconfiguration by requesting
+ * partial reconfig and allocating buffers from the service layer.
  */
 static int s10_ops_write_init(struct fpga_manager *mgr,
 			      struct fpga_image_info *info,
@@ -195,138 +177,133 @@ static int s10_ops_write_init(struct fpga_manager *mgr,
 {
 	struct s10_priv *priv = mgr->priv;
 	struct device *dev = priv->client.dev;
-	unsigned long timeout;
-	struct intel_command_reconfig_payload payload;
+	struct stratix10_svc_command_config_type ctype;
 	char *kbuf;
 	uint i;
 	int ret;
 
+	ctype.flags = 0;
 	if (info->flags & FPGA_MGR_PARTIAL_RECONFIG) {
-		dev_info(dev, "Requesting partial reconfiguration.\n");
-		payload.flags |= BIT(COMMAND_RECONFIG_FLAG_PARTIAL);
+		dev_dbg(dev, "Requesting partial reconfiguration.\n");
+		ctype.flags |= BIT(COMMAND_RECONFIG_FLAG_PARTIAL);
 	} else {
-		dev_info(dev, "Requesting full reconfiguration.\n");
+		dev_dbg(dev, "Requesting full reconfiguration.\n");
 	}
 
 	reinit_completion(&priv->status_return_completion);
 	ret = s10_svc_send_msg(priv, COMMAND_RECONFIG,
-			       &payload, sizeof(payload));
+			       &ctype, sizeof(ctype));
 	if (ret < 0)
-		return ret;
+		goto init_done;
 
-	timeout = msecs_to_jiffies(SVC_RECONFIG_REQUEST_TIMEOUT_MS);
 	ret = wait_for_completion_interruptible_timeout(
-		&priv->status_return_completion, timeout);
+		&priv->status_return_completion, S10_RECONFIG_TIMEOUT);
 	if (!ret) {
 		dev_err(dev, "timeout waiting for RECONFIG_REQUEST\n");
-		return -ETIMEDOUT;
+		ret = -ETIMEDOUT;
+		goto init_done;
 	}
 	if (ret < 0) {
 		dev_err(dev, "error (%d) waiting for RECONFIG_REQUEST\n", ret);
-		return ret;
+		goto init_done;
 	}
 
+	ret = 0;
 	if (!test_and_clear_bit(SVC_STATUS_RECONFIG_REQUEST_OK,
-				&priv->status))
-		return -ETIMEDOUT;
+				&priv->status)) {
+		ret = -ETIMEDOUT;
+		goto init_done;
+	}
 
 	/* Allocate buffers from the service layer's pool. */
 	for (i = 0; i < NUM_SVC_BUFS; i++) {
-		kbuf = intel_svc_allocate_memory(priv->chan, SVC_BUF_SIZE);
+		kbuf = stratix10_svc_allocate_memory(priv->chan, SVC_BUF_SIZE);
 		if (!kbuf) {
 			s10_free_buffers(mgr);
-			return -ENOMEM;
+			ret = -ENOMEM;
+			goto init_done;
 		}
 
 		priv->svc_bufs[i].buf = kbuf;
 		priv->svc_bufs[i].lock = 0;
 	}
 
-	return 0;
+init_done:
+	stratix10_svc_done(priv->chan);
+	return ret;
 }
 
-/**
- * s10_send_buf
- * Send a buffer to the service layer queue
- * @mgr: fpga manager struct
- * @buf_num: index of buffer in svc_bufs array
- * @buf: fpga image buffer
- * @count: size of buf in bytes
- * Returns # of bytes transferred or -errno, never 0
+/*
+ * s10_send_buf - send a buffer to the service layer queue
+ * mgr: fpga manager struct
+ * buf: fpga image buffer
+ * count: size of buf in bytes
+ * Returns # of bytes transferred or -ENOBUFS if the all the buffers are in use
+ * or if the service queue is full. Never returns 0.
  */
-static int s10_send_buf(struct fpga_manager *mgr, uint buf_num,
-			const char *buf, size_t count)
-
+static int s10_send_buf(struct fpga_manager *mgr, const char *buf, size_t count)
 {
 	struct s10_priv *priv = mgr->priv;
 	struct device *dev = priv->client.dev;
 	void *svc_buf;
 	size_t xfer_sz;
 	int ret;
+	uint i;
+
+	/* get/lock a buffer that that's not being used */
+	for (i = 0; i < NUM_SVC_BUFS; i++)
+		if (!test_and_set_bit_lock(SVC_BUF_LOCK,
+					   &priv->svc_bufs[i].lock))
+			break;
+
+	if (i == NUM_SVC_BUFS)
+		return -ENOBUFS;
 
 	xfer_sz = count < SVC_BUF_SIZE ? count : SVC_BUF_SIZE;
 
-	svc_buf = priv->svc_bufs[buf_num].buf;
+	svc_buf = priv->svc_bufs[i].buf;
 	memcpy(svc_buf, buf, xfer_sz);
 	ret = s10_svc_send_msg(priv, COMMAND_RECONFIG_DATA_SUBMIT,
 			       svc_buf, xfer_sz);
 	if (ret < 0) {
 		dev_err(dev,
 			"Error while sending data to service layer (%d)", ret);
+		clear_bit_unlock(SVC_BUF_LOCK, &priv->svc_bufs[i].lock);
 		return ret;
 	}
 
 	return xfer_sz;
 }
 
-/**
- * s10_ops_write
+/*
  * Send a FPGA image to privileged layers to write to the FPGA.  When done
  * sending, free all service layer buffers we allocated in write_init.
- * @mgr: fpga manager
- * @buf: fpga image buffer
- * @count: size of buf in bytes
- * Returns 0 for success or negative errno.
  */
 static int s10_ops_write(struct fpga_manager *mgr, const char *buf,
 			 size_t count)
 {
 	struct s10_priv *priv = mgr->priv;
 	struct device *dev = priv->client.dev;
-	unsigned long timeout;
-	size_t sent = 0;
+	long wait_status;
+	int sent = 0;
 	int ret = 0;
-	uint i;
 
-	timeout = msecs_to_jiffies(SVC_RECONFIG_BUFFER_TIMEOUT_MS);
-
-	/* Buffer loop: either send buffers or free them. */
-	while (1) {
+	/*
+	 * Loop waiting for buffers to be returned.  When a buffer is returned,
+	 * reuse it to send more data or free if if all data has been sent.
+	 */
+	while (count > 0 || s10_free_buffer_count(mgr) != NUM_SVC_BUFS) {
 		reinit_completion(&priv->status_return_completion);
 
 		if (count > 0) {
-			for (i = 0; i < NUM_SVC_BUFS; i++)
-				if (!test_and_set_bit_lock(
-					 SVC_BUF_LOCK, &priv->svc_bufs[i].lock))
-					break;
-
-			if (i == NUM_SVC_BUFS)
-				/* wait for a free buffer */
-				continue;
-
-			sent = s10_send_buf(mgr, i, buf, count);
-			/*
-			 * If service queue was full, we won't get a callback.
-			 * Wait and try again
-			 */
+			sent = s10_send_buf(mgr, buf, count);
 			if (sent < 0)
 				continue;
 
 			count -= sent;
 			buf += sent;
 		} else {
-			s10_free_buffers(mgr);
-			if (s10_free_buffer_count(mgr) == NUM_SVC_BUFS)
+			if (s10_free_buffers(mgr))
 				return 0;
 
 			ret = s10_svc_send_msg(
@@ -340,19 +317,19 @@ static int s10_ops_write(struct fpga_manager *mgr, const char *buf,
 		 * If callback hasn't already happened, wait for buffers to be
 		 * returned from service layer
 		 */
-		if (priv->status)
+		wait_status = 1; /* not timed out */
+		if (!priv->status)
+			wait_status = wait_for_completion_interruptible_timeout(
+				&priv->status_return_completion,
+				S10_BUFFER_TIMEOUT);
+
+		if (test_and_clear_bit(SVC_STATUS_RECONFIG_BUFFER_DONE,
+				       &priv->status) ||
+		    test_and_clear_bit(SVC_STATUS_RECONFIG_BUFFER_SUBMITTED,
+				       &priv->status)) {
 			ret = 0;
-		else
-			ret = wait_for_completion_interruptible_timeout(
-				&priv->status_return_completion, timeout);
-
-		if (test_and_clear_bit(
-				SVC_STATUS_RECONFIG_BUFFER_DONE, &priv->status))
 			continue;
-
-		if (test_and_clear_bit(SVC_STATUS_RECONFIG_BUFFER_SUBMITTED,
-				       &priv->status))
-			continue;
+		}
 
 		if (test_and_clear_bit(SVC_STATUS_RECONFIG_ERROR,
 				       &priv->status)) {
@@ -361,12 +338,13 @@ static int s10_ops_write(struct fpga_manager *mgr, const char *buf,
 			break;
 		}
 
-		if (!ret) {
+		if (!wait_status) {
 			dev_err(dev, "timeout waiting for svc layer buffers\n");
 			ret = -ETIMEDOUT;
 			break;
 		}
-		if (ret < 0) {
+		if (wait_status < 0) {
+			ret = wait_status;
 			dev_err(dev,
 				"error (%d) waiting for svc layer buffers\n",
 				ret);
@@ -374,20 +352,12 @@ static int s10_ops_write(struct fpga_manager *mgr, const char *buf,
 		}
 	}
 
-	s10_free_buffers(mgr);
-	if (s10_free_buffer_count(mgr) != NUM_SVC_BUFS)
+	if (!s10_free_buffers(mgr))
 		dev_err(dev, "%s not all buffers were freed\n", __func__);
 
 	return ret;
 }
 
-/**
- * s10_ops_write_complete
- * Wait for FPGA configuration to be done
- * @mgr: fpga manager
- * @info: fpga image info
- * Returns 0 for success negative errno.
- */
 static int s10_ops_write_complete(struct fpga_manager *mgr,
 				  struct fpga_image_info *info)
 {
@@ -403,23 +373,25 @@ static int s10_ops_write_complete(struct fpga_manager *mgr,
 
 		ret = s10_svc_send_msg(priv, COMMAND_RECONFIG_STATUS, NULL, 0);
 		if (ret < 0)
-			return ret;
+			break;
 
 		ret = wait_for_completion_interruptible_timeout(
 			&priv->status_return_completion, timeout);
 		if (!ret) {
 			dev_err(dev,
 				"timeout waiting for RECONFIG_COMPLETED\n");
-			return -ETIMEDOUT;
+			ret = -ETIMEDOUT;
+			break;
 		}
 		if (ret < 0) {
 			dev_err(dev,
 				"error (%d) waiting for RECONFIG_COMPLETED\n",
 				ret);
-			return ret;
+			break;
 		}
 		/* Not error or timeout, so ret is # of jiffies until timeout */
 		timeout = ret;
+		ret = 0;
 
 		if (test_and_clear_bit(SVC_STATUS_RECONFIG_COMPLETED,
 				       &priv->status))
@@ -428,11 +400,14 @@ static int s10_ops_write_complete(struct fpga_manager *mgr,
 		if (test_and_clear_bit(SVC_STATUS_RECONFIG_ERROR,
 				       &priv->status)) {
 			dev_err(dev, "ERROR - giving up - SVC_STATUS_RECONFIG_ERROR\n");
-			return -EFAULT;
+			ret = -EFAULT;
+			break;
 		}
 	} while (1);
 
-	return 0;
+	stratix10_svc_done(priv->chan);
+
+	return ret;
 }
 
 static enum fpga_mgr_states s10_ops_state(struct fpga_manager *mgr)
@@ -451,6 +426,7 @@ static int s10_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct s10_priv *priv;
+	struct fpga_manager *mgr;
 	int ret;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
@@ -461,8 +437,8 @@ static int s10_probe(struct platform_device *pdev)
 	priv->client.receive_cb = s10_receive_callback;
 	priv->client.priv = priv;
 
-	priv->chan = request_svc_channel_byname(&priv->client,
-						SVC_CLIENT_FPGA);
+	priv->chan = stratix10_svc_request_channel_byname(&priv->client,
+							  SVC_CLIENT_FPGA);
 	if (IS_ERR(priv->chan)) {
 		dev_err(dev, "couldn't get service channel (%s)\n",
 			SVC_CLIENT_FPGA);
@@ -471,12 +447,26 @@ static int s10_probe(struct platform_device *pdev)
 
 	init_completion(&priv->status_return_completion);
 
-	ret = fpga_mgr_register(dev, "Stratix10 SOC FPGA Manager",
-				&s10_ops, priv);
+	mgr = fpga_mgr_create(dev, "Stratix10 SOC FPGA Manager",
+			      &s10_ops, priv);
+	if (!mgr) {
+		dev_err(dev, "unable to create FPGA manager\n");
+		ret = -ENOMEM;
+		goto probe_err;
+	}
 
-	if (ret)
-		free_svc_channel(priv->chan);
+	ret = fpga_mgr_register(mgr);
+	if (ret) {
+		dev_err(dev, "unable to register FPGA manager\n");
+		fpga_mgr_free(mgr);
+		goto probe_err;
+	}
 
+	platform_set_drvdata(pdev, mgr);
+	return ret;
+
+probe_err:
+	stratix10_svc_free_channel(priv->chan);
 	return ret;
 }
 
@@ -485,8 +475,8 @@ static int s10_remove(struct platform_device *pdev)
 	struct fpga_manager *mgr = platform_get_drvdata(pdev);
 	struct s10_priv *priv = mgr->priv;
 
-	fpga_mgr_unregister(&pdev->dev);
-	free_svc_channel(priv->chan);
+	fpga_mgr_unregister(mgr);
+	stratix10_svc_free_channel(priv->chan);
 
 	return 0;
 }
@@ -507,7 +497,38 @@ static struct platform_driver s10_driver = {
 	},
 };
 
-module_platform_driver(s10_driver);
+static int __init s10_init(void)
+{
+	struct device_node *fw_np;
+	struct device_node *np;
+	int ret;
+
+	fw_np = of_find_node_by_name(NULL, "svc");
+	if (!fw_np)
+		return -ENODEV;
+
+	np = of_find_matching_node(fw_np, s10_of_match);
+	if (!np) {
+		of_node_put(fw_np);
+		return -ENODEV;
+	}
+
+	of_node_put(np);
+	ret = of_platform_populate(fw_np, s10_of_match, NULL, NULL);
+	of_node_put(fw_np);
+	if (ret)
+		return ret;
+
+	return platform_driver_register(&s10_driver);
+}
+
+static void __exit s10_exit(void)
+{
+	return platform_driver_unregister(&s10_driver);
+}
+
+module_init(s10_init);
+module_exit(s10_exit);
 
 MODULE_AUTHOR("Alan Tull <atull@kernel.org>");
 MODULE_DESCRIPTION("Intel Stratix 10 SOC FPGA Manager");

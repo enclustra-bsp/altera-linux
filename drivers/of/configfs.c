@@ -40,38 +40,16 @@ struct cfs_overlay_item {
 	int			dtbo_size;
 };
 
-static int create_overlay(struct cfs_overlay_item *overlay, void *blob)
+static int create_overlay(struct cfs_overlay_item *overlay, const void *blob,
+			  size_t size)
 {
 	int err;
 
-	/* unflatten the tree */
-	of_fdt_unflatten_tree(blob, NULL, &overlay->overlay);
-	if (overlay->overlay == NULL) {
-		pr_err("%s: failed to unflatten tree\n", __func__);
-		err = -EINVAL;
-		goto out_err;
-	}
-	pr_debug("%s: unflattened OK\n", __func__);
+	err = of_overlay_fdt_apply(blob, size, &overlay->ov_id);
+	if (err < 0)
+		pr_err("%s: Failed to create overlay (err=%d)\n", __func__,
+		       err);
 
-	/* mark it as detached */
-	of_node_set_flag(overlay->overlay, OF_DETACHED);
-
-	/* perform resolution */
-	err = of_resolve_phandles(overlay->overlay);
-	if (err != 0) {
-		pr_err("%s: Failed to resolve tree\n", __func__);
-		goto out_err;
-	}
-	pr_debug("%s: resolved OK\n", __func__);
-
-	err = of_overlay_apply(overlay->overlay, &overlay->ov_id);
-	if (err < 0) {
-		pr_err("%s: Failed to create overlay (err=%d)\n",
-				__func__, err);
-		goto out_err;
-	}
-
-out_err:
 	return err;
 }
 
@@ -113,7 +91,7 @@ static ssize_t cfs_overlay_item_path_store(struct config_item *item,
 	if (err != 0)
 		goto out_err;
 
-	err = create_overlay(overlay, (void *)overlay->fw->data);
+	err = create_overlay(overlay, overlay->fw->data, overlay->fw->size);
 	if (err < 0)
 		goto out_err;
 
@@ -144,12 +122,12 @@ static struct configfs_attribute *cfs_overlay_attrs[] = {
 	NULL,
 };
 
-ssize_t cfs_overlay_item_dtbo_read(struct config_item *item, void *buf,
+static ssize_t cfs_overlay_item_dtbo_read(struct config_item *item, void *buf,
 		size_t max_count)
 {
 	struct cfs_overlay_item *overlay = to_cfs_overlay_item(item);
 
-	pr_debug("%s: buf=%p max_count=%u\n", __func__,
+	pr_debug("%s: buf=%p max_count=%zu\n", __func__,
 			buf, max_count);
 
 	if (overlay->dtbo == NULL)
@@ -167,8 +145,8 @@ ssize_t cfs_overlay_item_dtbo_read(struct config_item *item, void *buf,
 	return overlay->dtbo_size;
 }
 
-ssize_t cfs_overlay_item_dtbo_write(struct config_item *item, const void *buf,
-		size_t count)
+static ssize_t cfs_overlay_item_dtbo_write(struct config_item *item,
+		const void *buf, size_t count)
 {
 	struct cfs_overlay_item *overlay = to_cfs_overlay_item(item);
 	int err;
@@ -184,7 +162,7 @@ ssize_t cfs_overlay_item_dtbo_write(struct config_item *item, const void *buf,
 
 	overlay->dtbo_size = count;
 
-	err = create_overlay(overlay, overlay->dtbo);
+	err = create_overlay(overlay, overlay->dtbo, overlay->dtbo_size);
 	if (err < 0)
 		goto out_err;
 
@@ -270,7 +248,7 @@ static struct config_item_type of_cfs_type = {
 	.ct_owner       = THIS_MODULE,
 };
 
-struct config_group of_cfs_overlay_group;
+static struct config_group of_cfs_overlay_group;
 
 static struct configfs_subsystem of_cfs_subsys = {
 	.su_group = {

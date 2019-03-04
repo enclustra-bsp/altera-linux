@@ -53,7 +53,7 @@ config AD525X_DPOT_SPI
 
 config ATMEL_TCLIB
 	bool "Atmel AT32/AT91 Timer/Counter Library"
-	depends on (AVR32 || ARCH_AT91)
+	depends on ARCH_AT91
 	help
 	  Select this if you want a library to allocate the Timer/Counter
 	  blocks found on many Atmel processors.  This facilitates using
@@ -75,7 +75,6 @@ config ATMEL_TCB_CLKSRC
 config ATMEL_TCB_CLKSRC_BLOCK
 	int
 	depends on ATMEL_TCB_CLKSRC
-	prompt "TC Block" if CPU_AT32AP700X
 	default 0
 	range 0 1
 	help
@@ -114,6 +113,20 @@ config IBM_ASM
 	  for information on the specific driver level and support statement
 	  for your IBM server.
 
+config IBMVMC
+	tristate "IBM Virtual Management Channel support"
+	depends on PPC_PSERIES
+	help
+	  This is the IBM POWER Virtual Management Channel
+
+	  This driver is to be used for the POWER Virtual
+	  Management Channel virtual adapter on the PowerVM
+	  platform. It provides both request/response and
+	  async message support through the /dev/ibmvmc node.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ibmvmc.
+
 config PHANTOM
 	tristate "Sensable PHANToM (PCI)"
 	depends on PCI
@@ -139,18 +152,23 @@ config INTEL_MID_PTI
 	  an Intel Atom (non-netbook) mobile device containing a MIPI
 	  P1149.7 standard implementation.
 
-config INTEL_SERVICE
-	tristate "Intel Service Layer"
-	depends on ARCH_STRATIX10
-	default n
+config INTEL_RSU
+	tristate "Intel Remote System Update"
+	depends on INTEL_STRATIX10_SERVICE
 	help
-	  Intel service layer runs at privileged exception level, interfaces with
-	  the service providers (FPGA manager is one of them) and manages secure
-	  monitor call to communicate with secure monitor software at secure monitor
-	  exception level.
+	  The Intel Remote System Update (RSU) driver exposes interfaces
+	  accessed through the Intel Service Layer to user space via SysFS
+	  device attribute nodes. The RSU interfaces report/control some of
+	  the optional RSU features of the Stratix 10 SoC FPGA.
 
-	  Say Y here if you want Intel service layer support.
+	  The RSU feature provides a way for customers to update the boot
+	  configuration of a Stratix 10 SoC device with significantly reduced
+	  risk of corrupting the bitstream storage and bricking the system.
 
+	  Enable RSU support if you are using an Intel SoC FPGA with the RSU
+	  feature enabled and you want Linux user space control.
+
+	  Say Y here if you want Intel RSU support.
 
 config SGI_IOC4
 	tristate "SGI IOC4 Base IO support"
@@ -205,7 +223,7 @@ config ICS932S401
 
 config ATMEL_SSC
 	tristate "Device driver for Atmel SSC peripheral"
-	depends on HAS_IOMEM && (AVR32 || ARCH_AT91 || COMPILE_TEST)
+	depends on HAS_IOMEM && (ARCH_AT91 || COMPILE_TEST)
 	---help---
 	  This option enables device driver support for Atmel Synchronized
 	  Serial Communication peripheral (SSC).
@@ -509,11 +527,9 @@ config PCI_ENDPOINT_TEST
            Enable this configuration option to enable the host side test driver
            for PCI Endpoint.
 
-config ALTERA_HWMUTEX
-	tristate "Altera Hardware Mutex"
-	help
-	  This option enables device driver support for Altera Hardware Mutex.
-	  Say Y here if you want to use the Altera hardware mutex support.
+config MISC_RTSX
+	tristate
+	default MISC_RTSX_PCI || MISC_RTSX_USB
 
 config ALTERA_SYSID
 	tristate "Altera System ID"
@@ -538,4 +554,6 @@ source "drivers/misc/mic/Kconfig"
 source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
+source "drivers/misc/ocxl/Kconfig"
+source "drivers/misc/cardreader/Kconfig"
 endmenu

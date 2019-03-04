@@ -220,7 +220,7 @@ static int sun4i_hdmi_get_modes(struct drm_connector *connector)
 	DRM_DEBUG_DRIVER("Monitor is %s monitor\n",
 			 hdmi->hdmi_monitor ? "an HDMI" : "a DVI");
 
-	drm_mode_connector_update_edid_property(connector, edid);
+	drm_connector_update_edid_property(connector, edid);
 	cec_s_phys_addr_from_edid(hdmi->cec_adap, edid);
 	ret = drm_add_edid_modes(connector, edid);
 	kfree(edid);
@@ -538,7 +538,8 @@ static int sun4i_hdmi_bind(struct device *dev, struct device *master,
 					     &sun4i_hdmi_regmap_config);
 	if (IS_ERR(hdmi->regmap)) {
 		dev_err(dev, "Couldn't create HDMI encoder regmap\n");
-		return PTR_ERR(hdmi->regmap);
+		ret = PTR_ERR(hdmi->regmap);
+		goto err_disable_mod_clk;
 	}
 
 	ret = sun4i_tmds_create(hdmi);
@@ -551,7 +552,8 @@ static int sun4i_hdmi_bind(struct device *dev, struct device *master,
 		hdmi->ddc_parent_clk = devm_clk_get(dev, "ddc");
 		if (IS_ERR(hdmi->ddc_parent_clk)) {
 			dev_err(dev, "Couldn't get the HDMI DDC clock\n");
-			return PTR_ERR(hdmi->ddc_parent_clk);
+			ret = PTR_ERR(hdmi->ddc_parent_clk);
+			goto err_disable_mod_clk;
 		}
 	} else {
 		hdmi->ddc_parent_clk = hdmi->tmds_clk;
@@ -621,7 +623,7 @@ static int sun4i_hdmi_bind(struct device *dev, struct device *master,
 	ret = cec_register_adapter(hdmi->cec_adap, dev);
 	if (ret < 0)
 		goto err_cleanup_connector;
-	drm_mode_connector_attach_encoder(&hdmi->connector, &hdmi->encoder);
+	drm_connector_attach_encoder(&hdmi->connector, &hdmi->encoder);
 
 	return 0;
 

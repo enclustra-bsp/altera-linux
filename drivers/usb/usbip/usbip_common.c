@@ -309,12 +309,11 @@ int usbip_recv(struct socket *sock, void *buf, int size)
 	if (!sock || !buf || !size)
 		return -EINVAL;
 
-	iov_iter_kvec(&msg.msg_iter, READ|ITER_KVEC, &iov, 1, size);
+	iov_iter_kvec(&msg.msg_iter, READ, &iov, 1, size);
 
 	usbip_dbg_xmit("enter\n");
 
 	do {
-		msg_data_left(&msg);
 		sock->sk->sk_allocation = GFP_NOIO;
 
 		result = sock_recvmsg(sock, &msg, MSG_WAITALL);

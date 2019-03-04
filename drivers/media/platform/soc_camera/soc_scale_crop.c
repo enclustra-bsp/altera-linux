@@ -52,7 +52,7 @@ int soc_camera_client_g_rect(struct v4l2_subdev *sd, struct v4l2_rect *rect)
 		return ret;
 	}
 
-	sdsel.target = V4L2_SEL_TGT_CROP_DEFAULT;
+	sdsel.target = V4L2_SEL_TGT_CROP_BOUNDS;
 	ret = v4l2_subdev_call(sd, pad, get_selection, NULL, &sdsel);
 	if (!ret)
 		*rect = sdsel.r;
@@ -420,3 +420,7 @@ void soc_camera_calc_client_output(struct soc_camera_device *icd,
 	mf->height = soc_camera_shift_scale(rect->height, shift, scale_v);
 }
 EXPORT_SYMBOL(soc_camera_calc_client_output);
+
+MODULE_DESCRIPTION("soc-camera scaling-cropping functions");
+MODULE_AUTHOR("Guennadi Liakhovetski <kernel@pengutronix.de>");
+MODULE_LICENSE("GPL");

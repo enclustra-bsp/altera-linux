@@ -15,6 +15,9 @@
  * Adopted from dwmac-sti.c
  */
 
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+#include <linux/arm-smccc.h>
+#endif
 #include <linux/mfd/syscon.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -52,13 +55,134 @@ struct socfpga_dwmac {
 	int	interface;
 	u32	reg_offset;
 	u32	reg_shift;
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+	u32	sysmgr_reg;
+#endif
 	struct	device *dev;
 	struct regmap *sys_mgr_base_addr;
 	struct reset_control *stmmac_rst;
+	struct reset_control *stmmac_ocp_rst;
 	void __iomem *splitter_base;
 	bool f2h_ptp_ref_clk;
 	struct tse_pcs pcs;
 };
+
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+/* Functions specified by ARM SMC Calling convention:
+ *
+ * FAST call executes atomic operations, returns when the requested operation
+ * has completed.
+ * STD call starts a operation which can be preempted by a non-secure
+ * interrupt. The call can return before the requested operation has completed.
+ * a0..a7 is used as register names in the descriptions below, on arm32 that
+ * translates to r0..r7 and on arm64 to w0..w7.
+ */
+
+#define INTEL_SIP_SMC_STD_CALL_VAL(func_num) \
+	ARM_SMCCC_CALL_VAL(ARM_SMCCC_STD_CALL, ARM_SMCCC_SMC_64, \
+	ARM_SMCCC_OWNER_SIP, (func_num))
+
+#define INTEL_SIP_SMC_FAST_CALL_VAL(func_num) \
+	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_64, \
+	ARM_SMCCC_OWNER_SIP, (func_num))
+
+#define INTEL_SIP_SMC_RETURN_UNKNOWN_FUNCTION		0xFFFFFFFF
+#define INTEL_SIP_SMC_STATUS_OK				0x0
+#define INTEL_SIP_SMC_REG_ERROR				0x5
+
+/* Request INTEL_SIP_SMC_REG_READ
+ *
+ * Read a protected register using SMCCC
+ *
+ * Call register usage:
+ * a0: INTEL_SIP_SMC_REG_READ.
+ * a1: register address.
+ * a2-7: not used.
+ *
+ * Return status:
+ * a0: INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_REG_ERROR, or
+ *     INTEL_SIP_SMC_RETURN_UNKNOWN_FUNCTION
+ * a1: Value in the register
+ * a2-3: not used.
+ */
+#define INTEL_SIP_SMC_FUNCID_REG_READ 7
+#define INTEL_SIP_SMC_REG_READ \
+	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_REG_READ)
+
+/* Request INTEL_SIP_SMC_REG_WRITE
+ *
+ * Write a protected register using SMCCC
+ *
+ * Call register usage:
+ * a0: INTEL_SIP_SMC_REG_WRITE.
+ * a1: register address
+ * a2: value to program into register.
+ * a3-7: not used.
+ *
+ * Return status:
+ * a0: INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_REG_ERROR, or
+ *     INTEL_SIP_SMC_RETURN_UNKNOWN_FUNCTION
+ * a1-3: not used.
+ */
+#define INTEL_SIP_SMC_FUNCID_REG_WRITE 8
+#define INTEL_SIP_SMC_REG_WRITE \
+	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_REG_WRITE)
+
+/**************** Stratix 10 EMAC Memory Controller Functions ************/
+
+/* s10_protected_reg_write
+ * Write to a protected SMC register.
+ * @context: Not used
+ * @reg: Address of register
+ * @value: Value to write
+ * Return: INTEL_SIP_SMC_STATUS_OK (0) on success
+ *         INTEL_SIP_SMC_REG_ERROR on error
+ *         INTEL_SIP_SMC_RETURN_UNKNOWN_FUNCTION if not supported
+ */
+static int s10_protected_reg_write(void *context, unsigned int reg,
+				   unsigned int val)
+{
+	struct arm_smccc_res result;
+
+	arm_smccc_smc(INTEL_SIP_SMC_REG_WRITE, reg, val, 0, 0,
+		      0, 0, 0, &result);
+
+	return (int)result.a0;
+}
+
+/* s10_protected_reg_read
+ * Read the status of a protected SMC register
+ * @context: Not used
+ * @reg: Address of register
+ * @value: Value read.
+ * Return: INTEL_SIP_SMC_STATUS_OK (0) on success
+ *         INTEL_SIP_SMC_REG_ERROR on error
+ *         INTEL_SIP_SMC_RETURN_UNKNOWN_FUNCTION if not supported
+ */
+static int s10_protected_reg_read(void *context, unsigned int reg,
+				  unsigned int *val)
+{
+	struct arm_smccc_res result;
+
+	arm_smccc_smc(INTEL_SIP_SMC_REG_READ, reg, 0, 0, 0,
+		      0, 0, 0, &result);
+
+	*val = (unsigned int)result.a1;
+
+	return (int)result.a0;
+}
+
+static const struct regmap_config s10_emac_regmap_cfg = {
+	.name = "s10_emac",
+	.reg_bits = 32,
+	.val_bits = 32,
+	.max_register = 0xffffffff,
+	.reg_read = s10_protected_reg_read,
+	.reg_write = s10_protected_reg_write,
+	.use_single_read = true,
+	.use_single_write = true,
+};
+#endif
 
 static void socfpga_dwmac_fix_mac_speed(void *priv, unsigned int speed)
 {
@@ -104,20 +228,43 @@ static int socfpga_dwmac_parse_data(struct socfpga_dwmac *dwmac, struct device *
 	struct device_node *np = dev->of_node;
 	struct regmap *sys_mgr_base_addr;
 	u32 reg_offset, reg_shift;
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+	u32 sysmgr_reg = 0;
+#endif
 	int ret, index;
 	struct device_node *np_splitter = NULL;
 	struct device_node *np_sgmii_adapter = NULL;
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+	struct device_node *np_sysmgr = NULL;
+#endif
 	struct resource res_splitter;
 	struct resource res_tse_pcs;
 	struct resource res_sgmii_adapter;
 
 	dwmac->interface = of_get_phy_mode(np);
 
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+	sys_mgr_base_addr = devm_regmap_init(dev, NULL, (void *)dwmac,
+					     &s10_emac_regmap_cfg);
+	if (IS_ERR(sys_mgr_base_addr))
+		return PTR_ERR(sys_mgr_base_addr);
+
+	np_sysmgr = of_parse_phandle(np, "altr,sysmgr-syscon", 0);
+	if (np_sysmgr) {
+		ret = of_property_read_u32_index(np_sysmgr, "reg", 0,
+						 &sysmgr_reg);
+		if (ret) {
+			dev_info(dev, "Could not read sysmgr register address\n");
+			return -EINVAL;
+		}
+	}
+#else
 	sys_mgr_base_addr = syscon_regmap_lookup_by_phandle(np, "altr,sysmgr-syscon");
 	if (IS_ERR(sys_mgr_base_addr)) {
 		dev_info(dev, "No sysmgr-syscon node found\n");
 		return PTR_ERR(sys_mgr_base_addr);
 	}
+#endif
 
 	ret = of_property_read_u32_index(np, "altr,sysmgr-syscon", 1, &reg_offset);
 	if (ret) {
@@ -221,6 +368,9 @@ static int socfpga_dwmac_parse_data(struct socfpga_dwmac *dwmac, struct device *
 	dwmac->reg_offset = reg_offset;
 	dwmac->reg_shift = reg_shift;
 	dwmac->sys_mgr_base_addr = sys_mgr_base_addr;
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+	dwmac->sysmgr_reg = sysmgr_reg;
+#endif
 	dwmac->dev = dev;
 	of_node_put(np_sgmii_adapter);
 
@@ -237,6 +387,9 @@ static int socfpga_dwmac_set_phy_mode(struct socfpga_dwmac *dwmac)
 	int phymode = dwmac->interface;
 	u32 reg_offset = dwmac->reg_offset;
 	u32 reg_shift = dwmac->reg_shift;
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+	u32 sysmgr_reg = dwmac->sysmgr_reg;
+#endif
 	u32 ctrl, val, module;
 
 	switch (phymode) {
@@ -262,10 +415,14 @@ static int socfpga_dwmac_set_phy_mode(struct socfpga_dwmac *dwmac)
 		val = SYSMGR_EMACGRP_CTRL_PHYSEL_ENUM_GMII_MII;
 
 	/* Assert reset to the enet controller before changing the phy mode */
-	if (dwmac->stmmac_rst)
-		reset_control_assert(dwmac->stmmac_rst);
+	reset_control_assert(dwmac->stmmac_ocp_rst);
+	reset_control_assert(dwmac->stmmac_rst);
 
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+	regmap_read(sys_mgr_base_addr, sysmgr_reg + reg_offset, &ctrl);
+#else
 	regmap_read(sys_mgr_base_addr, reg_offset, &ctrl);
+#endif
 	ctrl &= ~(SYSMGR_EMACGRP_CTRL_PHYSEL_MASK << reg_shift);
 	ctrl |= val << reg_shift;
 
@@ -283,13 +440,17 @@ static int socfpga_dwmac_set_phy_mode(struct socfpga_dwmac *dwmac)
 		ctrl &= ~(SYSMGR_EMACGRP_CTRL_PTP_REF_CLK_MASK << (reg_shift / 2));
 	}
 
+#if defined CONFIG_HAVE_ARM_SMCCC && defined CONFIG_ARCH_STRATIX10
+	regmap_write(sys_mgr_base_addr, sysmgr_reg + reg_offset, ctrl);
+#else
 	regmap_write(sys_mgr_base_addr, reg_offset, ctrl);
+#endif
 
 	/* Deassert reset for the phy configuration to be sampled by
 	 * the enet controller, and operation to start in requested mode
 	 */
-	if (dwmac->stmmac_rst)
-		reset_control_deassert(dwmac->stmmac_rst);
+	reset_control_deassert(dwmac->stmmac_ocp_rst);
+	reset_control_deassert(dwmac->stmmac_rst);
 	if (phymode == PHY_INTERFACE_MODE_SGMII) {
 		if (tse_pcs_init(dwmac->pcs.tse_pcs_base, &dwmac->pcs) != 0) {
 			dev_err(dwmac->dev, "Unable to initialize TSE PCS");
@@ -323,6 +484,15 @@ static int socfpga_dwmac_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto err_remove_config_dt;
 	}
+
+	dwmac->stmmac_ocp_rst = devm_reset_control_get_optional(dev, "stmmaceth-ocp");
+	if (IS_ERR(dwmac->stmmac_ocp_rst)) {
+		ret = PTR_ERR(dwmac->stmmac_ocp_rst);
+		dev_err(dev, "error getting reset control of ocp %d\n", ret);
+		goto err_remove_config_dt;
+	}
+
+	reset_control_deassert(dwmac->stmmac_ocp_rst);
 
 	ret = socfpga_dwmac_parse_data(dwmac, dev);
 	if (ret) {

@@ -51,7 +51,7 @@ static const struct id_to_str arc_cpu_rel[] = {
 	{ 0x51, "R2.0" },
 	{ 0x52, "R2.1" },
 	{ 0x53, "R3.0" },
-	{ 0x54, "R4.0" },
+	{ 0x54, "R3.10a" },
 #endif
 	{ 0x00, NULL   }
 };
@@ -243,7 +243,7 @@ static char *arc_cpu_mumbojumbo(int cpu_id, char *buf, int len)
 {
 	struct cpuinfo_arc *cpu = &cpuinfo_arc700[cpu_id];
 	struct bcr_identity *core = &cpu->core;
-	int i, n = 0;
+	int i, n = 0, ua = 0;
 
 	FIX_PTR(cpu);
 
@@ -263,10 +263,13 @@ static char *arc_cpu_mumbojumbo(int cpu_id, char *buf, int len)
 		       IS_AVAIL2(cpu->extn.rtc, "RTC [UP 64-bit] ", CONFIG_ARC_TIMERS_64BIT),
 		       IS_AVAIL2(cpu->extn.gfrc, "GFRC [SMP 64-bit] ", CONFIG_ARC_TIMERS_64BIT));
 
-	n += i = scnprintf(buf + n, len - n, "%s%s%s%s%s",
+#ifdef __ARC_UNALIGNED__
+	ua = 1;
+#endif
+	n += i = scnprintf(buf + n, len - n, "%s%s%s%s%s%s",
 			   IS_AVAIL2(cpu->isa.atomic, "atomic ", CONFIG_ARC_HAS_LLSC),
 			   IS_AVAIL2(cpu->isa.ldd, "ll64 ", CONFIG_ARC_HAS_LL64),
-			   IS_AVAIL1(cpu->isa.unalign, "unalign (not used)"));
+			   IS_AVAIL1(cpu->isa.unalign, "unalign "), IS_USED_RUN(ua));
 
 	if (i)
 		n += scnprintf(buf + n, len - n, "\n\t\t: ");
@@ -373,7 +376,7 @@ static void arc_chk_core_config(void)
 {
 	struct cpuinfo_arc *cpu = &cpuinfo_arc700[smp_processor_id()];
 	int saved = 0, present = 0;
-	char *opt_nm = NULL;;
+	char *opt_nm = NULL;
 
 	if (!cpu->extn.timer0)
 		panic("Timer0 is not present!\n");

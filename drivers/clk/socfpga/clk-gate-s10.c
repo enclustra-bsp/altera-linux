@@ -1,36 +1,14 @@
+// SPDX-License-Identifier:	GPL-2.0
 /*
  * Copyright (C) 2017, Intel Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include <linux/slab.h>
 #include <linux/clk-provider.h>
-#include <linux/io.h>
-#include <linux/mfd/syscon.h>
-#include <linux/of.h>
-#include <linux/regmap.h>
-
+#include <linux/slab.h>
+#include "stratix10-clk.h"
 #include "clk.h"
 
-#define streq(a, b) (strcmp((a), (b)) == 0)
-
 #define SOCFPGA_CS_PDBG_CLK	"cs_pdbg_clk"
-#define SOCFPGA_L4_SP_CLK	"l4_sp_clk"
-
 #define to_socfpga_gate_clk(p) container_of(p, struct socfpga_gate_clk, hw.hw)
-
-/* SDMMC Group for System Manager defines */
-#define SYSMGR_SDMMCGRP_CTRL_OFFSET	0x28
 
 static unsigned long socfpga_gate_clk_recalc_rate(struct clk_hw *hwclk,
 						  unsigned long parent_rate)
@@ -44,61 +22,22 @@ static unsigned long socfpga_gate_clk_recalc_rate(struct clk_hw *hwclk,
 		val = readl(socfpgaclk->div_reg) >> socfpgaclk->shift;
 		val &= GENMASK(socfpgaclk->width - 1, 0);
 		div = (1 << val);
-		if (streq(hwclk->init->name, SOCFPGA_CS_PDBG_CLK))
-			div = div ? 4 : 1;
 	}
 	return parent_rate / div;
 }
 
-static int socfpga_clk_prepare(struct clk_hw *hwclk)
+static unsigned long socfpga_dbg_clk_recalc_rate(struct clk_hw *hwclk,
+						  unsigned long parent_rate)
 {
 	struct socfpga_gate_clk *socfpgaclk = to_socfpga_gate_clk(hwclk);
-	int i;
-	u32 hs_timing;
-	u32 clk_phase[2];
+	u32 div = 1, val;
 
-	if (socfpgaclk->clk_phase[0] || socfpgaclk->clk_phase[1]) {
-		for (i = 0; i < ARRAY_SIZE(clk_phase); i++) {
-			switch (socfpgaclk->clk_phase[i]) {
-			case 0:
-				clk_phase[i] = 0;
-				break;
-			case 45:
-				clk_phase[i] = 1;
-				break;
-			case 90:
-				clk_phase[i] = 2;
-				break;
-			case 135:
-				clk_phase[i] = 3;
-				break;
-			case 180:
-				clk_phase[i] = 4;
-				break;
-			case 225:
-				clk_phase[i] = 5;
-				break;
-			case 270:
-				clk_phase[i] = 6;
-				break;
-			case 315:
-				clk_phase[i] = 7;
-				break;
-			default:
-				clk_phase[i] = 0;
-				break;
-			}
-		}
+	val = readl(socfpgaclk->div_reg) >> socfpgaclk->shift;
+	val &= GENMASK(socfpgaclk->width - 1, 0);
+	div = (1 << val);
+	div = div ? 4 : 1;
 
-		hs_timing = SYSMGR_SDMMC_CTRL_SET(clk_phase[0], clk_phase[1]);
-		if (!IS_ERR(socfpgaclk->sys_mgr_base_addr))
-			regmap_write(socfpgaclk->sys_mgr_base_addr,
-				     SYSMGR_SDMMCGRP_CTRL_OFFSET, hs_timing);
-		else
-			pr_err("%s: cannot set clk_phase because sys_mgr_base_addr is not available!\n",
-				__func__);
-	}
-	return 0;
+	return parent_rate / div;
 }
 
 static u8 socfpga_gate_get_parent(struct clk_hw *hwclk)
@@ -116,106 +55,71 @@ static u8 socfpga_gate_get_parent(struct clk_hw *hwclk)
 }
 
 static struct clk_ops gateclk_ops = {
-	.prepare = socfpga_clk_prepare,
 	.recalc_rate = socfpga_gate_clk_recalc_rate,
 	.get_parent = socfpga_gate_get_parent,
 };
 
-static void __init __socfpga_gate_init(struct device_node *node,
-				       const struct clk_ops *ops)
+static const struct clk_ops dbgclk_ops = {
+	.recalc_rate = socfpga_dbg_clk_recalc_rate,
+	.get_parent = socfpga_gate_get_parent,
+};
+
+struct clk *s10_register_gate(const char *name, const char *parent_name,
+			      const char * const *parent_names,
+			      u8 num_parents, unsigned long flags,
+			      void __iomem *regbase, unsigned long gate_reg,
+			      unsigned long gate_idx, unsigned long div_reg,
+			      unsigned long div_offset, u8 div_width,
+			      unsigned long bypass_reg, u8 bypass_shift,
+			      u8 fixed_div)
 {
-	u32 clk_gate[2];
-	u32 div_reg[3];
-	u32 bypass_reg[2];
-	u32 clk_phase[2];
-	u32 fixed_div;
 	struct clk *clk;
 	struct socfpga_gate_clk *socfpga_clk;
-	const char *clk_name = node->name;
-	const char *parent_names[SOCFPGA_MAX_PARENTS];
 	struct clk_init_data init;
-	int rc;
 
 	socfpga_clk = kzalloc(sizeof(*socfpga_clk), GFP_KERNEL);
-	if (WARN_ON(!socfpga_clk))
-		return;
+	if (!socfpga_clk)
+		return NULL;
 
-	rc = of_property_read_u32_array(node, "clk-gate", clk_gate, 2);
-	if (rc)
-		clk_gate[0] = 0;
+	socfpga_clk->hw.reg = regbase + gate_reg;
+	socfpga_clk->hw.bit_idx = gate_idx;
 
-	if (clk_gate[0]) {
-		socfpga_clk->hw.reg = clk_mgr_s10_base_addr + clk_gate[0];
-		socfpga_clk->hw.bit_idx = clk_gate[1];
+	gateclk_ops.enable = clk_gate_ops.enable;
+	gateclk_ops.disable = clk_gate_ops.disable;
 
-		gateclk_ops.enable = clk_gate_ops.enable;
-		gateclk_ops.disable = clk_gate_ops.disable;
-	}
+	socfpga_clk->fixed_div = fixed_div;
 
-	rc = of_property_read_u32(node, "fixed-divider", &fixed_div);
-	if (rc)
-		socfpga_clk->fixed_div = 0;
+	if (div_reg)
+		socfpga_clk->div_reg = regbase + div_reg;
 	else
-		socfpga_clk->fixed_div = fixed_div;
-
-	rc = of_property_read_u32_array(node, "div-reg", div_reg, 3);
-	if (!rc) {
-		socfpga_clk->div_reg = clk_mgr_s10_base_addr + div_reg[0];
-		socfpga_clk->shift = div_reg[1];
-		socfpga_clk->width = div_reg[2];
-	} else {
 		socfpga_clk->div_reg = NULL;
-	}
 
-	rc = of_property_read_u32_array(node, "bypass-reg", bypass_reg, 2);
-	if (!rc) {
-		socfpga_clk->bypass_reg = clk_mgr_s10_base_addr + bypass_reg[0];
-		socfpga_clk->bypass_shift = bypass_reg[1];
-	} else {
-		socfpga_clk->bypass_reg = NULL;
-	}
+	socfpga_clk->width = div_width;
+	socfpga_clk->shift = div_offset;
 
-	rc = of_property_read_u32_array(node, "clk-phase", clk_phase, 2);
-	if (!rc) {
-		socfpga_clk->clk_phase[0] = clk_phase[0];
-		socfpga_clk->clk_phase[1] = clk_phase[1];
-
-		socfpga_clk->sys_mgr_base_addr =
-			syscon_regmap_lookup_by_compatible("altr,sys-mgr");
-		if (IS_ERR(socfpga_clk->sys_mgr_base_addr)) {
-			pr_err("%s: failed to find altr,sys-mgr regmap!\n",
-				__func__);
-			kfree(socfpga_clk);
-			return;
-		}
-	}
-
-	of_property_read_string(node, "clock-output-names", &clk_name);
-
-	init.name = clk_name;
-	init.ops = ops;
-	if (streq(clk_name, SOCFPGA_L4_SP_CLK))
-		init.flags = CLK_IS_CRITICAL;
+	if (bypass_reg)
+		socfpga_clk->bypass_reg = regbase + bypass_reg;
 	else
-		init.flags = 0;
+		socfpga_clk->bypass_reg = NULL;
+	socfpga_clk->bypass_shift = bypass_shift;
 
-	init.num_parents = of_clk_parent_fill(node, parent_names, SOCFPGA_MAX_PARENTS);
-	init.parent_names = parent_names;
+	if (streq(name, "cs_pdbg_clk"))
+		init.ops = &dbgclk_ops;
+	else
+		init.ops = &gateclk_ops;
+
+	init.name = name;
+	init.flags = flags;
+
+	init.num_parents = num_parents;
+	init.parent_names = parent_names ? parent_names : &parent_name;
 	socfpga_clk->hw.hw.init = &init;
 
 	clk = clk_register(NULL, &socfpga_clk->hw.hw);
 	if (WARN_ON(IS_ERR(clk))) {
 		kfree(socfpga_clk);
-		return;
+		return NULL;
 	}
-	rc = of_clk_add_provider(node, of_clk_src_simple_get, clk);
-	if (WARN_ON(rc)) {
-		kfree(socfpga_clk);
-		return;
-	}
-}
 
-void __init socfpga_s10_gate_init(struct device_node *node)
-{
-	__socfpga_gate_init(node, &gateclk_ops);
+	return clk;
 }
