@@ -7,10 +7,14 @@
  * Copyright (C) 2017 Nicira, Inc.
  */
 
+#undef _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
 
 #include "libbpf.h"
+
+/* make sure libbpf doesn't use kernel-only integer typedefs */
+#pragma GCC poison u8 u16 u32 u64 s8 s16 s32 s64
 
 #define ERRNO_OFFSET(e)		((e) - __LIBBPF_ERRNO__START)
 #define ERRCODE_OFFSET(c)	ERRNO_OFFSET(LIBBPF_ERRNO__##c)

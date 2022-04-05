@@ -1,5 +1,5 @@
-/* SPDX-License-Identifier: GPL-2.0
- * Marvell OcteonTx2 RVU Admin Function driver
+/* SPDX-License-Identifier: GPL-2.0 */
+/*  Marvell OcteonTx2 RVU Admin Function driver
  *
  * Copyright (C) 2018 Marvell International Ltd.
  *
@@ -11,12 +11,16 @@
 #ifndef RVU_H
 #define RVU_H
 
+#include <linux/pci.h>
 #include "rvu_struct.h"
 #include "common.h"
 #include "mbox.h"
 
 /* PCI device IDs */
 #define	PCI_DEVID_OCTEONTX2_RVU_AF		0xA065
+
+/* Subsystem Device ID */
+#define PCI_SUBSYS_DEVID_96XX                  0xB200
 
 /* PCI BAR nos */
 #define	PCI_AF_REG_BAR_NUM			0
@@ -31,9 +35,36 @@
 #define RVU_PFVF_FUNC_SHIFT	0
 #define RVU_PFVF_FUNC_MASK	0x3FF
 
+#ifdef CONFIG_DEBUG_FS
+struct dump_ctx {
+	int	lf;
+	int	id;
+	bool	all;
+};
+
+struct rvu_debugfs {
+	struct dentry *root;
+	struct dentry *cgx_root;
+	struct dentry *cgx;
+	struct dentry *lmac;
+	struct dentry *npa;
+	struct dentry *nix;
+	struct dentry *npc;
+	struct dump_ctx npa_aura_ctx;
+	struct dump_ctx npa_pool_ctx;
+	struct dump_ctx nix_cq_ctx;
+	struct dump_ctx nix_rq_ctx;
+	struct dump_ctx nix_sq_ctx;
+	int npa_qsize_id;
+	int nix_qsize_id;
+};
+#endif
+
 struct rvu_work {
 	struct	work_struct work;
 	struct	rvu *rvu;
+	int num_msgs;
+	int up_num_msgs;
 };
 
 struct rsrc_bmap {
@@ -64,7 +95,7 @@ struct nix_mcast {
 	struct qmem	*mcast_buf;
 	int		replay_pkind;
 	int		next_free_mce;
-	spinlock_t	mce_lock; /* Serialize MCE updates */
+	struct mutex	mce_lock; /* Serialize MCE updates */
 };
 
 struct nix_mce_list {
@@ -74,15 +105,28 @@ struct nix_mce_list {
 };
 
 struct npc_mcam {
-	spinlock_t	lock;	/* MCAM entries and counters update lock */
+	struct rsrc_bmap counters;
+	struct mutex	lock;	/* MCAM entries and counters update lock */
+	unsigned long	*bmap;		/* bitmap, 0 => bmap_entries */
+	unsigned long	*bmap_reverse;	/* Reverse bitmap, bmap_entries => 0 */
+	u16	bmap_entries;	/* Number of unreserved MCAM entries */
+	u16	bmap_fcnt;	/* MCAM entries free count */
+	u16	*entry2pfvf_map;
+	u16	*entry2cntr_map;
+	u16	*cntr2pfvf_map;
+	u16	*cntr_refcnt;
 	u8	keysize;	/* MCAM keysize 112/224/448 bits */
 	u8	banks;		/* Number of MCAM banks */
 	u8	banks_per_entry;/* Number of keywords in key */
 	u16	banksize;	/* Number of MCAM entries in each bank */
 	u16	total_entries;	/* Total number of MCAM entries */
-	u16     entries;	/* Total minus reserved for NIX LFs */
 	u16	nixlf_offset;	/* Offset of nixlf rsvd uncast entries */
 	u16	pf_offset;	/* Offset of PF's rsvd bcast, promisc entries */
+	u16	lprio_count;
+	u16	lprio_start;
+	u16	hprio_count;
+	u16	hprio_end;
+	u16     rx_miss_act_cntr; /* Counter for RX MISS action */
 };
 
 /* Structure for per RVU func info ie PF/VF */
@@ -122,18 +166,40 @@ struct rvu_pfvf {
 	u16		tx_chan_base;
 	u8              rx_chan_cnt; /* total number of RX channels */
 	u8              tx_chan_cnt; /* total number of TX channels */
+	u16		maxlen;
+	u16		minlen;
 
 	u8		mac_addr[ETH_ALEN]; /* MAC address of this PF/VF */
 
 	/* Broadcast pkt replication info */
 	u16			bcast_mce_idx;
 	struct nix_mce_list	bcast_mce_list;
+
+	/* VLAN offload */
+	struct mcam_entry entry;
+	int rxvlan_index;
+	bool rxvlan;
+
+	bool	cgx_in_use; /* this PF/VF using CGX? */
+	int	cgx_users;  /* number of cgx users - used only by PFs */
 };
 
 struct nix_txsch {
 	struct rsrc_bmap schq;
 	u8   lvl;
-	u16  *pfvf_map;
+#define NIX_TXSCHQ_FREE		      BIT_ULL(1)
+#define NIX_TXSCHQ_CFG_DONE	      BIT_ULL(0)
+#define TXSCH_MAP_FUNC(__pfvf_map)    ((__pfvf_map) & 0xFFFF)
+#define TXSCH_MAP_FLAGS(__pfvf_map)   ((__pfvf_map) >> 16)
+#define TXSCH_MAP(__func, __flags)    (((__func) & 0xFFFF) | ((__flags) << 16))
+#define TXSCH_SET_FLAG(__pfvf_map, flag)    ((__pfvf_map) | ((flag) << 16))
+	u32  *pfvf_map;
+};
+
+struct nix_mark_format {
+	u8 total;
+	u8 in_use;
+	u32 *cfg;
 };
 
 struct npc_pkind {
@@ -141,9 +207,38 @@ struct npc_pkind {
 	u32	*pfchan_map;
 };
 
+struct nix_flowkey {
+#define NIX_FLOW_KEY_ALG_MAX 32
+	u32 flowkey[NIX_FLOW_KEY_ALG_MAX];
+	int in_use;
+};
+
+struct nix_lso {
+	u8 total;
+	u8 in_use;
+};
+
 struct nix_hw {
 	struct nix_txsch txsch[NIX_TXSCH_LVL_CNT]; /* Tx schedulers */
 	struct nix_mcast mcast;
+	struct nix_flowkey flowkey;
+	struct nix_mark_format mark_format;
+	struct nix_lso lso;
+};
+
+/* RVU block's capabilities or functionality,
+ * which vary by silicon version/skew.
+ */
+struct hw_cap {
+	/* Transmit side supported functionality */
+	u8	nix_tx_aggr_lvl; /* Tx link's traffic aggregation level */
+	u16	nix_txsch_per_cgx_lmac; /* Max Q's transmitting to CGX LMAC */
+	u16	nix_txsch_per_lbk_lmac; /* Max Q's transmitting to LBK LMAC */
+	u16	nix_txsch_per_sdp_lmac; /* Max Q's transmitting to SDP LMAC */
+	bool	nix_fixed_txschq_mapping; /* Schq mapping fixed or flexible */
+	bool	nix_shaping;		 /* Is shaping and coloring supported */
+	bool	nix_tx_link_bp;		 /* Can link backpressure TL queues ? */
+	bool	nix_rx_multicast;	 /* Rx packet replication support */
 };
 
 struct rvu_hwinfo {
@@ -157,11 +252,57 @@ struct rvu_hwinfo {
 	u8	sdp_links;
 	u8	npc_kpus;          /* No of parser units */
 
-
+	struct hw_cap    cap;
 	struct rvu_block block[BLK_COUNT]; /* Block info */
 	struct nix_hw    *nix0;
 	struct npc_pkind pkind;
 	struct npc_mcam  mcam;
+};
+
+struct mbox_wq_info {
+	struct otx2_mbox mbox;
+	struct rvu_work *mbox_wrk;
+
+	struct otx2_mbox mbox_up;
+	struct rvu_work *mbox_wrk_up;
+
+	struct workqueue_struct *mbox_wq;
+};
+
+struct rvu_fwdata {
+#define RVU_FWDATA_HEADER_MAGIC	0xCFDA	/* Custom Firmware Data*/
+#define RVU_FWDATA_VERSION	0x0001
+	u32 header_magic;
+	u32 version;		/* version id */
+
+	/* MAC address */
+#define PF_MACNUM_MAX	32
+#define VF_MACNUM_MAX	256
+	u64 pf_macs[PF_MACNUM_MAX];
+	u64 vf_macs[VF_MACNUM_MAX];
+	u64 sclk;
+	u64 rclk;
+	u64 mcam_addr;
+	u64 mcam_sz;
+	u64 msixtr_base;
+#define FWDATA_RESERVED_MEM 1023
+	u64 reserved[FWDATA_RESERVED_MEM];
+};
+
+struct ptp;
+
+/* KPU profile adapter structure gathering all KPU configuration data and abstracting out the
+ * source where it came from.
+ */
+struct npc_kpu_profile_adapter {
+	const char			*name;
+	u64				version;
+	const struct npc_lt_def_cfg	*lt_def;
+	const struct npc_kpu_profile_action	*ikpu; /* array[pkinds] */
+	const struct npc_kpu_profile	*kpu; /* array[kpus] */
+	const struct npc_mcam_kex	*mkex;
+	size_t				pkinds;
+	size_t				kpus;
 };
 
 struct rvu {
@@ -172,25 +313,29 @@ struct rvu {
 	struct rvu_hwinfo       *hw;
 	struct rvu_pfvf		*pf;
 	struct rvu_pfvf		*hwvf;
-	spinlock_t		rsrc_lock; /* Serialize resource alloc/free */
+	struct mutex		rsrc_lock; /* Serialize resource alloc/free */
+	int			vfs; /* Number of VFs attached to RVU */
 
 	/* Mbox */
-	struct otx2_mbox	mbox;
-	struct rvu_work		*mbox_wrk;
-	struct otx2_mbox        mbox_up;
-	struct rvu_work		*mbox_wrk_up;
-	struct workqueue_struct *mbox_wq;
+	struct mbox_wq_info	afpf_wq_info;
+	struct mbox_wq_info	afvf_wq_info;
+
+	/* PF FLR */
+	struct rvu_work		*flr_wrk;
+	struct workqueue_struct *flr_wq;
+	struct mutex		flr_lock; /* Serialize FLRs */
 
 	/* MSI-X */
 	u16			num_vec;
 	char			*irq_name;
 	bool			*irq_allocated;
 	dma_addr_t		msix_base_iova;
+	u64			msixtr_base_phy; /* Register reset value */
 
 	/* CGX */
 #define PF_CGXMAP_BASE		1 /* PF 0 is reserved for RVU PF */
 	u8			cgx_mapped_pfs;
-	u8			cgx_cnt; /* available cgx ports */
+	u8			cgx_cnt_max;	 /* CGX port count max */
 	u8			*pf2cgxlmac_map; /* pf to cgx_lmac map */
 	u16			*cgxlmac2pf_map; /* bitmap of mapped pfs for
 						  * every cgx lmac port
@@ -201,6 +346,21 @@ struct rvu {
 	struct			workqueue_struct *cgx_evh_wq;
 	spinlock_t		cgx_evq_lock; /* cgx event queue lock */
 	struct list_head	cgx_evq_head; /* cgx event queue head */
+	struct mutex		cgx_cfg_lock; /* serialize cgx configuration */
+
+	char mkex_pfl_name[MKEX_NAME_LEN]; /* Configured MKEX profile name */
+
+	/* Firmware data */
+	struct rvu_fwdata	*fwdata;
+
+	/* NPC KPU data */
+	struct npc_kpu_profile_adapter kpu;
+
+	struct ptp		*ptp;
+
+#ifdef CONFIG_DEBUG_FS
+	struct rvu_debugfs	rvu_dbg;
+#endif
 };
 
 static inline void rvu_write64(struct rvu *rvu, u64 block, u64 offset, u64 val)
@@ -223,9 +383,37 @@ static inline u64 rvupf_read64(struct rvu *rvu, u64 offset)
 	return readq(rvu->pfreg_base + offset);
 }
 
+/* Silicon revisions */
+static inline bool is_rvu_96xx_A0(struct rvu *rvu)
+{
+	struct pci_dev *pdev = rvu->pdev;
+
+	return (pdev->revision == 0x00) &&
+		(pdev->subsystem_device == PCI_SUBSYS_DEVID_96XX);
+}
+
+static inline bool is_rvu_96xx_B0(struct rvu *rvu)
+{
+	struct pci_dev *pdev = rvu->pdev;
+
+	return ((pdev->revision == 0x00) || (pdev->revision == 0x01)) &&
+		(pdev->subsystem_device == PCI_SUBSYS_DEVID_96XX);
+}
+
 /* Function Prototypes
  * RVU
  */
+static inline int is_afvf(u16 pcifunc)
+{
+	return !(pcifunc & ~RVU_PFVF_FUNC_MASK);
+}
+
+static inline bool is_rvu_fwdata_valid(struct rvu *rvu)
+{
+	return (rvu->fwdata->header_magic == RVU_FWDATA_HEADER_MAGIC) &&
+		(rvu->fwdata->version == RVU_FWDATA_VERSION);
+}
+
 int rvu_alloc_bitmap(struct rsrc_bmap *rsrc);
 int rvu_alloc_rsrc(struct rsrc_bmap *rsrc);
 void rvu_free_rsrc(struct rsrc_bmap *rsrc, int id);
@@ -236,6 +424,7 @@ int rvu_get_pf(u16 pcifunc);
 struct rvu_pfvf *rvu_get_pfvf(struct rvu *rvu, int pcifunc);
 void rvu_get_pf_numvfs(struct rvu *rvu, int pf, int *numvfs, int *hwvf);
 bool is_block_implemented(struct rvu_hwinfo *hw, int blkaddr);
+bool is_pffunc_map_valid(struct rvu *rvu, u16 pcifunc, int blktype);
 int rvu_get_lf(struct rvu *rvu, struct rvu_block *block, u16 pcifunc, u16 slot);
 int rvu_lf_reset(struct rvu *rvu, struct rvu_block *block, int lf);
 int rvu_get_blkaddr(struct rvu *rvu, int blktype, u16 pcifunc);
@@ -266,103 +455,70 @@ static inline void rvu_get_cgx_lmac_id(u8 map, u8 *cgx_id, u8 *lmac_id)
 	*lmac_id = (map & 0xF);
 }
 
-int rvu_cgx_probe(struct rvu *rvu);
-void rvu_cgx_wq_destroy(struct rvu *rvu);
+#define M(_name, _id, fn_name, req, rsp)				\
+int rvu_mbox_handler_ ## fn_name(struct rvu *, struct req *, struct rsp *);
+MBOX_MESSAGES
+#undef M
+
+int rvu_cgx_init(struct rvu *rvu);
+int rvu_cgx_exit(struct rvu *rvu);
 void *rvu_cgx_pdata(u8 cgx_id, struct rvu *rvu);
 int rvu_cgx_config_rxtx(struct rvu *rvu, u16 pcifunc, bool start);
-int rvu_mbox_handler_CGX_START_RXTX(struct rvu *rvu, struct msg_req *req,
-				    struct msg_rsp *rsp);
-int rvu_mbox_handler_CGX_STOP_RXTX(struct rvu *rvu, struct msg_req *req,
-				   struct msg_rsp *rsp);
-int rvu_mbox_handler_CGX_STATS(struct rvu *rvu, struct msg_req *req,
-			       struct cgx_stats_rsp *rsp);
-int rvu_mbox_handler_CGX_MAC_ADDR_SET(struct rvu *rvu,
-				      struct cgx_mac_addr_set_or_get *req,
-				      struct cgx_mac_addr_set_or_get *rsp);
-int rvu_mbox_handler_CGX_MAC_ADDR_GET(struct rvu *rvu,
-				      struct cgx_mac_addr_set_or_get *req,
-				      struct cgx_mac_addr_set_or_get *rsp);
-int rvu_mbox_handler_CGX_PROMISC_ENABLE(struct rvu *rvu, struct msg_req *req,
-					struct msg_rsp *rsp);
-int rvu_mbox_handler_CGX_PROMISC_DISABLE(struct rvu *rvu, struct msg_req *req,
-					 struct msg_rsp *rsp);
-int rvu_mbox_handler_CGX_START_LINKEVENTS(struct rvu *rvu, struct msg_req *req,
-					  struct msg_rsp *rsp);
-int rvu_mbox_handler_CGX_STOP_LINKEVENTS(struct rvu *rvu, struct msg_req *req,
-					 struct msg_rsp *rsp);
-int rvu_mbox_handler_CGX_GET_LINKINFO(struct rvu *rvu, struct msg_req *req,
-				      struct cgx_link_info_msg *rsp);
-int rvu_mbox_handler_CGX_INTLBK_ENABLE(struct rvu *rvu, struct msg_req *req,
-				       struct msg_rsp *rsp);
-int rvu_mbox_handler_CGX_INTLBK_DISABLE(struct rvu *rvu, struct msg_req *req,
-					struct msg_rsp *rsp);
-
+void rvu_cgx_enadis_rx_bp(struct rvu *rvu, int pf, bool enable);
+int rvu_cgx_start_stop_io(struct rvu *rvu, u16 pcifunc, bool start);
+int rvu_cgx_nix_cuml_stats(struct rvu *rvu, void *cgxd, int lmac_id, int index,
+			   int rxtxflag, u64 *stat);
 /* NPA APIs */
 int rvu_npa_init(struct rvu *rvu);
 void rvu_npa_freemem(struct rvu *rvu);
-int rvu_mbox_handler_NPA_AQ_ENQ(struct rvu *rvu,
-				struct npa_aq_enq_req *req,
-				struct npa_aq_enq_rsp *rsp);
-int rvu_mbox_handler_NPA_HWCTX_DISABLE(struct rvu *rvu,
-				       struct hwctx_disable_req *req,
-				       struct msg_rsp *rsp);
-int rvu_mbox_handler_NPA_LF_ALLOC(struct rvu *rvu,
-				  struct npa_lf_alloc_req *req,
-				  struct npa_lf_alloc_rsp *rsp);
-int rvu_mbox_handler_NPA_LF_FREE(struct rvu *rvu, struct msg_req *req,
-				 struct msg_rsp *rsp);
+void rvu_npa_lf_teardown(struct rvu *rvu, u16 pcifunc, int npalf);
+int rvu_npa_aq_enq_inst(struct rvu *rvu, struct npa_aq_enq_req *req,
+			struct npa_aq_enq_rsp *rsp);
 
 /* NIX APIs */
+bool is_nixlf_attached(struct rvu *rvu, u16 pcifunc);
 int rvu_nix_init(struct rvu *rvu);
+int rvu_nix_reserve_mark_format(struct rvu *rvu, struct nix_hw *nix_hw,
+				int blkaddr, u32 cfg);
 void rvu_nix_freemem(struct rvu *rvu);
 int rvu_get_nixlf_count(struct rvu *rvu);
-int rvu_mbox_handler_NIX_LF_ALLOC(struct rvu *rvu,
-				  struct nix_lf_alloc_req *req,
-				  struct nix_lf_alloc_rsp *rsp);
-int rvu_mbox_handler_NIX_LF_FREE(struct rvu *rvu, struct msg_req *req,
-				 struct msg_rsp *rsp);
-int rvu_mbox_handler_NIX_AQ_ENQ(struct rvu *rvu,
-				struct nix_aq_enq_req *req,
-				struct nix_aq_enq_rsp *rsp);
-int rvu_mbox_handler_NIX_HWCTX_DISABLE(struct rvu *rvu,
-				       struct hwctx_disable_req *req,
-				       struct msg_rsp *rsp);
-int rvu_mbox_handler_NIX_TXSCH_ALLOC(struct rvu *rvu,
-				     struct nix_txsch_alloc_req *req,
-				     struct nix_txsch_alloc_rsp *rsp);
-int rvu_mbox_handler_NIX_TXSCH_FREE(struct rvu *rvu,
-				    struct nix_txsch_free_req *req,
-				    struct msg_rsp *rsp);
-int rvu_mbox_handler_NIX_TXSCHQ_CFG(struct rvu *rvu,
-				    struct nix_txschq_config *req,
-				    struct msg_rsp *rsp);
-int rvu_mbox_handler_NIX_STATS_RST(struct rvu *rvu, struct msg_req *req,
-				   struct msg_rsp *rsp);
-int rvu_mbox_handler_NIX_VTAG_CFG(struct rvu *rvu,
-				  struct nix_vtag_config *req,
-				  struct msg_rsp *rsp);
-int rvu_mbox_handler_NIX_RSS_FLOWKEY_CFG(struct rvu *rvu,
-					 struct nix_rss_flowkey_cfg *req,
-					 struct msg_rsp *rsp);
-int rvu_mbox_handler_NIX_SET_MAC_ADDR(struct rvu *rvu,
-				      struct nix_set_mac_addr *req,
-				      struct msg_rsp *rsp);
-int rvu_mbox_handler_NIX_SET_RX_MODE(struct rvu *rvu, struct nix_rx_mode *req,
-				     struct msg_rsp *rsp);
+void rvu_nix_lf_teardown(struct rvu *rvu, u16 pcifunc, int blkaddr, int npalf);
+int nix_get_nixlf(struct rvu *rvu, u16 pcifunc, int *nixlf, int *nix_blkaddr);
+int nix_update_bcast_mce_list(struct rvu *rvu, u16 pcifunc, bool add);
 
 /* NPC APIs */
 int rvu_npc_init(struct rvu *rvu);
 void rvu_npc_freemem(struct rvu *rvu);
 int rvu_npc_get_pkind(struct rvu *rvu, u16 pf);
 void rvu_npc_set_pkind(struct rvu *rvu, int pkind, struct rvu_pfvf *pfvf);
+int npc_config_ts_kpuaction(struct rvu *rvu, int pf, u16 pcifunc, bool en);
 void rvu_npc_install_ucast_entry(struct rvu *rvu, u16 pcifunc,
 				 int nixlf, u64 chan, u8 *mac_addr);
 void rvu_npc_install_promisc_entry(struct rvu *rvu, u16 pcifunc,
 				   int nixlf, u64 chan, bool allmulti);
 void rvu_npc_disable_promisc_entry(struct rvu *rvu, u16 pcifunc, int nixlf);
+void rvu_npc_enable_promisc_entry(struct rvu *rvu, u16 pcifunc, int nixlf);
 void rvu_npc_install_bcast_match_entry(struct rvu *rvu, u16 pcifunc,
 				       int nixlf, u64 chan);
+void rvu_npc_enable_bcast_entry(struct rvu *rvu, u16 pcifunc, bool enable);
+int rvu_npc_update_rxvlan(struct rvu *rvu, u16 pcifunc, int nixlf);
 void rvu_npc_disable_mcam_entries(struct rvu *rvu, u16 pcifunc, int nixlf);
+void rvu_npc_disable_default_entries(struct rvu *rvu, u16 pcifunc, int nixlf);
+void rvu_npc_enable_default_entries(struct rvu *rvu, u16 pcifunc, int nixlf);
 void rvu_npc_update_flowkey_alg_idx(struct rvu *rvu, u16 pcifunc, int nixlf,
 				    int group, int alg_idx, int mcam_index);
+void rvu_npc_get_mcam_entry_alloc_info(struct rvu *rvu, u16 pcifunc,
+				       int blkaddr, int *alloc_cnt,
+				       int *enable_cnt);
+void rvu_npc_get_mcam_counter_alloc_info(struct rvu *rvu, u16 pcifunc,
+					 int blkaddr, int *alloc_cnt,
+					 int *enable_cnt);
+
+#ifdef CONFIG_DEBUG_FS
+void rvu_dbg_init(struct rvu *rvu);
+void rvu_dbg_exit(struct rvu *rvu);
+#else
+static inline void rvu_dbg_init(struct rvu *rvu) {}
+static inline void rvu_dbg_exit(struct rvu *rvu) {}
+#endif
 #endif /* RVU_H */

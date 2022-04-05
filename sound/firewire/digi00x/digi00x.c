@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * digi00x.c - a part of driver for Digidesign Digi 002/003 family
  *
  * Copyright (c) 2014-2015 Takashi Sakamoto
- *
- * Licensed under the terms of the GNU General Public License, version 2.
  */
 
 #include "digi00x.h"
@@ -15,6 +14,7 @@ MODULE_LICENSE("GPL v2");
 #define VENDOR_DIGIDESIGN	0x00a07e
 #define MODEL_CONSOLE		0x000001
 #define MODEL_RACK		0x000002
+#define SPEC_VERSION		0x000001
 
 static int name_card(struct snd_dg00x *dg00x)
 {
@@ -176,14 +176,18 @@ static const struct ieee1394_device_id snd_dg00x_id_table[] = {
 	/* Both of 002/003 use the same ID. */
 	{
 		.match_flags = IEEE1394_MATCH_VENDOR_ID |
+			       IEEE1394_MATCH_VERSION |
 			       IEEE1394_MATCH_MODEL_ID,
 		.vendor_id = VENDOR_DIGIDESIGN,
+		.version = SPEC_VERSION,
 		.model_id = MODEL_CONSOLE,
 	},
 	{
 		.match_flags = IEEE1394_MATCH_VENDOR_ID |
+			       IEEE1394_MATCH_VERSION |
 			       IEEE1394_MATCH_MODEL_ID,
 		.vendor_id = VENDOR_DIGIDESIGN,
+		.version = SPEC_VERSION,
 		.model_id = MODEL_RACK,
 	},
 	{}
@@ -193,7 +197,7 @@ MODULE_DEVICE_TABLE(ieee1394, snd_dg00x_id_table);
 static struct fw_driver dg00x_driver = {
 	.driver = {
 		.owner = THIS_MODULE,
-		.name = "snd-firewire-digi00x",
+		.name = KBUILD_MODNAME,
 		.bus = &fw_bus_type,
 	},
 	.probe    = snd_dg00x_probe,

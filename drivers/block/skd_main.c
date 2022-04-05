@@ -1,12 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Driver for sTec s1120 PCIe SSDs. sTec was acquired in 2013 by HGST and HGST
  * was acquired by Western Digital in 2012.
  *
  * Copyright 2012 sTec, Inc.
  * Copyright (c) 2017 Western Digital Corporation or its affiliates.
- *
- * This file is part of the Linux kernel, and is made available under
- * the terms of the GNU General Public License version 2.
  */
 
 #include <linux/kernel.h>
@@ -27,7 +25,6 @@
 #include <linux/dma-mapping.h>
 #include <linux/completion.h>
 #include <linux/scatterlist.h>
-#include <linux/version.h>
 #include <linux/err.h>
 #include <linux/aer.h>
 #include <linux/wait.h>
@@ -181,6 +178,7 @@ struct skd_request_context {
 	struct fit_completion_entry_v1 completion;
 
 	struct fit_comp_error_info err_info;
+	int retries;
 
 	blk_status_t status;
 };
@@ -382,11 +380,12 @@ static void skd_log_skreq(struct skd_device *skdev,
  * READ/WRITE REQUESTS
  *****************************************************************************
  */
-static void skd_inc_in_flight(struct request *rq, void *data, bool reserved)
+static bool skd_inc_in_flight(struct request *rq, void *data, bool reserved)
 {
 	int *count = data;
 
 	count++;
+	return true;
 }
 
 static int skd_in_flight(struct skd_device *skdev)
@@ -493,6 +492,11 @@ static blk_status_t skd_mq_queue_rq(struct blk_mq_hw_ctx *hctx,
 
 	if (unlikely(skdev->state != SKD_DRVR_STATE_ONLINE))
 		return skd_fail_all(q) ? BLK_STS_IOERR : BLK_STS_RESOURCE;
+
+	if (!(req->rq_flags & RQF_DONTPREP)) {
+		skreq->retries = 0;
+		req->rq_flags |= RQF_DONTPREP;
+	}
 
 	blk_mq_start_request(req);
 
@@ -1412,7 +1416,8 @@ static void skd_resolve_req_exception(struct skd_device *skdev,
 	case SKD_CHECK_STATUS_REPORT_GOOD:
 	case SKD_CHECK_STATUS_REPORT_SMART_ALERT:
 		skreq->status = BLK_STS_OK;
-		blk_mq_complete_request(req);
+		if (likely(!blk_should_fake_timeout(req->q)))
+			blk_mq_complete_request(req);
 		break;
 
 	case SKD_CHECK_STATUS_BUSY_IMMINENT:
@@ -1425,17 +1430,18 @@ static void skd_resolve_req_exception(struct skd_device *skdev,
 		break;
 
 	case SKD_CHECK_STATUS_REQUEUE_REQUEST:
-		if ((unsigned long) ++req->special < SKD_MAX_RETRIES) {
+		if (++skreq->retries < SKD_MAX_RETRIES) {
 			skd_log_skreq(skdev, skreq, "retry");
 			blk_mq_requeue_request(req, true);
 			break;
 		}
-		/* fall through */
+		fallthrough;
 
 	case SKD_CHECK_STATUS_REPORT_ERROR:
 	default:
 		skreq->status = BLK_STS_IOERR;
-		blk_mq_complete_request(req);
+		if (likely(!blk_should_fake_timeout(req->q)))
+			blk_mq_complete_request(req);
 		break;
 	}
 }
@@ -1555,7 +1561,8 @@ static int skd_isr_completion_posted(struct skd_device *skdev,
 		 */
 		if (likely(cmp_status == SAM_STAT_GOOD)) {
 			skreq->status = BLK_STS_OK;
-			blk_mq_complete_request(rq);
+			if (likely(!blk_should_fake_timeout(rq->q)))
+				blk_mq_complete_request(rq);
 		} else {
 			skd_resolve_req_exception(skdev, skreq, rq);
 		}
@@ -1887,13 +1894,13 @@ static void skd_isr_fwstate(struct skd_device *skdev)
 		skd_skdev_state_to_str(skdev->state), skdev->state);
 }
 
-static void skd_recover_request(struct request *req, void *data, bool reserved)
+static bool skd_recover_request(struct request *req, void *data, bool reserved)
 {
 	struct skd_device *const skdev = data;
 	struct skd_request_context *skreq = blk_mq_rq_to_pdu(req);
 
 	if (skreq->state != SKD_REQ_STATE_BUSY)
-		return;
+		return true;
 
 	skd_log_skreq(skdev, skreq, "recover");
 
@@ -1904,6 +1911,7 @@ static void skd_recover_request(struct request *req, void *data, bool reserved)
 	skreq->state = SKD_REQ_STATE_IDLE;
 	skreq->status = BLK_STS_IOERR;
 	blk_mq_complete_request(req);
+	return true;
 }
 
 static void skd_recover_requests(struct skd_device *skdev)
@@ -2633,8 +2641,8 @@ static int skd_cons_skcomp(struct skd_device *skdev)
 		"comp pci_alloc, total bytes %zd entries %d\n",
 		SKD_SKCOMP_SIZE, SKD_N_COMPLETION_ENTRY);
 
-	skcomp = dma_zalloc_coherent(&skdev->pdev->dev, SKD_SKCOMP_SIZE,
-				     &skdev->cq_dma_address, GFP_KERNEL);
+	skcomp = dma_alloc_coherent(&skdev->pdev->dev, SKD_SKCOMP_SIZE,
+				    &skdev->cq_dma_address, GFP_KERNEL);
 
 	if (skcomp == NULL) {
 		rc = -ENOMEM;
@@ -2688,7 +2696,6 @@ static int skd_cons_skmsg(struct skd_device *skdev)
 		     (FIT_QCMD_ALIGN - 1),
 		     "not aligned: msg_buf %p mb_dma_address %pad\n",
 		     skmsg->msg_buf, &skmsg->mb_dma_address);
-		memset(skmsg->msg_buf, 0, SKD_N_FITMSG_BYTES);
 	}
 
 err_out:
@@ -2835,7 +2842,6 @@ static int skd_cons_disk(struct skd_device *skdev)
 		skdev->sgs_per_request * sizeof(struct scatterlist);
 	skdev->tag_set.numa_node = NUMA_NO_NODE;
 	skdev->tag_set.flags = BLK_MQ_F_SHOULD_MERGE |
-		BLK_MQ_F_SG_MERGE |
 		BLK_ALLOC_POLICY_TO_MQ_FLAG(BLK_TAG_ALLOC_FIFO);
 	skdev->tag_set.driver_data = skdev;
 	rc = blk_mq_alloc_tag_set(&skdev->tag_set);

@@ -51,12 +51,10 @@
 #define GPE0A_STS_PORT			0x420
 #define GPE0A_EN_PORT			0x428
 
-#define ICPU(model)	{ X86_VENDOR_INTEL, 6, model, X86_FEATURE_ANY, }
-
-static const struct x86_cpu_id int0002_cpu_ids[] = {
-	ICPU(INTEL_FAM6_ATOM_SILVERMONT),	/* Valleyview, Bay Trail  */
-	ICPU(INTEL_FAM6_ATOM_AIRMONT),		/* Braswell, Cherry Trail */
-	{}
+struct int0002_data {
+	struct gpio_chip chip;
+	int parent_irq;
+	int wake_enable_count;
 };
 
 /*
@@ -106,14 +104,16 @@ static void int0002_irq_mask(struct irq_data *data)
 static int int0002_irq_set_wake(struct irq_data *data, unsigned int on)
 {
 	struct gpio_chip *chip = irq_data_get_irq_chip_data(data);
-	struct platform_device *pdev = to_platform_device(chip->parent);
-	int irq = platform_get_irq(pdev, 0);
+	struct int0002_data *int0002 = container_of(chip, struct int0002_data, chip);
 
-	/* Propagate to parent irq */
+	/*
+	 * Applying of the wakeup flag to our parent IRQ is delayed till system
+	 * suspend, because we only want to do this when using s2idle.
+	 */
 	if (on)
-		enable_irq_wake(irq);
+		int0002->wake_enable_count++;
 	else
-		disable_irq_wake(irq);
+		int0002->wake_enable_count--;
 
 	return 0;
 }
@@ -130,9 +130,17 @@ static irqreturn_t int0002_irq(int irq, void *data)
 	generic_handle_irq(irq_find_mapping(chip->irq.domain,
 					    GPE0A_PME_B0_VIRT_GPIO_PIN));
 
-	pm_system_wakeup();
+	pm_wakeup_hard_event(chip->parent);
 
 	return IRQ_HANDLED;
+}
+
+static bool int0002_check_wake(void *data)
+{
+	u32 gpe_sts_reg;
+
+	gpe_sts_reg = inl(GPE0A_STS_PORT);
+	return (gpe_sts_reg & GPE0A_PME_B0_STS_BIT);
 }
 
 static struct irq_chip int0002_irqchip = {
@@ -143,10 +151,25 @@ static struct irq_chip int0002_irqchip = {
 	.irq_set_wake		= int0002_irq_set_wake,
 };
 
+static const struct x86_cpu_id int0002_cpu_ids[] = {
+	X86_MATCH_INTEL_FAM6_MODEL(ATOM_SILVERMONT, NULL),
+	X86_MATCH_INTEL_FAM6_MODEL(ATOM_AIRMONT, NULL),
+	{}
+};
+
+static void int0002_init_irq_valid_mask(struct gpio_chip *chip,
+					unsigned long *valid_mask,
+					unsigned int ngpios)
+{
+	bitmap_clear(valid_mask, 0, GPE0A_PME_B0_VIRT_GPIO_PIN);
+}
+
 static int int0002_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	const struct x86_cpu_id *cpu_id;
+	struct int0002_data *int0002;
+	struct gpio_irq_chip *girq;
 	struct gpio_chip *chip;
 	int irq, ret;
 
@@ -156,15 +179,16 @@ static int int0002_probe(struct platform_device *pdev)
 		return -ENODEV;
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(dev, "Error getting IRQ: %d\n", irq);
+	if (irq < 0)
 		return irq;
-	}
 
-	chip = devm_kzalloc(dev, sizeof(*chip), GFP_KERNEL);
-	if (!chip)
+	int0002 = devm_kzalloc(dev, sizeof(*int0002), GFP_KERNEL);
+	if (!int0002)
 		return -ENOMEM;
 
+	int0002->parent_irq = irq;
+
+	chip = &int0002->chip;
 	chip->label = DRV_NAME;
 	chip->parent = dev;
 	chip->owner = THIS_MODULE;
@@ -174,19 +198,13 @@ static int int0002_probe(struct platform_device *pdev)
 	chip->direction_output = int0002_gpio_direction_output;
 	chip->base = -1;
 	chip->ngpio = GPE0A_PME_B0_VIRT_GPIO_PIN + 1;
-	chip->irq.need_valid_mask = true;
-
-	ret = devm_gpiochip_add_data(&pdev->dev, chip, NULL);
-	if (ret) {
-		dev_err(dev, "Error adding gpio chip: %d\n", ret);
-		return ret;
-	}
-
-	bitmap_clear(chip->irq.valid_mask, 0, GPE0A_PME_B0_VIRT_GPIO_PIN);
+	chip->irq.init_valid_mask = int0002_init_irq_valid_mask;
 
 	/*
-	 * We manually request the irq here instead of passing a flow-handler
+	 * We directly request the irq here instead of passing a flow-handler
 	 * to gpiochip_set_chained_irqchip, because the irq is shared.
+	 * FIXME: augment this if we managed to pull handling of shared
+	 * IRQs into gpiolib.
 	 */
 	ret = devm_request_irq(dev, irq, int0002_irq,
 			       IRQF_SHARED, "INT0002", chip);
@@ -195,17 +213,63 @@ static int int0002_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	ret = gpiochip_irqchip_add(chip, &int0002_irqchip, 0, handle_edge_irq,
-				   IRQ_TYPE_NONE);
+	girq = &chip->irq;
+	girq->chip = &int0002_irqchip;
+	/* This let us handle the parent IRQ in the driver */
+	girq->parent_handler = NULL;
+	girq->num_parents = 0;
+	girq->parents = NULL;
+	girq->default_type = IRQ_TYPE_NONE;
+	girq->handler = handle_edge_irq;
+
+	ret = devm_gpiochip_add_data(dev, chip, NULL);
 	if (ret) {
-		dev_err(dev, "Error adding irqchip: %d\n", ret);
+		dev_err(dev, "Error adding gpio chip: %d\n", ret);
 		return ret;
 	}
 
-	gpiochip_set_chained_irqchip(chip, &int0002_irqchip, irq, NULL);
+	acpi_register_wakeup_handler(irq, int0002_check_wake, NULL);
+	device_init_wakeup(dev, true);
+	dev_set_drvdata(dev, int0002);
+	return 0;
+}
+
+static int int0002_remove(struct platform_device *pdev)
+{
+	device_init_wakeup(&pdev->dev, false);
+	acpi_unregister_wakeup_handler(int0002_check_wake, NULL);
+	return 0;
+}
+
+static int int0002_suspend(struct device *dev)
+{
+	struct int0002_data *int0002 = dev_get_drvdata(dev);
+
+	/*
+	 * The INT0002 parent IRQ is often shared with the ACPI GPE IRQ, don't
+	 * muck with it when firmware based suspend is used, otherwise we may
+	 * cause spurious wakeups from firmware managed suspend.
+	 */
+	if (!pm_suspend_via_firmware() && int0002->wake_enable_count)
+		enable_irq_wake(int0002->parent_irq);
 
 	return 0;
 }
+
+static int int0002_resume(struct device *dev)
+{
+	struct int0002_data *int0002 = dev_get_drvdata(dev);
+
+	if (!pm_suspend_via_firmware() && int0002->wake_enable_count)
+		disable_irq_wake(int0002->parent_irq);
+
+	return 0;
+}
+
+static const struct dev_pm_ops int0002_pm_ops = {
+	.suspend = int0002_suspend,
+	.resume = int0002_resume,
+};
 
 static const struct acpi_device_id int0002_acpi_ids[] = {
 	{ "INT0002", 0 },
@@ -217,8 +281,10 @@ static struct platform_driver int0002_driver = {
 	.driver = {
 		.name			= DRV_NAME,
 		.acpi_match_table	= int0002_acpi_ids,
+		.pm			= &int0002_pm_ops,
 	},
 	.probe	= int0002_probe,
+	.remove	= int0002_remove,
 };
 
 module_platform_driver(int0002_driver);

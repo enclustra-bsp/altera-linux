@@ -1,10 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Common code for ADAU1X61 and ADAU1X81 codecs
  *
  * Copyright 2011-2014 Analog Devices Inc.
  * Author: Lars-Peter Clausen <lars@metafoo.de>
- *
- * Licensed under the GPL-2 or later.
  */
 
 #include <linux/module.h>
@@ -386,7 +385,7 @@ static int adau17x1_set_dai_sysclk(struct snd_soc_dai *dai,
 	case ADAU17X1_CLK_SRC_PLL_AUTO:
 		if (!adau->mclk)
 			return -EINVAL;
-		/* Fall-through */
+		fallthrough;
 	case ADAU17X1_CLK_SRC_PLL:
 		is_pll = true;
 		break;
@@ -470,7 +469,7 @@ static int adau17x1_hw_params(struct snd_pcm_substream *substream,
 		ret = adau17x1_auto_pll(dai, params);
 		if (ret)
 			return ret;
-		/* Fall-through */
+		fallthrough;
 	case ADAU17X1_CLK_SRC_PLL:
 		freq = adau->pll_freq;
 		break;

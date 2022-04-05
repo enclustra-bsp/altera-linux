@@ -207,8 +207,8 @@ static const char * const tp_qmenu[] = {
 	"Vertical Stripe (555h / 000h)",
 	"Vertical Stripe (000h / FFFh)",
 	"Vertical Stripe (FFFh / 000h)",
-	"Horizontal Color Bars",
 	"Vertical Color Bars",
+	"Horizontal Color Bars",
 };
 
 /*
@@ -405,12 +405,12 @@ static const struct reg_8 imx274_start_2[] = {
  */
 static const struct reg_8 imx274_start_3[] = {
 	{0x30F4, 0x00},
-	{0x3018, 0xA2}, /* XHS VHS OUTUPT */
+	{0x3018, 0xA2}, /* XHS VHS OUTPUT */
 	{IMX274_TABLE_END, 0x00}
 };
 
 /*
- * imx274 register configuration for stoping stream
+ * imx274 register configuration for stopping stream
  */
 static const struct reg_8 imx274_stop[] = {
 	{IMX274_STANDBY_REG, 0x01},
@@ -615,21 +615,6 @@ static int imx274_write_table(struct stimx274 *priv, const struct reg_8 table[])
 		range_vals[range_count++] = val;
 	}
 	return 0;
-}
-
-static inline int imx274_read_reg(struct stimx274 *priv, u16 addr, u8 *val)
-{
-	int err;
-
-	err = regmap_read(priv->regmap, addr, (unsigned int *)val);
-	if (err)
-		dev_err(&priv->client->dev,
-			"%s : i2c read failed, addr = %x\n", __func__, addr);
-	else
-		dev_dbg(&priv->client->dev,
-			"%s : addr 0x%x, val=0x%x\n", __func__,
-			addr, *val);
-	return err;
 }
 
 static inline int imx274_write_reg(struct stimx274 *priv, u16 addr, u8 val)
@@ -1250,6 +1235,8 @@ static int imx274_s_frame_interval(struct v4l2_subdev *sd,
 	ret = imx274_set_frame_interval(imx274, fi->interval);
 
 	if (!ret) {
+		fi->interval = imx274->frame_interval;
+
 		/*
 		 * exposure time range is decided by frame interval
 		 * need to update it after frame interval changes
@@ -1745,9 +1732,9 @@ static int imx274_set_frame_interval(struct stimx274 *priv,
 		__func__, frame_interval.numerator,
 		frame_interval.denominator);
 
-	if (frame_interval.numerator == 0) {
-		err = -EINVAL;
-		goto fail;
+	if (frame_interval.numerator == 0 || frame_interval.denominator == 0) {
+		frame_interval.denominator = IMX274_DEF_FRAME_RATE;
+		frame_interval.numerator = 1;
 	}
 
 	req_frame_rate = (u32)(frame_interval.denominator
@@ -1836,8 +1823,7 @@ static const struct i2c_device_id imx274_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, imx274_id);
 
-static int imx274_probe(struct i2c_client *client,
-			const struct i2c_device_id *id)
+static int imx274_probe(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd;
 	struct stimx274 *imx274;
@@ -1901,7 +1887,7 @@ static int imx274_probe(struct i2c_client *client,
 	imx274_reset(imx274, 1);
 
 	/* initialize controls */
-	ret = v4l2_ctrl_handler_init(&imx274->ctrls.handler, 2);
+	ret = v4l2_ctrl_handler_init(&imx274->ctrls.handler, 4);
 	if (ret < 0) {
 		dev_err(&client->dev,
 			"%s : ctrl handler init Failed\n", __func__);
@@ -1999,7 +1985,7 @@ static struct i2c_driver imx274_i2c_driver = {
 		.name	= DRIVER_NAME,
 		.of_match_table	= imx274_of_id_table,
 	},
-	.probe		= imx274_probe,
+	.probe_new	= imx274_probe,
 	.remove		= imx274_remove,
 	.id_table	= imx274_id,
 };

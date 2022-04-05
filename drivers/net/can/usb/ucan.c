@@ -715,7 +715,7 @@ static void ucan_read_bulk_callback(struct urb *urb)
 				  up->in_ep_size,
 				  urb->transfer_buffer,
 				  urb->transfer_dma);
-		netdev_dbg(up->netdev, "not resumbmitting urb; status: %d\n",
+		netdev_dbg(up->netdev, "not resubmitting urb; status: %d\n",
 			   urb->status);
 		return;
 	default:
@@ -792,7 +792,7 @@ resubmit:
 			  up);
 
 	usb_anchor_urb(urb, &up->rx_urbs);
-	ret = usb_submit_urb(urb, GFP_KERNEL);
+	ret = usb_submit_urb(urb, GFP_ATOMIC);
 
 	if (ret < 0) {
 		netdev_err(up->netdev,
@@ -1445,7 +1445,7 @@ static int ucan_probe(struct usb_interface *intf,
 
 	/* request the device information and store it in ctl_msg_buffer
 	 *
-	 * note: ucan_ctrl_command_* wrappers connot be used yet
+	 * note: ucan_ctrl_command_* wrappers cannot be used yet
 	 * because `up` is initialised in Stage 3
 	 */
 	ret = usb_control_msg(udev,
@@ -1494,7 +1494,7 @@ static int ucan_probe(struct usb_interface *intf,
 
 	up = netdev_priv(netdev);
 
-	/* initialze data */
+	/* initialize data */
 	up->udev = udev;
 	up->intf = intf;
 	up->netdev = netdev;

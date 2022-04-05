@@ -846,7 +846,7 @@ static struct sg_table *mbochs_map_dmabuf(struct dma_buf_attachment *at,
 	if (sg_alloc_table_from_pages(sg, dmabuf->pages, dmabuf->pagecount,
 				      0, dmabuf->mode.size, GFP_KERNEL) < 0)
 		goto err2;
-	if (!dma_map_sg(at->dev, sg->sgl, sg->nents, direction))
+	if (dma_map_sgtable(at->dev, sg, direction, 0))
 		goto err3;
 
 	return sg;
@@ -868,6 +868,7 @@ static void mbochs_unmap_dmabuf(struct dma_buf_attachment *at,
 
 	dev_dbg(dev, "%s: %d\n", __func__, dmabuf->id);
 
+	dma_unmap_sgtable(at->dev, sg, direction, 0);
 	sg_free_table(sg);
 	kfree(sg);
 }
@@ -891,26 +892,10 @@ static void mbochs_release_dmabuf(struct dma_buf *buf)
 	mutex_unlock(&mdev_state->ops_lock);
 }
 
-static void *mbochs_kmap_dmabuf(struct dma_buf *buf, unsigned long page_num)
-{
-	struct mbochs_dmabuf *dmabuf = buf->priv;
-	struct page *page = dmabuf->pages[page_num];
-
-	return kmap(page);
-}
-
-static void mbochs_kunmap_dmabuf(struct dma_buf *buf, unsigned long page_num,
-				 void *vaddr)
-{
-	kunmap(vaddr);
-}
-
 static struct dma_buf_ops mbochs_dmabuf_ops = {
 	.map_dma_buf	  = mbochs_map_dmabuf,
 	.unmap_dma_buf	  = mbochs_unmap_dmabuf,
 	.release	  = mbochs_release_dmabuf,
-	.map		  = mbochs_kmap_dmabuf,
-	.unmap		  = mbochs_kunmap_dmabuf,
 	.mmap		  = mbochs_mmap_dmabuf,
 };
 
@@ -1185,9 +1170,6 @@ static long mbochs_ioctl(struct mdev_device *mdev, unsigned int cmd,
 {
 	int ret = 0;
 	unsigned long minsz, outsz;
-	struct mdev_state *mdev_state;
-
-	mdev_state = mdev_get_drvdata(mdev);
 
 	switch (cmd) {
 	case VFIO_DEVICE_GET_INFO:
@@ -1448,13 +1430,13 @@ static int __init mbochs_dev_init(void)
 {
 	int ret = 0;
 
-	ret = alloc_chrdev_region(&mbochs_devt, 0, MINORMASK, MBOCHS_NAME);
+	ret = alloc_chrdev_region(&mbochs_devt, 0, MINORMASK + 1, MBOCHS_NAME);
 	if (ret < 0) {
 		pr_err("Error: failed to register mbochs_dev, err: %d\n", ret);
 		return ret;
 	}
 	cdev_init(&mbochs_cdev, &vd_fops);
-	cdev_add(&mbochs_cdev, mbochs_devt, MINORMASK);
+	cdev_add(&mbochs_cdev, mbochs_devt, MINORMASK + 1);
 	pr_info("%s: major %d\n", __func__, MAJOR(mbochs_devt));
 
 	mbochs_class = class_create(THIS_MODULE, MBOCHS_CLASS_NAME);
@@ -1483,7 +1465,7 @@ failed2:
 	class_destroy(mbochs_class);
 failed1:
 	cdev_del(&mbochs_cdev);
-	unregister_chrdev_region(mbochs_devt, MINORMASK);
+	unregister_chrdev_region(mbochs_devt, MINORMASK + 1);
 	return ret;
 }
 
@@ -1494,7 +1476,7 @@ static void __exit mbochs_dev_exit(void)
 
 	device_unregister(&mbochs_dev);
 	cdev_del(&mbochs_cdev);
-	unregister_chrdev_region(mbochs_devt, MINORMASK);
+	unregister_chrdev_region(mbochs_devt, MINORMASK + 1);
 	class_destroy(mbochs_class);
 	mbochs_class = NULL;
 }

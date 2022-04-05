@@ -79,7 +79,7 @@
  *	RES: 00 01 00 0C 00 08 01 00 00 00 00 02
  *
  *
- *	Please  visit http://www.brickedbrain.com if you need
+ *	Please  visit https://www.brickedbrain.com if you need
  *	additional information or have any questions.
  *
  */
@@ -143,6 +143,10 @@ static const u8 READ_COUNTER_RESPONSE[]	= {0x00, 0x01, 0x00, 0x10,
 					   0x00, 0x0C, 0x01, 0x00,
 					   0x00, 0x00, 0x00, 0x02,
 					   0x00, 0x00, 0x00, 0x00};
+
+/* Largest supported packets */
+static const size_t TX_MAX_SIZE	= sizeof(SET_PORT_DIR_REQUEST);
+static const size_t RX_MAX_SIZE	= sizeof(READ_PORT_RESPONSE);
 
 enum commands {
 	READ_PORT,
@@ -463,10 +467,8 @@ static int ni6501_alloc_usb_buffers(struct comedi_device *dev)
 
 	size = usb_endpoint_maxp(devpriv->ep_tx);
 	devpriv->usb_tx_buf = kzalloc(size, GFP_KERNEL);
-	if (!devpriv->usb_tx_buf) {
-		kfree(devpriv->usb_rx_buf);
+	if (!devpriv->usb_tx_buf)
 		return -ENOMEM;
-	}
 
 	return 0;
 }
@@ -503,6 +505,12 @@ static int ni6501_find_endpoints(struct comedi_device *dev)
 	if (!devpriv->ep_rx || !devpriv->ep_tx)
 		return -ENODEV;
 
+	if (usb_endpoint_maxp(devpriv->ep_rx) < RX_MAX_SIZE)
+		return -ENODEV;
+
+	if (usb_endpoint_maxp(devpriv->ep_tx) < TX_MAX_SIZE)
+		return -ENODEV;
+
 	return 0;
 }
 
@@ -518,6 +526,9 @@ static int ni6501_auto_attach(struct comedi_device *dev,
 	if (!devpriv)
 		return -ENOMEM;
 
+	mutex_init(&devpriv->mut);
+	usb_set_intfdata(intf, devpriv);
+
 	ret = ni6501_find_endpoints(dev);
 	if (ret)
 		return ret;
@@ -525,9 +536,6 @@ static int ni6501_auto_attach(struct comedi_device *dev,
 	ret = ni6501_alloc_usb_buffers(dev);
 	if (ret)
 		return ret;
-
-	mutex_init(&devpriv->mut);
-	usb_set_intfdata(intf, devpriv);
 
 	ret = comedi_alloc_subdevices(dev, 2);
 	if (ret)
@@ -564,14 +572,12 @@ static void ni6501_detach(struct comedi_device *dev)
 	if (!devpriv)
 		return;
 
-	mutex_lock(&devpriv->mut);
+	mutex_destroy(&devpriv->mut);
 
 	usb_set_intfdata(intf, NULL);
 
 	kfree(devpriv->usb_rx_buf);
 	kfree(devpriv->usb_tx_buf);
-
-	mutex_unlock(&devpriv->mut);
 }
 
 static struct comedi_driver ni6501_driver = {

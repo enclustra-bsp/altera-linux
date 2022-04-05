@@ -666,7 +666,7 @@ static struct clk_rcg2 hmss_rbcpr_clk_src = {
 	.cmd_rcgr = 0x48044,
 	.mnd_width = 0,
 	.hid_width = 5,
-	.parent_map = gcc_parent_map_xo_gpll0_gpll0_early_div,
+	.parent_map = gcc_parent_map_xo_gpll0,
 	.freq_tbl = ftbl_hmss_rbcpr_clk_src,
 	.clkr.hw.init = &(struct clk_init_data){
 		.name = "hmss_rbcpr_clk_src",
@@ -787,7 +787,7 @@ static struct clk_rcg2 sdcc2_apps_clk_src = {
 		.name = "sdcc2_apps_clk_src",
 		.parent_names = gcc_parent_names_xo_gpll0_gpll0_early_div_gpll4,
 		.num_parents = 4,
-		.ops = &clk_rcg2_ops,
+		.ops = &clk_rcg2_floor_ops,
 	},
 };
 
@@ -1715,6 +1715,9 @@ static struct clk_branch gcc_mss_cfg_ahb_clk = {
 
 static struct clk_branch gcc_mss_mnoc_bimc_axi_clk = {
 	.halt_reg = 0x8a004,
+	.halt_check = BRANCH_HALT,
+	.hwcg_reg = 0x8a004,
+	.hwcg_bit = 1,
 	.clkr = {
 		.enable_reg = 0x8a004,
 		.enable_mask = BIT(0),
@@ -2402,6 +2405,7 @@ static const struct qcom_reset_map gcc_sdm660_resets[] = {
 	[GCC_USB_20_BCR] = { 0x2f000 },
 	[GCC_USB_30_BCR] = { 0xf000 },
 	[GCC_USB_PHY_CFG_AHB2PHY_BCR] = { 0x6a000 },
+	[GCC_MSS_RESTART] = { 0x79000 },
 };
 
 static const struct regmap_config gcc_sdm660_regmap_config = {
@@ -2420,6 +2424,8 @@ static const struct qcom_cc_desc gcc_sdm660_desc = {
 	.num_resets = ARRAY_SIZE(gcc_sdm660_resets),
 	.gdscs = gcc_sdm660_gdscs,
 	.num_gdscs = ARRAY_SIZE(gcc_sdm660_gdscs),
+	.clk_hws = gcc_sdm660_hws,
+	.num_clk_hws = ARRAY_SIZE(gcc_sdm660_hws),
 };
 
 static const struct of_device_id gcc_sdm660_match_table[] = {
@@ -2431,7 +2437,7 @@ MODULE_DEVICE_TABLE(of, gcc_sdm660_match_table);
 
 static int gcc_sdm660_probe(struct platform_device *pdev)
 {
-	int i, ret;
+	int ret;
 	struct regmap *regmap;
 
 	regmap = qcom_cc_map(pdev, &gcc_sdm660_desc);
@@ -2445,13 +2451,6 @@ static int gcc_sdm660_probe(struct platform_device *pdev)
 	ret = regmap_update_bits(regmap, 0x52008, BIT(21), BIT(21));
 	if (ret)
 		return ret;
-
-	/* Register the hws */
-	for (i = 0; i < ARRAY_SIZE(gcc_sdm660_hws); i++) {
-		ret = devm_clk_hw_register(&pdev->dev, gcc_sdm660_hws[i]);
-		if (ret)
-			return ret;
-	}
 
 	return qcom_cc_really_probe(pdev, &gcc_sdm660_desc, regmap);
 }

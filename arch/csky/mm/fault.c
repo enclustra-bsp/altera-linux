@@ -15,9 +15,10 @@
 #include <linux/smp.h>
 #include <linux/version.h>
 #include <linux/vt_kern.h>
-#include <linux/kernel.h>
 #include <linux/extable.h>
 #include <linux/uaccess.h>
+#include <linux/perf_event.h>
+#include <linux/kprobes.h>
 
 #include <asm/hardirq.h>
 #include <asm/mmu_context.h>
@@ -53,6 +54,9 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 	int fault;
 	unsigned long address = mmu_meh & PAGE_MASK;
 
+	if (kprobe_page_fault(regs, tsk->thread.trap_no))
+		return;
+
 	si_code = SEGV_MAPERR;
 
 #ifndef CONFIG_CPU_HAS_TLBI
@@ -74,7 +78,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 		 * Do _not_ use "tsk" here. We might be inside
 		 * an interrupt in the middle of a task switch..
 		 */
-		int offset = __pgd_offset(address);
+		int offset = pgd_index(address);
 		pgd_t *pgd, *pgd_k;
 		pud_t *pud, *pud_k;
 		pmd_t *pmd, *pmd_k;
@@ -82,7 +86,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 
 		unsigned long pgd_base;
 
-		pgd_base = tlb_get_pgd();
+		pgd_base = (unsigned long)__va(get_pgd());
 		pgd = (pgd_t *)pgd_base + offset;
 		pgd_k = init_mm.pgd + offset;
 
@@ -107,6 +111,8 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 		return;
 	}
 #endif
+
+	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
 	/*
 	 * If we're in an interrupt or have no user
 	 * context, we must not take the fault..
@@ -114,7 +120,7 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 	if (in_atomic() || !mm)
 		goto bad_area_nosemaphore;
 
-	down_read(&mm->mmap_sem);
+	mmap_read_lock(mm);
 	vma = find_vma(mm, address);
 	if (!vma)
 		goto bad_area;
@@ -135,7 +141,7 @@ good_area:
 		if (!(vma->vm_flags & VM_WRITE))
 			goto bad_area;
 	} else {
-		if (!(vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC)))
+		if (unlikely(!vma_is_accessible(vma)))
 			goto bad_area;
 	}
 
@@ -144,7 +150,8 @@ good_area:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.
 	 */
-	fault = handle_mm_fault(vma, address, write ? FAULT_FLAG_WRITE : 0);
+	fault = handle_mm_fault(vma, address, write ? FAULT_FLAG_WRITE : 0,
+				regs);
 	if (unlikely(fault & VM_FAULT_ERROR)) {
 		if (fault & VM_FAULT_OOM)
 			goto out_of_memory;
@@ -154,12 +161,7 @@ good_area:
 			goto bad_area;
 		BUG();
 	}
-	if (fault & VM_FAULT_MAJOR)
-		tsk->maj_flt++;
-	else
-		tsk->min_flt++;
-
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 	return;
 
 	/*
@@ -167,18 +169,19 @@ good_area:
 	 * Fix it, but check if it's kernel or user first..
 	 */
 bad_area:
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 
 bad_area_nosemaphore:
 	/* User mode accesses just cause a SIGSEGV */
 	if (user_mode(regs)) {
-		tsk->thread.address = address;
-		tsk->thread.error_code = write;
-		force_sig_fault(SIGSEGV, si_code, (void __user *)address, current);
+		tsk->thread.trap_no = trap_no(regs);
+		force_sig_fault(SIGSEGV, si_code, (void __user *)address);
 		return;
 	}
 
 no_context:
+	tsk->thread.trap_no = trap_no(regs);
+
 	/* Are we prepared to handle this kernel fault? */
 	if (fixup_exception(regs))
 		return;
@@ -188,11 +191,13 @@ no_context:
 	 * terminate things with extreme prejudice.
 	 */
 	bust_spinlocks(1);
-	pr_alert("Unable to %s at vaddr: %08lx, epc: %08lx\n",
-		 __func__, address, regs->pc);
-	die_if_kernel("Oops", regs, write);
+	pr_alert("Unable to handle kernel paging request at virtual "
+		 "address 0x%08lx, pc: 0x%08lx\n", address, regs->pc);
+	die(regs, "Oops");
 
 out_of_memory:
+	tsk->thread.trap_no = trap_no(regs);
+
 	/*
 	 * We ran out of memory, call the OOM killer, and return the userspace
 	 * (which will retry the fault, or kill us if we got oom-killed).
@@ -201,12 +206,13 @@ out_of_memory:
 	return;
 
 do_sigbus:
-	up_read(&mm->mmap_sem);
+	tsk->thread.trap_no = trap_no(regs);
+
+	mmap_read_unlock(mm);
 
 	/* Kernel mode? Handle exceptions or die */
 	if (!user_mode(regs))
 		goto no_context;
 
-	tsk->thread.address = address;
-	force_sig_fault(SIGBUS, BUS_ADRERR, (void __user *)address, current);
+	force_sig_fault(SIGBUS, BUS_ADRERR, (void __user *)address);
 }

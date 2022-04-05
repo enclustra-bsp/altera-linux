@@ -71,7 +71,7 @@ static unsigned long s2mps11_clk_recalc_rate(struct clk_hw *hw,
 	return 32768;
 }
 
-static struct clk_ops s2mps11_clk_ops = {
+static const struct clk_ops s2mps11_clk_ops = {
 	.prepare	= s2mps11_clk_prepare,
 	.unprepare	= s2mps11_clk_unprepare,
 	.is_prepared	= s2mps11_clk_is_prepared,
@@ -195,6 +195,7 @@ static int s2mps11_clk_probe(struct platform_device *pdev)
 	return ret;
 
 err_reg:
+	of_node_put(s2mps11_clks[0].clk_np);
 	while (--i >= 0)
 		clkdev_drop(s2mps11_clks[i].lookup);
 
@@ -267,18 +268,7 @@ static struct platform_driver s2mps11_clk_driver = {
 	.remove = s2mps11_clk_remove,
 	.id_table = s2mps11_clk_id,
 };
-
-static int __init s2mps11_clk_init(void)
-{
-	return platform_driver_register(&s2mps11_clk_driver);
-}
-subsys_initcall(s2mps11_clk_init);
-
-static void __exit s2mps11_clk_cleanup(void)
-{
-	platform_driver_unregister(&s2mps11_clk_driver);
-}
-module_exit(s2mps11_clk_cleanup);
+module_platform_driver(s2mps11_clk_driver);
 
 MODULE_DESCRIPTION("S2MPS11 Clock Driver");
 MODULE_AUTHOR("Yadwinder Singh Brar <yadi.brar@samsung.com>");

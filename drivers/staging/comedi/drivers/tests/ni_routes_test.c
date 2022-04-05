@@ -217,7 +217,8 @@ void test_ni_assign_device_routes(void)
 	const u8 *table, *oldtable;
 
 	init_pci_6070e();
-	ni_assign_device_routes(ni_eseries, pci_6070e, &private.routing_tables);
+	ni_assign_device_routes(ni_eseries, pci_6070e, NULL,
+				&private.routing_tables);
 	devroutes = private.routing_tables.valid_routes;
 	table = private.routing_tables.route_values;
 
@@ -253,7 +254,8 @@ void test_ni_assign_device_routes(void)
 	olddevroutes = devroutes;
 	oldtable = table;
 	init_pci_6220();
-	ni_assign_device_routes(ni_mseries, pci_6220, &private.routing_tables);
+	ni_assign_device_routes(ni_mseries, pci_6220, NULL,
+				&private.routing_tables);
 	devroutes = private.routing_tables.valid_routes;
 	table = private.routing_tables.route_values;
 
@@ -282,7 +284,7 @@ void test_ni_sort_device_routes(void)
 
 void test_ni_find_route_set(void)
 {
-	unittest(ni_find_route_set(bad_dest, &DR) == NULL,
+	unittest(!ni_find_route_set(bad_dest, &DR),
 		 "check for nonexistent route_set\n");
 	unittest(ni_find_route_set(dest0, &DR) == &DR.routes[0],
 		 "find first route_set\n");
@@ -372,7 +374,7 @@ void test_ni_lookup_route_register(void)
 	unittest(ni_lookup_route_register(O(8), O(9), T) == 8,
 		 "validate last destination\n");
 	unittest(ni_lookup_route_register(O(10), O(9), T) == -EINVAL,
-		 "lookup invalid desination\n");
+		 "lookup invalid destination\n");
 
 	unittest(ni_lookup_route_register(rgout0_src0, TRIGGER_LINE(0), T) ==
 		 -EINVAL,
@@ -607,7 +609,7 @@ static void __exit ni_routes_unittest_exit(void) { }
 module_init(ni_routes_unittest);
 module_exit(ni_routes_unittest_exit);
 
-MODULE_AUTHOR("Comedi http://www.comedi.org");
+MODULE_AUTHOR("Comedi https://www.comedi.org");
 MODULE_DESCRIPTION("Comedi unit-tests for ni_routes module");
 MODULE_LICENSE("GPL");
 /* **** END simple module entry/exit functions **** */

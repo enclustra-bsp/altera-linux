@@ -195,7 +195,11 @@ struct read_info_sccb {
 	u16	hcpua;			/* 120-121 */
 	u8	_pad_122[124 - 122];	/* 122-123 */
 	u32	hmfai;			/* 124-127 */
-	u8	_pad_128[4096 - 128];	/* 128-4095 */
+	u8	_pad_128[134 - 128];	/* 128-133 */
+	u8	byte_134;			/* 134 */
+	u8	cpudirq;		/* 135 */
+	u16	cbl;			/* 136-137 */
+	u8	_pad_138[4096 - 138];	/* 138-4095 */
 } __packed __aligned(PAGE_SIZE);
 
 struct read_storage_sccb {
@@ -225,7 +229,7 @@ static inline void sclp_fill_core_info(struct sclp_core_info *info,
 #define SCLP_HAS_CPU_INFO	(sclp.facilities & 0x0800000000000000ULL)
 #define SCLP_HAS_CPU_RECONFIG	(sclp.facilities & 0x0400000000000000ULL)
 #define SCLP_HAS_PCI_RECONFIG	(sclp.facilities & 0x0000000040000000ULL)
-
+#define SCLP_HAS_AP_RECONFIG	(sclp.facilities & 0x0000000100000000ULL)
 
 struct gds_subvector {
 	u8	length;
@@ -301,9 +305,7 @@ int sclp_deactivate(void);
 int sclp_reactivate(void);
 int sclp_sync_request(sclp_cmdw_t command, void *sccb);
 int sclp_sync_request_timeout(sclp_cmdw_t command, void *sccb, int timeout);
-
 int sclp_sdias_init(void);
-void sclp_sdias_exit(void);
 
 enum {
 	sclp_init_state_uninitialized,
@@ -317,7 +319,7 @@ extern int sclp_console_drop;
 extern unsigned long sclp_console_full;
 extern bool sclp_mask_compat_mode;
 
-extern char sclp_early_sccb[PAGE_SIZE];
+extern char *sclp_early_sccb;
 
 void sclp_early_wait_irq(void);
 int sclp_early_cmd(sclp_cmdw_t cmd, void *sccb);
@@ -363,14 +365,14 @@ sclp_ascebc(unsigned char ch)
 
 /* translate string from EBCDIC to ASCII */
 static inline void
-sclp_ebcasc_str(unsigned char *str, int nr)
+sclp_ebcasc_str(char *str, int nr)
 {
 	(MACHINE_IS_VM) ? EBCASC(str, nr) : EBCASC_500(str, nr);
 }
 
 /* translate string from ASCII to EBCDIC */
 static inline void
-sclp_ascebc_str(unsigned char *str, int nr)
+sclp_ascebc_str(char *str, int nr)
 {
 	(MACHINE_IS_VM) ? ASCEBC(str, nr) : ASCEBC_500(str, nr);
 }

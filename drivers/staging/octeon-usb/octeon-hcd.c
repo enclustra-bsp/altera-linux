@@ -50,6 +50,7 @@
 #include <linux/module.h>
 #include <linux/usb/hcd.h>
 #include <linux/prefetch.h>
+#include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
 
 #include <asm/octeon/octeon.h>
@@ -405,7 +406,7 @@ struct octeon_hcd {
  */
 struct octeon_temp_buffer {
 	void *orig_buffer;
-	u8 data[0];
+	u8 data[];
 };
 
 static inline struct usb_hcd *octeon_to_hcd(struct octeon_hcd *p)
@@ -520,8 +521,7 @@ static void octeon_unmap_urb_for_dma(struct usb_hcd *hcd, struct urb *urb)
  */
 static inline u32 cvmx_usb_read_csr32(struct octeon_hcd *usb, u64 address)
 {
-	u32 result = cvmx_read64_uint32(address ^ 4);
-	return result;
+	return cvmx_read64_uint32(address ^ 4);
 }
 
 /**
@@ -1233,8 +1233,7 @@ static int cvmx_usb_fill_tx_hw(struct octeon_hcd *usb,
 			cvmx_write64_uint32(csr_address, *ptr++);
 			cvmx_write64_uint32(csr_address, *ptr++);
 			cvmx_write64_uint32(csr_address, *ptr++);
-			cvmx_read64_uint64(
-					CVMX_USBNX_DMA0_INB_CHN0(usb->index));
+			cvmx_read64_uint64(CVMX_USBNX_DMA0_INB_CHN0(usb->index));
 			words -= 3;
 		}
 		cvmx_write64_uint32(csr_address, *ptr++);
@@ -1836,8 +1835,7 @@ static void cvmx_usb_start_channel(struct octeon_hcd *usb, int channel,
  *
  * Returns: Pipe or NULL if none are ready
  */
-static struct cvmx_usb_pipe *cvmx_usb_find_ready_pipe(
-		struct octeon_hcd *usb,
+static struct cvmx_usb_pipe *cvmx_usb_find_ready_pipe(struct octeon_hcd *usb,
 		enum cvmx_usb_transfer xfer_type)
 {
 	struct list_head *list = usb->active_pipes + xfer_type;
@@ -2384,13 +2382,11 @@ static int cvmx_usb_close_pipe(struct octeon_hcd *usb,
  */
 static int cvmx_usb_get_frame_number(struct octeon_hcd *usb)
 {
-	int frame_number;
 	union cvmx_usbcx_hfnum usbc_hfnum;
 
 	usbc_hfnum.u32 = cvmx_usb_read_csr32(usb, CVMX_USBCX_HFNUM(usb->index));
-	frame_number = usbc_hfnum.s.frnum;
 
-	return frame_number;
+	return usbc_hfnum.s.frnum;
 }
 
 static void cvmx_usb_transfer_control(struct octeon_hcd *usb,
@@ -3514,7 +3510,7 @@ static const struct hc_driver octeon_hc_driver = {
 	.product_desc		= "Octeon Host Controller",
 	.hcd_priv_size		= sizeof(struct octeon_hcd),
 	.irq			= octeon_usb_irq,
-	.flags			= HCD_MEMORY | HCD_USB2,
+	.flags			= HCD_MEMORY | HCD_DMA | HCD_USB2,
 	.start			= octeon_usb_start,
 	.stop			= octeon_usb_stop,
 	.urb_enqueue		= octeon_usb_urb_enqueue,
@@ -3606,8 +3602,9 @@ static int octeon_usb_probe(struct platform_device *pdev)
 	 * Set the DMA mask to 64bits so we get buffers already translated for
 	 * DMA.
 	 */
-	dev->coherent_dma_mask = ~0;
-	dev->dma_mask = &dev->coherent_dma_mask;
+	i = dma_coerce_mask_and_coherent(dev, DMA_BIT_MASK(64));
+	if (i)
+		return i;
 
 	/*
 	 * Only cn52XX and cn56XX have DWC_OTG USB hardware and the

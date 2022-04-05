@@ -22,11 +22,6 @@ static const struct of_device_id fpga_region_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, fpga_region_of_match);
 
-static int fpga_region_of_node_match(struct device *dev, const void *data)
-{
-	return dev->of_node == data;
-}
-
 /**
  * of_fpga_region_find - find FPGA region
  * @np: device node of FPGA Region
@@ -37,7 +32,7 @@ static int fpga_region_of_node_match(struct device *dev, const void *data)
  */
 static struct fpga_region *of_fpga_region_find(struct device_node *np)
 {
-	return fpga_region_class_find(NULL, np, fpga_region_of_node_match);
+	return fpga_region_class_find(NULL, np, device_match_of_node);
 }
 
 /**
@@ -223,15 +218,25 @@ static struct fpga_image_info *of_fpga_region_parse_ov(
 
 	info->overlay = overlay;
 
-	/* Read FPGA region properties from the overlay */
-	if (of_property_read_bool(overlay, "partial-fpga-config"))
-		info->flags |= FPGA_MGR_PARTIAL_RECONFIG;
+	/*
+	 * Read FPGA region properties from the overlay.
+	 *
+	 * First check the integrity of the bitstream. If the
+	 * authentication is passed, the user can perform other
+	 * operations.
+	 */
+	if (of_property_read_bool(overlay, "authenticate-fpga-config")) {
+		info->flags |= FPGA_MGR_BITSTREAM_AUTHENTICATE;
+	} else {
+		if (of_property_read_bool(overlay, "partial-fpga-config"))
+			info->flags |= FPGA_MGR_PARTIAL_RECONFIG;
 
-	if (of_property_read_bool(overlay, "external-fpga-config"))
-		info->flags |= FPGA_MGR_EXTERNAL_CONFIG;
+		if (of_property_read_bool(overlay, "external-fpga-config"))
+			info->flags |= FPGA_MGR_EXTERNAL_CONFIG;
 
-	if (of_property_read_bool(overlay, "encrypted-fpga-config"))
-		info->flags |= FPGA_MGR_ENCRYPTED_BITSTREAM;
+		if (of_property_read_bool(overlay, "encrypted-fpga-config"))
+			info->flags |= FPGA_MGR_ENCRYPTED_BITSTREAM;
+	}
 
 	if (!of_property_read_string(overlay, "firmware-name",
 				     &firmware_name)) {
@@ -421,7 +426,7 @@ static int of_fpga_region_probe(struct platform_device *pdev)
 		goto eprobe_mgr_put;
 
 	of_platform_populate(np, fpga_region_of_match, NULL, &region->dev);
-	dev_set_drvdata(dev, region);
+	platform_set_drvdata(pdev, region);
 
 	dev_info(dev, "FPGA Region probed\n");
 

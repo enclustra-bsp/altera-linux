@@ -22,24 +22,21 @@
 
 /*
  * __has_attribute is supported on gcc >= 5, clang >= 2.9 and icc >= 17.
- * In the meantime, to support 4.6 <= gcc < 5, we implement __has_attribute
+ * In the meantime, to support gcc < 5, we implement __has_attribute
  * by hand.
- *
- * sparse does not support __has_attribute (yet) and defines __GNUC_MINOR__
- * depending on the compiler used to build it; however, these attributes have
- * no semantic effects for sparse, so it does not matter. Also note that,
- * in order to avoid sparse's warnings, even the unsupported ones must be
- * defined to 0.
  */
 #ifndef __has_attribute
 # define __has_attribute(x) __GCC4_has_attribute_##x
 # define __GCC4_has_attribute___assume_aligned__      (__GNUC_MINOR__ >= 9)
+# define __GCC4_has_attribute___copy__                0
 # define __GCC4_has_attribute___designated_init__     0
 # define __GCC4_has_attribute___externally_visible__  1
+# define __GCC4_has_attribute___no_caller_saved_registers__ 0
 # define __GCC4_has_attribute___noclone__             1
-# define __GCC4_has_attribute___optimize__            1
 # define __GCC4_has_attribute___nonstring__           0
 # define __GCC4_has_attribute___no_sanitize_address__ (__GNUC_MINOR__ >= 8)
+# define __GCC4_has_attribute___no_sanitize_undefined__ (__GNUC_MINOR__ >= 9)
+# define __GCC4_has_attribute___fallthrough__         0
 #endif
 
 /*
@@ -102,6 +99,19 @@
 #define __attribute_const__             __attribute__((__const__))
 
 /*
+ * Optional: only supported since gcc >= 9
+ * Optional: not supported by clang
+ * Optional: not supported by icc
+ *
+ *   gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-copy-function-attribute
+ */
+#if __has_attribute(__copy__)
+# define __copy(symbol)                 __attribute__((__copy__(symbol)))
+#else
+# define __copy(symbol)
+#endif
+
+/*
  * Don't. Just don't. See commit 771c035372a0 ("deprecate the '__deprecated'
  * attribute warnings entirely and for good") for more information.
  *
@@ -162,20 +172,42 @@
 #define __mode(x)                       __attribute__((__mode__(x)))
 
 /*
+ * Optional: only supported since gcc >= 7
+ *
+ *   gcc: https://gcc.gnu.org/onlinedocs/gcc/x86-Function-Attributes.html#index-no_005fcaller_005fsaved_005fregisters-function-attribute_002c-x86
+ * clang: https://clang.llvm.org/docs/AttributeReference.html#no-caller-saved-registers
+ */
+#if __has_attribute(__no_caller_saved_registers__)
+# define __no_caller_saved_registers	__attribute__((__no_caller_saved_registers__))
+#else
+# define __no_caller_saved_registers
+#endif
+
+/*
  * Optional: not supported by clang
- * Note: icc does not recognize gcc's no-tracer
  *
  *  gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noclone-function-attribute
- *  gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-optimize-function-attribute
  */
 #if __has_attribute(__noclone__)
-# if __has_attribute(__optimize__)
-#  define __noclone                     __attribute__((__noclone__, __optimize__("no-tracer")))
-# else
-#  define __noclone                     __attribute__((__noclone__))
-# endif
+# define __noclone                      __attribute__((__noclone__))
 #else
 # define __noclone
+#endif
+
+/*
+ * Add the pseudo keyword 'fallthrough' so case statement blocks
+ * must end with any of these keywords:
+ *   break;
+ *   fallthrough;
+ *   goto <label>;
+ *   return [expression];
+ *
+ *  gcc: https://gcc.gnu.org/onlinedocs/gcc/Statement-Attributes.html#Statement-Attributes
+ */
+#if __has_attribute(__fallthrough__)
+# define fallthrough                    __attribute__((__fallthrough__))
+#else
+# define fallthrough                    do {} while (0)  /* fallthrough */
 #endif
 
 /*
@@ -207,19 +239,6 @@
 #define __noreturn                      __attribute__((__noreturn__))
 
 /*
- * Optional: only supported since gcc >= 4.8
- * Optional: not supported by icc
- *
- *   gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-no_005fsanitize_005faddress-function-attribute
- * clang: https://clang.llvm.org/docs/AttributeReference.html#no-sanitize-address-no-address-safety-analysis
- */
-#if __has_attribute(__no_sanitize_address__)
-# define __no_sanitize_address          __attribute__((__no_sanitize_address__))
-#else
-# define __no_sanitize_address
-#endif
-
-/*
  *   gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Type-Attributes.html#index-packed-type-attribute
  * clang: https://gcc.gnu.org/onlinedocs/gcc/Common-Variable-Attributes.html#index-packed-variable-attribute
  */
@@ -235,7 +254,7 @@
  *   gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Variable-Attributes.html#index-section-variable-attribute
  * clang: https://clang.llvm.org/docs/AttributeReference.html#section-declspec-allocate
  */
-#define __section(S)                    __attribute__((__section__(#S)))
+#define __section(section)              __attribute__((__section__(section)))
 
 /*
  *   gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-unused-function-attribute

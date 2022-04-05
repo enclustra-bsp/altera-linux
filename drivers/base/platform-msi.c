@@ -368,14 +368,16 @@ void platform_msi_domain_free(struct irq_domain *domain, unsigned int virq,
 			      unsigned int nvec)
 {
 	struct platform_msi_priv_data *data = domain->host_data;
-	struct msi_desc *desc;
-	for_each_msi_entry(desc, data->dev) {
+	struct msi_desc *desc, *tmp;
+	for_each_msi_entry_safe(desc, tmp, data->dev) {
 		if (WARN_ON(!desc->irq || desc->nvec_used != 1))
 			return;
 		if (!(desc->irq >= virq && desc->irq < (virq + nvec)))
 			continue;
 
 		irq_domain_free_irqs_common(domain, desc->irq, 1);
+		list_del(&desc->list);
+		free_msi_entry(desc);
 	}
 }
 
@@ -385,7 +387,7 @@ void platform_msi_domain_free(struct irq_domain *domain, unsigned int virq,
  *
  * @domain:	The platform-msi domain
  * @virq:	The base irq from which to perform the allocate operation
- * @nvec:	How many interrupts to free from @virq
+ * @nr_irqs:	How many interrupts to free from @virq
  *
  * Return 0 on success, or an error code on failure. Must be called
  * with irq_domain_mutex held (which can only be done as part of a

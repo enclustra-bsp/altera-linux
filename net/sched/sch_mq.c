@@ -1,11 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * net/sched/sch_mq.c		Classful multiqueue dummy scheduler
  *
  * Copyright (c) 2009 Patrick McHardy <kaber@trash.net>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * version 2 as published by the Free Software Foundation.
  */
 
 #include <linux/types.h>
@@ -38,9 +35,8 @@ static int mq_offload(struct Qdisc *sch, enum tc_mq_command cmd)
 	return dev->netdev_ops->ndo_setup_tc(dev, TC_SETUP_QDISC_MQ, &opt);
 }
 
-static void mq_offload_stats(struct Qdisc *sch)
+static int mq_offload_stats(struct Qdisc *sch)
 {
-	struct net_device *dev = qdisc_dev(sch);
 	struct tc_mq_qopt_offload opt = {
 		.command = TC_MQ_STATS,
 		.handle = sch->handle,
@@ -50,8 +46,7 @@ static void mq_offload_stats(struct Qdisc *sch)
 		},
 	};
 
-	if (tc_can_offload(dev) && dev->netdev_ops->ndo_setup_tc)
-		dev->netdev_ops->ndo_setup_tc(dev, TC_SETUP_QDISC_MQ, &opt);
+	return qdisc_offload_dump_helper(sch, TC_SETUP_QDISC_MQ, &opt);
 }
 
 static void mq_destroy(struct Qdisc *sch)
@@ -130,6 +125,29 @@ static void mq_attach(struct Qdisc *sch)
 	priv->qdiscs = NULL;
 }
 
+static void mq_change_real_num_tx(struct Qdisc *sch, unsigned int new_real_tx)
+{
+#ifdef CONFIG_NET_SCHED
+	struct net_device *dev = qdisc_dev(sch);
+	struct Qdisc *qdisc;
+	unsigned int i;
+
+	for (i = new_real_tx; i < dev->real_num_tx_queues; i++) {
+		qdisc = netdev_get_tx_queue(dev, i)->qdisc_sleeping;
+		/* Only update the default qdiscs we created,
+		 * qdiscs with handles are always hashed.
+		 */
+		if (qdisc != &noop_qdisc && !qdisc->handle)
+			qdisc_hash_del(qdisc);
+	}
+	for (i = dev->real_num_tx_queues; i < new_real_tx; i++) {
+		qdisc = netdev_get_tx_queue(dev, i)->qdisc_sleeping;
+		if (qdisc != &noop_qdisc && !qdisc->handle)
+			qdisc_hash_add(qdisc, false);
+	}
+#endif
+}
+
 static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 {
 	struct net_device *dev = qdisc_dev(sch);
@@ -158,6 +176,7 @@ static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 			__gnet_stats_copy_queue(&sch->qstats,
 						qdisc->cpu_qstats,
 						&qdisc->qstats, qlen);
+			sch->q.qlen		+= qlen;
 		} else {
 			sch->q.qlen		+= qdisc->q.qlen;
 			sch->bstats.bytes	+= qdisc->bstats.bytes;
@@ -171,9 +190,8 @@ static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 
 		spin_unlock_bh(qdisc_lock(qdisc));
 	}
-	mq_offload_stats(sch);
 
-	return 0;
+	return mq_offload_stats(sch);
 }
 
 static struct netdev_queue *mq_queue_get(struct Qdisc *sch, unsigned long cl)
@@ -196,6 +214,7 @@ static int mq_graft(struct Qdisc *sch, unsigned long cl, struct Qdisc *new,
 		    struct Qdisc **old, struct netlink_ext_ack *extack)
 {
 	struct netdev_queue *dev_queue = mq_queue_get(sch, cl);
+	struct tc_mq_qopt_offload graft_offload;
 	struct net_device *dev = qdisc_dev(sch);
 
 	if (dev->flags & IFF_UP)
@@ -206,6 +225,14 @@ static int mq_graft(struct Qdisc *sch, unsigned long cl, struct Qdisc *new,
 		new->flags |= TCQ_F_ONETXQUEUE | TCQ_F_NOPARENT;
 	if (dev->flags & IFF_UP)
 		dev_activate(dev);
+
+	graft_offload.handle = sch->handle;
+	graft_offload.graft_params.queue = cl - 1;
+	graft_offload.graft_params.child_handle = new ? new->handle : 0;
+	graft_offload.command = TC_MQ_GRAFT;
+
+	qdisc_offload_graft_helper(qdisc_dev(sch), sch, new, *old,
+				   TC_SETUP_QDISC_MQ, &graft_offload, extack);
 	return 0;
 }
 
@@ -242,8 +269,9 @@ static int mq_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 	struct netdev_queue *dev_queue = mq_queue_get(sch, cl);
 
 	sch = dev_queue->qdisc_sleeping;
-	if (gnet_stats_copy_basic(&sch->running, d, NULL, &sch->bstats) < 0 ||
-	    gnet_stats_copy_queue(d, NULL, &sch->qstats, sch->q.qlen) < 0)
+	if (gnet_stats_copy_basic(&sch->running, d, sch->cpu_bstats,
+				  &sch->bstats) < 0 ||
+	    qdisc_qstats_copy(d, sch) < 0)
 		return -1;
 	return 0;
 }
@@ -283,6 +311,7 @@ struct Qdisc_ops mq_qdisc_ops __read_mostly = {
 	.init		= mq_init,
 	.destroy	= mq_destroy,
 	.attach		= mq_attach,
+	.change_real_num_tx = mq_change_real_num_tx,
 	.dump		= mq_dump,
 	.owner		= THIS_MODULE,
 };

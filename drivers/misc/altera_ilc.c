@@ -127,7 +127,7 @@ static void ilc_work(struct work_struct *work)
 
 		/*Clearing stop register*/
 		stp_reg = readl(ilc->regs + STP_REG);
-		writel((!(0x1 << offset))&stp_reg, ilc->regs + STP_REG);
+		writel((~(0x1 << offset) & stp_reg), ilc->regs + STP_REG);
 
 		return;
 	}

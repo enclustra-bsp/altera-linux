@@ -7,7 +7,7 @@
  *
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2017 Intel Deutschland GmbH
- * Copyright(c) 2018 Intel Corporation
+ * Copyright(c) 2018 - 2020 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -29,7 +29,7 @@
  *
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2017 Intel Deutschland GmbH
- * Copyright(c) 2018 Intel Corporation
+ * Copyright(c) 2018 - 2020 Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -166,8 +166,16 @@ enum iwl_tlc_mng_ht_rates {
 	IWL_TLC_MNG_HT_RATE_MAX = IWL_TLC_MNG_HT_RATE_MCS11,
 };
 
-/* Maximum supported tx antennas number */
-#define MAX_NSS 2
+enum IWL_TLC_MNG_NSS {
+	IWL_TLC_NSS_1,
+	IWL_TLC_NSS_2,
+	IWL_TLC_NSS_MAX
+};
+
+enum IWL_TLC_HT_BW_RATES {
+	IWL_TLC_HT_BW_NONE_160,
+	IWL_TLC_HT_BW_160,
+};
 
 /**
  * struct tlc_config_cmd - TLC configuration
@@ -185,6 +193,8 @@ enum iwl_tlc_mng_ht_rates {
  * @sgi_ch_width_supp: bitmap of SGI support per channel width
  *		       use BIT(@enum iwl_tlc_mng_cfg_cw)
  * @reserved2: reserved
+ * @max_tx_op: max TXOP in uSecs for all AC (BK, BE, VO, VI),
+ *	       set zero for no limit.
  */
 struct iwl_tlc_config_cmd {
 	u8 sta_id;
@@ -195,11 +205,12 @@ struct iwl_tlc_config_cmd {
 	u8 amsdu;
 	__le16 flags;
 	__le16 non_ht_rates;
-	__le16 ht_rates[MAX_NSS][2];
+	__le16 ht_rates[IWL_TLC_NSS_MAX][2];
 	__le16 max_mpdu_len;
 	u8 sgi_ch_width_supp;
-	u8 reserved2[1];
-} __packed; /* TLC_MNG_CONFIG_CMD_API_S_VER_2 */
+	u8 reserved2;
+	__le32 max_tx_op;
+} __packed; /* TLC_MNG_CONFIG_CMD_API_S_VER_3 */
 
 /**
  * enum iwl_tlc_update_flags - updated fields
@@ -477,6 +488,13 @@ enum {
 /* Bit 28: (1) 106-tone RX (8 MHz RU), (0) normal bandwidth */
 #define RATE_MCS_HE_106T_POS		28
 #define RATE_MCS_HE_106T_MSK		(1 << RATE_MCS_HE_106T_POS)
+
+/* Bit 30-31: (1) RTS, (2) CTS */
+#define RATE_MCS_RTS_REQUIRED_POS  (30)
+#define RATE_MCS_RTS_REQUIRED_MSK  (0x1 << RATE_MCS_RTS_REQUIRED_POS)
+
+#define RATE_MCS_CTS_REQUIRED_POS  (31)
+#define RATE_MCS_CTS_REQUIRED_MSK  (0x1 << RATE_MCS_CTS_REQUIRED_POS)
 
 /* Link Quality definitions */
 

@@ -1,19 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * NinjaSCSI-32Bi Cardbus, NinjaSCSI-32UDE PCI/CardBus SCSI driver
  * Copyright (C) 2001, 2002, 2003
  *      YOKOTA Hiroshi <yokota@netlab.is.tsukuba.ac.jp>
  *      GOTO Masanori <gotom@debian.or.jp>, <gotom@debian.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  *
  * Revision History:
  *   1.0: Initial Release.
@@ -274,7 +264,7 @@ static struct scsi_host_template nsp32_template = {
 	.sg_tablesize			= NSP32_SG_SIZE,
 	.max_sectors			= 128,
 	.this_id			= NSP32_HOST_SCSIID,
-	.use_clustering			= DISABLE_CLUSTERING,
+	.dma_boundary			= PAGE_SIZE - 1,
 	.eh_abort_handler		= nsp32_eh_abort,
 	.eh_host_reset_handler		= nsp32_eh_host_reset,
 /*	.highmem_io			= 1, */
@@ -1257,7 +1247,7 @@ static irqreturn_t do_nsp32_isr(int irq, void *dev_id)
 				 *   ---> AutoSCSI with MSGOUTreg is processed.
 				 */
 				data->msgout_len = 0;
-			};
+			}
 
 			nsp32_dbg(NSP32_DEBUG_INTR, "MsgOut phase processed");
 		}
@@ -1552,7 +1542,7 @@ static void nsp32_scsi_done(struct scsi_cmnd *SCpnt)
  * with ACK reply when below condition is matched:
  *	MsgIn 00: Command Complete.
  *	MsgIn 02: Save Data Pointer.
- *	MsgIn 04: Diconnect.
+ *	MsgIn 04: Disconnect.
  * In other case, unexpected BUSFREE is detected.
  */
 static int nsp32_busfree_occur(struct scsi_cmnd *SCpnt, unsigned short execph)
@@ -1849,7 +1839,7 @@ static void nsp32_msgout_occur(struct scsi_cmnd *SCpnt)
 
 		nsp32_dbg(NSP32_DEBUG_MSGOUTOCCUR, "bus: 0x%x\n",
 			  nsp32_read1(base, SCSI_BUS_MONITOR));
-	};
+	}
 
 	data->msgout_len = 0;
 
@@ -2441,7 +2431,6 @@ static void nsp32_set_sync_entry(nsp32_hw_data *data,
 
 	period      = data->synct[entry].period_num;
 	ackwidth    = data->synct[entry].ackwidth;
-	offset      = offset;
 	sample_rate = data->synct[entry].sample_rate;
 
 	target->syncreg    = TO_SYNCREG(period, offset);

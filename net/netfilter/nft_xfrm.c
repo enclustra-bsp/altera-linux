@@ -1,7 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  *
  * Generic part shared by ipv4 and ipv6 backends.
  */
@@ -161,7 +159,7 @@ static void nft_xfrm_get_eval_in(const struct nft_xfrm *priv,
 				    struct nft_regs *regs,
 				    const struct nft_pktinfo *pkt)
 {
-	const struct sec_path *sp = pkt->skb->sp;
+	const struct sec_path *sp = skb_sec_path(pkt->skb);
 	const struct xfrm_state *state;
 
 	if (sp == NULL || sp->len <= priv->spnum) {

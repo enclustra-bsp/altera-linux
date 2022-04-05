@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * PowerPC64 LPAR Configuration Information Driver
  *
@@ -8,11 +9,6 @@
  *    seq_file updates, Copyright (c) 2004 Will Schmidt IBM Corporation.
  * Nathan Lynch nathanl@austin.ibm.com
  *    Added lparcfg_write, Copyright (C) 2004 Nathan Lynch IBM Corporation.
- *
- *      This program is free software; you can redistribute it and/or
- *      modify it under the terms of the GNU General Public License
- *      as published by the Free Software Foundation; either version
- *      2 of the License, or (at your option) any later version.
  *
  * This driver creates a proc file at /proc/ppc64/lparcfg which contains
  * keyword - value pairs that specify the configuration of the partition.
@@ -138,6 +134,39 @@ static unsigned int h_get_ppp(struct hvcall_ppp_data *ppp_data)
 	ppp_data->entitled_proc_cap_avail = retbuf[4] & 0xffffff;
 
 	return rc;
+}
+
+static void show_gpci_data(struct seq_file *m)
+{
+	struct hv_gpci_request_buffer *buf;
+	unsigned int affinity_score;
+	long ret;
+
+	buf = kmalloc(sizeof(*buf), GFP_KERNEL);
+	if (buf == NULL)
+		return;
+
+	/*
+	 * Show the local LPAR's affinity score.
+	 *
+	 * 0xB1 selects the Affinity_Domain_Info_By_Partition subcall.
+	 * The score is at byte 0xB in the output buffer.
+	 */
+	memset(&buf->params, 0, sizeof(buf->params));
+	buf->params.counter_request = cpu_to_be32(0xB1);
+	buf->params.starting_index = cpu_to_be32(-1);	/* local LPAR */
+	buf->params.counter_info_version_in = 0x5;	/* v5+ for score */
+	ret = plpar_hcall_norets(H_GET_PERF_COUNTER_INFO, virt_to_phys(buf),
+				 sizeof(*buf));
+	if (ret != H_SUCCESS) {
+		pr_debug("hcall failed: H_GET_PERF_COUNTER_INFO: %ld, %x\n",
+			 ret, be32_to_cpu(buf->params.detail_rc));
+		goto out;
+	}
+	affinity_score = buf->bytes[0xB];
+	seq_printf(m, "partition_affinity_score=%u\n", affinity_score);
+out:
+	kfree(buf);
 }
 
 static unsigned h_pic(unsigned long *pool_idle_time,
@@ -439,10 +468,10 @@ static void maxmem_data(struct seq_file *m)
 {
 	unsigned long maxmem = 0;
 
-	maxmem += drmem_info->n_lmbs * drmem_info->lmb_size;
+	maxmem += (unsigned long)drmem_info->n_lmbs * drmem_info->lmb_size;
 	maxmem += hugetlb_total_pages() * PAGE_SIZE;
 
-	seq_printf(m, "MaxMem=%ld\n", maxmem);
+	seq_printf(m, "MaxMem=%lu\n", maxmem);
 }
 
 static int pseries_lparcfg_data(struct seq_file *m, void *v)
@@ -475,6 +504,7 @@ static int pseries_lparcfg_data(struct seq_file *m, void *v)
 		splpar_dispatch_data(m);
 
 		seq_printf(m, "purr=%ld\n", get_purr());
+		seq_printf(m, "tbr=%ld\n", mftb());
 	} else {		/* non SPLPAR case */
 
 		seq_printf(m, "system_active_processors=%d\n",
@@ -489,6 +519,8 @@ static int pseries_lparcfg_data(struct seq_file *m, void *v)
 		seq_printf(m, "partition_entitled_capacity=%d\n",
 			   partition_active_processors * 100);
 	}
+
+	show_gpci_data(m);
 
 	seq_printf(m, "partition_active_processors=%d\n",
 		   partition_active_processors);
@@ -701,12 +733,12 @@ static int lparcfg_open(struct inode *inode, struct file *file)
 	return single_open(file, lparcfg_data, NULL);
 }
 
-static const struct file_operations lparcfg_fops = {
-	.read		= seq_read,
-	.write		= lparcfg_write,
-	.open		= lparcfg_open,
-	.release	= single_release,
-	.llseek		= seq_lseek,
+static const struct proc_ops lparcfg_proc_ops = {
+	.proc_read	= seq_read,
+	.proc_write	= lparcfg_write,
+	.proc_open	= lparcfg_open,
+	.proc_release	= single_release,
+	.proc_lseek	= seq_lseek,
 };
 
 static int __init lparcfg_init(void)
@@ -717,7 +749,7 @@ static int __init lparcfg_init(void)
 	if (firmware_has_feature(FW_FEATURE_SPLPAR))
 		mode |= 0200;
 
-	if (!proc_create("powerpc/lparcfg", mode, NULL, &lparcfg_fops)) {
+	if (!proc_create("powerpc/lparcfg", mode, NULL, &lparcfg_proc_ops)) {
 		printk(KERN_ERR "Failed to create powerpc/lparcfg\n");
 		return -EIO;
 	}

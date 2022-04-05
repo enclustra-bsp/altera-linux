@@ -363,10 +363,13 @@ static int __init arcrimi_setup(char *s)
 	switch (ints[0]) {
 	default:		/* ERROR */
 		pr_err("Too many arguments\n");
+		fallthrough;
 	case 3:		/* Node ID */
 		node = ints[3];
+		fallthrough;
 	case 2:		/* IRQ */
 		irq = ints[2];
+		fallthrough;
 	case 1:		/* IO address */
 		io = ints[1];
 	}

@@ -1,17 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * SMI PCIe driver for DVBSky cards.
  *
  * Copyright (C) 2014 Max nibble <nibble.max@gmail.com>
- *
- *    This program is free software; you can redistribute it and/or modify
- *    it under the terms of the GNU General Public License as published by
- *    the Free Software Foundation; either version 2 of the License, or
- *    (at your option) any later version.
- *
- *    This program is distributed in the hope that it will be useful,
- *    but WITHOUT ANY WARRANTY; without even the implied warranty of
- *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *    GNU General Public License for more details.
  */
 
 #include "smipcie.h"
@@ -289,9 +280,9 @@ static void smi_port_clearInterrupt(struct smi_port *port)
 }
 
 /* tasklet handler: DMA data to dmx.*/
-static void smi_dma_xfer(unsigned long data)
+static void smi_dma_xfer(struct tasklet_struct *t)
 {
-	struct smi_port *port = (struct smi_port *) data;
+	struct smi_port *port = from_tasklet(port, t, tasklet);
 	struct smi_dev *dev = port->dev;
 	u32 intr_status, finishedData, dmaManagement;
 	u8 dmaChan0State, dmaChan1State;
@@ -431,7 +422,7 @@ static int smi_port_init(struct smi_port *port, int dmaChanUsed)
 	}
 
 	smi_port_disableInterrupt(port);
-	tasklet_init(&port->tasklet, smi_dma_xfer, (unsigned long)port);
+	tasklet_setup(&port->tasklet, smi_dma_xfer);
 	tasklet_disable(&port->tasklet);
 	port->enable = 1;
 	return 0;
@@ -493,8 +484,8 @@ static struct i2c_client *smi_add_i2c_client(struct i2c_adapter *adapter,
 	struct i2c_client *client;
 
 	request_module(info->type);
-	client = i2c_new_device(adapter, info);
-	if (client == NULL || client->dev.driver == NULL)
+	client = i2c_new_client_device(adapter, info);
+	if (!i2c_client_has_driver(client))
 		goto err_add_i2c_client;
 
 	if (!try_module_get(client->dev.driver->owner)) {

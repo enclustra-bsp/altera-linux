@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/**
+/*
  * ulpi.c - USB ULPI PHY bus
  *
  * Copyright (C) 2015 Intel Corporation
@@ -39,8 +39,11 @@ static int ulpi_match(struct device *dev, struct device_driver *driver)
 	struct ulpi *ulpi = to_ulpi_dev(dev);
 	const struct ulpi_device_id *id;
 
-	/* Some ULPI devices don't have a vendor id so rely on OF match */
-	if (ulpi->id.vendor == 0)
+	/*
+	 * Some ULPI devices don't have a vendor id
+	 * or provide an id_table so rely on OF match.
+	 */
+	if (ulpi->id.vendor == 0 || !drv->id_table)
 		return of_driver_match_device(dev, driver);
 
 	for (id = drv->id_table; id->vendor; id++)
@@ -143,6 +146,7 @@ static const struct device_type ulpi_dev_type = {
 /**
  * ulpi_register_driver - register a driver with the ULPI bus
  * @drv: driver being registered
+ * @module: ends up being THIS_MODULE
  *
  * Registers a driver with the ULPI bus.
  */
@@ -290,7 +294,7 @@ EXPORT_SYMBOL_GPL(ulpi_register_interface);
 
 /**
  * ulpi_unregister_interface - unregister ULPI interface
- * @intrf: struct ulpi_interface
+ * @ulpi: struct ulpi_interface
  *
  * Unregisters a ULPI device and it's interface that was created with
  * ulpi_create_interface().
