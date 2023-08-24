@@ -1,11 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
 * Simple driver for Texas Instruments LM3639 Backlight + Flash LED driver chip
 * Copyright (C) 2012 Texas Instruments
-*
-* This program is free software; you can redistribute it and/or modify
-* it under the terms of the GNU General Public License version 2 as
-* published by the Free Software Foundation.
-*
 */
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -394,7 +390,7 @@ err_out:
 	return ret;
 }
 
-static int lm3639_remove(struct i2c_client *client)
+static void lm3639_remove(struct i2c_client *client)
 {
 	struct lm3639_chip_data *pchip = i2c_get_clientdata(client);
 
@@ -404,7 +400,6 @@ static int lm3639_remove(struct i2c_client *client)
 	led_classdev_unregister(&pchip->cdev_flash);
 	if (pchip->bled)
 		device_remove_file(&(pchip->bled->dev), &dev_attr_bled_mode);
-	return 0;
 }
 
 static const struct i2c_device_id lm3639_id[] = {

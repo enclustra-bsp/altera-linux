@@ -1,11 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * arch/arm/mm/proc-v7-2level.S
  *
  * Copyright (C) 2001 Deep Blue Solutions Ltd.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #define TTB_S		(1 << 1)
@@ -40,9 +37,6 @@
  *	Note that we always need to flush BTAC/BTB if IBE is set
  *	even on Cortex-A8 revisions not affected by 430973.
  *	If IBE is not set, the flush BTAC/BTB won't do anything.
- *
- *	Cortex-A15 requires ACTLR[0] to be set from secure in order
- *	for the icache invalidation to also invalidate the BTB.
  */
 ENTRY(cpu_v7_switch_mm)
 #ifdef CONFIG_MMU

@@ -1,29 +1,21 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-// Copyright (C) 2018 Hangzhou C-SKY Microsystems co.,ltd.
 
 #ifndef __ASM_CSKY_PROCESSOR_H
 #define __ASM_CSKY_PROCESSOR_H
 
 #include <linux/bitops.h>
-#include <asm/segment.h>
+#include <linux/cache.h>
 #include <asm/ptrace.h>
 #include <asm/current.h>
-#include <asm/cache.h>
 #include <abi/reg_ops.h>
 #include <abi/regdef.h>
+#include <abi/switch_context.h>
 #ifdef CONFIG_CPU_HAS_FPU
 #include <abi/fpu.h>
 #endif
 
 struct cpuinfo_csky {
-	unsigned long udelay_val;
 	unsigned long asid_cache;
-	/*
-	 * Capability and feature descriptor structure for CSKY CPU
-	 */
-	unsigned long options;
-	unsigned int processor_id[4];
-	unsigned int fpu_id;
 } __aligned(SMP_CACHE_BYTES);
 
 extern struct cpuinfo_csky cpu_data[];
@@ -34,7 +26,7 @@ extern struct cpuinfo_csky cpu_data[];
  * for a 64 bit kernel expandable to 8192EB, of which the current CSKY
  * implementations will "only" be able to use 1TB ...
  */
-#define TASK_SIZE       0x7fff8000UL
+#define TASK_SIZE	(PAGE_OFFSET - (PAGE_SIZE * 8))
 
 #ifdef __KERNEL__
 #define STACK_TOP       TASK_SIZE
@@ -47,23 +39,15 @@ extern struct cpuinfo_csky cpu_data[];
 #define TASK_UNMAPPED_BASE      (TASK_SIZE / 3)
 
 struct thread_struct {
-	unsigned long  ksp;       /* kernel stack pointer */
-	unsigned long  sr;        /* saved status register */
-	unsigned long  esp0;      /* points to SR of stack frame */
-	unsigned long  hi;
-	unsigned long  lo;
-
-	/* Other stuff associated with the thread. */
-	unsigned long address;      /* Last user fault */
-	unsigned long error_code;
+	unsigned long  sp;        /* kernel stack pointer */
+	unsigned long  trap_no;   /* saved status register */
 
 	/* FPU regs */
 	struct user_fp __aligned(16) user_fp;
 };
 
 #define INIT_THREAD  { \
-	.ksp = (unsigned long) init_thread_union.stack + THREAD_SIZE, \
-	.sr = DEFAULT_PSR_VALUE, \
+	.sp = sizeof(init_stack) + (unsigned long) &init_stack, \
 }
 
 /*
@@ -74,7 +58,6 @@ struct thread_struct {
  */
 #define start_thread(_regs, _pc, _usp)					\
 do {									\
-	set_fs(USER_DS); /* reads from user space */			\
 	(_regs)->pc = (_pc);						\
 	(_regs)->regs[1] = 0; /* ABIV1 is R7, uClibc_main rtdl arg */	\
 	(_regs)->regs[2] = 0;						\
@@ -86,29 +69,18 @@ do {									\
 /* Forward declaration, a strange C thing */
 struct task_struct;
 
-/* Free all resources held by a thread. */
-static inline void release_thread(struct task_struct *dead_task)
-{
-}
-
 /* Prepare to copy thread state - unlazy all lazy status */
 #define prepare_to_copy(tsk)    do { } while (0)
 
 extern int kernel_thread(int (*fn)(void *), void *arg, unsigned long flags);
 
-#define copy_segments(tsk, mm)		do { } while (0)
-#define release_segments(mm)		do { } while (0)
-#define forget_segments()		do { } while (0)
-
-extern unsigned long thread_saved_pc(struct task_struct *tsk);
-
-unsigned long get_wchan(struct task_struct *p);
+unsigned long __get_wchan(struct task_struct *p);
 
 #define KSTK_EIP(tsk)		(task_pt_regs(tsk)->pc)
 #define KSTK_ESP(tsk)		(task_pt_regs(tsk)->usp)
 
 #define task_pt_regs(p) \
-	((struct pt_regs *)(THREAD_SIZE + p->stack) - 1)
+	((struct pt_regs *)(THREAD_SIZE + task_stack_page(p)) - 1)
 
 #define cpu_relax() barrier()
 

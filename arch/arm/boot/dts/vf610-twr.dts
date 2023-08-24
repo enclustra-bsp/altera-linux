@@ -14,6 +14,7 @@
 	};
 
 	memory@80000000 {
+		device_type = "memory";
 		reg = <0x80000000 0x8000000>;
 	};
 
@@ -168,7 +169,7 @@
 	       VDDA-supply = <&reg_3p3v>;
 	       VDDIO-supply = <&reg_3p3v>;
 	       clocks = <&clks VF610_CLK_SAI2>;
-       };
+	};
 };
 
 &iomuxc {

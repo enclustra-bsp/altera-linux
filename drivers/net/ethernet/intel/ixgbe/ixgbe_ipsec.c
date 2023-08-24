@@ -4,6 +4,7 @@
 #include "ixgbe.h"
 #include <net/xfrm.h>
 #include <crypto/aead.h>
+#include <linux/if_bridge.h>
 
 #define IXGBE_IPSEC_KEY_BITS  160
 static const char aes_gcm_name[] = "rfc4106(gcm(aes))";
@@ -426,7 +427,7 @@ static struct xfrm_state *ixgbe_ipsec_find_rx_state(struct ixgbe_ipsec *ipsec,
 static int ixgbe_ipsec_parse_proto_keys(struct xfrm_state *xs,
 					u32 *mykey, u32 *mysalt)
 {
-	struct net_device *dev = xs->xso.dev;
+	struct net_device *dev = xs->xso.real_dev;
 	unsigned char *key_data;
 	char *alg_name = NULL;
 	int key_len;
@@ -476,7 +477,7 @@ static int ixgbe_ipsec_parse_proto_keys(struct xfrm_state *xs,
  **/
 static int ixgbe_ipsec_check_mgmt_ip(struct xfrm_state *xs)
 {
-	struct net_device *dev = xs->xso.dev;
+	struct net_device *dev = xs->xso.real_dev;
 	struct ixgbe_adapter *adapter = netdev_priv(dev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	u32 mfval, manc, reg;
@@ -510,14 +511,14 @@ static int ixgbe_ipsec_check_mgmt_ip(struct xfrm_state *xs)
 					continue;
 
 				reg = IXGBE_READ_REG(hw, MIPAF_ARR(3, i));
-				if (reg == xs->id.daddr.a4)
+				if (reg == (__force u32)xs->id.daddr.a4)
 					return 1;
 			}
 		}
 
 		if ((bmcipval & BMCIP_MASK) == BMCIP_V4) {
 			reg = IXGBE_READ_REG(hw, IXGBE_BMCIP(3));
-			if (reg == xs->id.daddr.a4)
+			if (reg == (__force u32)xs->id.daddr.a4)
 				return 1;
 		}
 
@@ -532,7 +533,7 @@ static int ixgbe_ipsec_check_mgmt_ip(struct xfrm_state *xs)
 
 			for (j = 0; j < 4; j++) {
 				reg = IXGBE_READ_REG(hw, MIPAF_ARR(i, j));
-				if (reg != xs->id.daddr.a6[j])
+				if (reg != (__force u32)xs->id.daddr.a6[j])
 					break;
 			}
 			if (j == 4)   /* did we match all 4 words? */
@@ -542,7 +543,7 @@ static int ixgbe_ipsec_check_mgmt_ip(struct xfrm_state *xs)
 		if ((bmcipval & BMCIP_MASK) == BMCIP_V6) {
 			for (j = 0; j < 4; j++) {
 				reg = IXGBE_READ_REG(hw, IXGBE_BMCIP(j));
-				if (reg != xs->id.daddr.a6[j])
+				if (reg != (__force u32)xs->id.daddr.a6[j])
 					break;
 			}
 			if (j == 4)   /* did we match all 4 words? */
@@ -559,7 +560,7 @@ static int ixgbe_ipsec_check_mgmt_ip(struct xfrm_state *xs)
  **/
 static int ixgbe_ipsec_add_sa(struct xfrm_state *xs)
 {
-	struct net_device *dev = xs->xso.dev;
+	struct net_device *dev = xs->xso.real_dev;
 	struct ixgbe_adapter *adapter = netdev_priv(dev);
 	struct ixgbe_ipsec *ipsec = adapter->ipsec;
 	struct ixgbe_hw *hw = &adapter->hw;
@@ -574,12 +575,17 @@ static int ixgbe_ipsec_add_sa(struct xfrm_state *xs)
 		return -EINVAL;
 	}
 
+	if (xs->props.mode != XFRM_MODE_TRANSPORT) {
+		netdev_err(dev, "Unsupported mode for ipsec offload\n");
+		return -EINVAL;
+	}
+
 	if (ixgbe_ipsec_check_mgmt_ip(xs)) {
 		netdev_err(dev, "IPsec IP addr clash with mgmt filters\n");
 		return -EINVAL;
 	}
 
-	if (xs->xso.flags & XFRM_OFFLOAD_INBOUND) {
+	if (xs->xso.dir == XFRM_DEV_OFFLOAD_IN) {
 		struct rx_sa rsa;
 
 		if (xs->calg) {
@@ -693,7 +699,8 @@ static int ixgbe_ipsec_add_sa(struct xfrm_state *xs)
 	} else {
 		struct tx_sa tsa;
 
-		if (adapter->num_vfs)
+		if (adapter->num_vfs &&
+		    adapter->bridge_mode != BRIDGE_MODE_VEPA)
 			return -EOPNOTSUPP;
 
 		/* find the first unused index */
@@ -743,14 +750,14 @@ static int ixgbe_ipsec_add_sa(struct xfrm_state *xs)
  **/
 static void ixgbe_ipsec_del_sa(struct xfrm_state *xs)
 {
-	struct net_device *dev = xs->xso.dev;
+	struct net_device *dev = xs->xso.real_dev;
 	struct ixgbe_adapter *adapter = netdev_priv(dev);
 	struct ixgbe_ipsec *ipsec = adapter->ipsec;
 	struct ixgbe_hw *hw = &adapter->hw;
 	u32 zerobuf[4] = {0, 0, 0, 0};
 	u16 sa_idx;
 
-	if (xs->xso.flags & XFRM_OFFLOAD_INBOUND) {
+	if (xs->xso.dir == XFRM_DEV_OFFLOAD_IN) {
 		struct rx_sa *rsa;
 		u8 ipi;
 
@@ -840,6 +847,9 @@ void ixgbe_ipsec_vf_clear(struct ixgbe_adapter *adapter, u32 vf)
 	struct ixgbe_ipsec *ipsec = adapter->ipsec;
 	int i;
 
+	if (!ipsec)
+		return;
+
 	/* search rx sa table */
 	for (i = 0; i < IXGBE_IPSEC_MAX_SA_COUNT && ipsec->num_rx_sa; i++) {
 		if (!ipsec->rx_tbl[i].used)
@@ -893,7 +903,7 @@ int ixgbe_ipsec_vf_add_sa(struct ixgbe_adapter *adapter, u32 *msgbuf, u32 vf)
 	/* Tx IPsec offload doesn't seem to work on this
 	 * device, so block these requests for now.
 	 */
-	if (!(sam->flags & XFRM_OFFLOAD_INBOUND)) {
+	if (sam->dir != XFRM_DEV_OFFLOAD_IN) {
 		err = -EOPNOTSUPP;
 		goto err_out;
 	}
@@ -904,7 +914,7 @@ int ixgbe_ipsec_vf_add_sa(struct ixgbe_adapter *adapter, u32 *msgbuf, u32 vf)
 		goto err_out;
 	}
 
-	xs->xso.flags = sam->flags;
+	xs->xso.dir = sam->dir;
 	xs->id.spi = sam->spi;
 	xs->id.proto = sam->proto;
 	xs->props.family = sam->family;
@@ -955,11 +965,9 @@ int ixgbe_ipsec_vf_add_sa(struct ixgbe_adapter *adapter, u32 *msgbuf, u32 vf)
 	return 0;
 
 err_aead:
-	memset(xs->aead, 0, sizeof(*xs->aead));
-	kfree(xs->aead);
+	kfree_sensitive(xs->aead);
 err_xs:
-	memset(xs, 0, sizeof(*xs));
-	kfree(xs);
+	kfree_sensitive(xs);
 err_out:
 	msgbuf[1] = err;
 	return err;
@@ -1044,8 +1052,7 @@ int ixgbe_ipsec_vf_del_sa(struct ixgbe_adapter *adapter, u32 *msgbuf, u32 vf)
 	ixgbe_ipsec_del_sa(xs);
 
 	/* remove the xs that was made-up in the add request */
-	memset(xs, 0, sizeof(*xs));
-	kfree(xs);
+	kfree_sensitive(xs);
 
 	return 0;
 }
@@ -1063,11 +1070,13 @@ int ixgbe_ipsec_tx(struct ixgbe_ring *tx_ring,
 	struct ixgbe_adapter *adapter = netdev_priv(tx_ring->netdev);
 	struct ixgbe_ipsec *ipsec = adapter->ipsec;
 	struct xfrm_state *xs;
+	struct sec_path *sp;
 	struct tx_sa *tsa;
 
-	if (unlikely(!first->skb->sp->len)) {
+	sp = skb_sec_path(first->skb);
+	if (unlikely(!sp->len)) {
 		netdev_err(tx_ring->netdev, "%s: no xfrm state len = %d\n",
-			   __func__, first->skb->sp->len);
+			   __func__, sp->len);
 		return 0;
 	}
 
@@ -1157,6 +1166,7 @@ void ixgbe_ipsec_rx(struct ixgbe_ring *rx_ring,
 	struct xfrm_state *xs = NULL;
 	struct ipv6hdr *ip6 = NULL;
 	struct iphdr *ip4 = NULL;
+	struct sec_path *sp;
 	void *daddr;
 	__be32 spi;
 	u8 *c_hdr;
@@ -1196,12 +1206,12 @@ void ixgbe_ipsec_rx(struct ixgbe_ring *rx_ring,
 	if (unlikely(!xs))
 		return;
 
-	skb->sp = secpath_dup(skb->sp);
-	if (unlikely(!skb->sp))
+	sp = secpath_set(skb);
+	if (unlikely(!sp))
 		return;
 
-	skb->sp->xvec[skb->sp->len++] = xs;
-	skb->sp->olen++;
+	sp->xvec[sp->len++] = xs;
+	sp->olen++;
 	xo = xfrm_offload(skb);
 	xo->flags = CRYPTO_DONE;
 	xo->status = CRYPTO_SUCCESS;

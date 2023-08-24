@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* Public-key operation keyctls
  *
  * Copyright (C) 2016 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public Licence
- * as published by the Free Software Foundation; either version
- * 2 of the Licence, or (at your option) any later version.
  */
 
 #include <linux/slab.h>
@@ -50,6 +46,8 @@ static int keyctl_pkey_params_parse(struct kernel_pkey_params *params)
 		if (*p == '\0' || *p == ' ' || *p == '\t')
 			continue;
 		token = match_token(p, param_keys, args);
+		if (token == Opt_err)
+			return -EINVAL;
 		if (__test_and_set_bit(token, &token_mask))
 			return -EINVAL;
 		q = args[0].from;
@@ -137,15 +135,23 @@ static int keyctl_pkey_params_get_2(const struct keyctl_pkey_params __user *_par
 
 	switch (op) {
 	case KEYCTL_PKEY_ENCRYPT:
+		if (uparams.in_len  > info.max_dec_size ||
+		    uparams.out_len > info.max_enc_size)
+			return -EINVAL;
+		break;
 	case KEYCTL_PKEY_DECRYPT:
 		if (uparams.in_len  > info.max_enc_size ||
 		    uparams.out_len > info.max_dec_size)
 			return -EINVAL;
 		break;
 	case KEYCTL_PKEY_SIGN:
+		if (uparams.in_len  > info.max_data_size ||
+		    uparams.out_len > info.max_sig_size)
+			return -EINVAL;
+		break;
 	case KEYCTL_PKEY_VERIFY:
-		if (uparams.in_len  > info.max_sig_size ||
-		    uparams.out_len > info.max_data_size)
+		if (uparams.in_len  > info.max_data_size ||
+		    uparams.in2_len > info.max_sig_size)
 			return -EINVAL;
 		break;
 	default:
@@ -153,7 +159,7 @@ static int keyctl_pkey_params_get_2(const struct keyctl_pkey_params __user *_par
 	}
 
 	params->in_len  = uparams.in_len;
-	params->out_len = uparams.out_len;
+	params->out_len = uparams.out_len; /* Note: same as in2_len */
 	return 0;
 }
 
@@ -167,8 +173,6 @@ long keyctl_pkey_query(key_serial_t id,
 	struct kernel_pkey_params params;
 	struct kernel_pkey_query res;
 	long ret;
-
-	memset(&params, 0, sizeof(params));
 
 	ret = keyctl_pkey_params_get(id, _info, &params);
 	if (ret < 0)

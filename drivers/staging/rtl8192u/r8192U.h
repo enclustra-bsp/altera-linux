@@ -46,9 +46,9 @@
 #define KEY_BUF_SIZE    5
 
 #define	RX_SMOOTH_FACTOR		20
-#define DMESG(x, a...)
-#define DMESGW(x, a...)
-#define DMESGE(x, a...)
+#define DMESG(x, a...)  no_printk(x, ##a)
+#define DMESGW(x, a...) no_printk(x, ##a)
+#define DMESGE(x, a...) no_printk(x, ##a)
 extern u32 rt_global_debug_component;
 #define RT_TRACE(component, x, args...) \
 	do {							\
@@ -364,13 +364,13 @@ typedef enum _firmware_status {
 	FW_STATUS_5_READY = 5,
 } firmware_status_e;
 
-typedef struct _rt_firmare_seg_container {
+typedef struct _fw_seg_container {
 	u16	seg_size;
 	u8	*seg_ptr;
 } fw_seg_container, *pfw_seg_container;
 typedef struct _rt_firmware {
 	firmware_status_e firmware_status;
-	u16               cmdpacket_frag_thresold;
+	u16               cmdpacket_frag_threshold;
 #define RTL8190_MAX_FIRMWARE_CODE_SIZE  64000
 	u8                firmware_buf[RTL8190_MAX_FIRMWARE_CODE_SIZE];
 	u16               firmware_buf_size;
@@ -1013,7 +1013,7 @@ typedef struct r8192_priv {
 	bool		bis_any_nonbepkts;
 	bool		bcurrent_turbo_EDCA;
 	bool		bis_cur_rdlstate;
-	struct timer_list fsync_timer;
+	struct delayed_work fsync_work;
 	bool bfsync_processing;	/* 500ms Fsync timer is active or not */
 	u32	rate_record;
 	u32	rateCountDiffRecord;
@@ -1061,6 +1061,9 @@ typedef struct r8192_priv {
 	struct delayed_work gpio_change_rf_wq;
 	struct delayed_work initialgain_operate_wq;
 	struct workqueue_struct *priv_wq;
+
+	/* debugfs */
+	struct dentry *debugfs_dir;
 } r8192_priv;
 
 /* For rtl8187B */
@@ -1114,6 +1117,13 @@ void rtl8192_set_rxconf(struct net_device *dev);
 void rtl819xusb_beacon_tx(struct net_device *dev, u16 tx_rate);
 
 void EnableHWSecurityConfig8192(struct net_device *dev);
-void setKey(struct net_device *dev, u8 EntryNo, u8 KeyIndex, u16 KeyType, u8 *MacAddr, u8 DefaultKey, u32 *KeyContent);
+void setKey(struct net_device *dev, u8 EntryNo, u8 KeyIndex, u16 KeyType,
+	    const u8 *MacAddr, u8 DefaultKey, u32 *KeyContent);
+
+void rtl8192_debugfs_init_one(struct net_device *dev);
+void rtl8192_debugfs_exit_one(struct net_device *dev);
+void rtl8192_debugfs_rename_one(struct net_device *dev);
+void rtl8192_debugfs_init(void);
+void rtl8192_debugfs_exit(void);
 
 #endif

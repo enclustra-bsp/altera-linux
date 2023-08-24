@@ -1,19 +1,8 @@
-/* Driver for Realtek PCI-Express card reader
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Driver for Realtek PCI-Express card reader
  *
  * Copyright(c) 2009-2013 Realtek Semiconductor Corp. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2, or (at your option) any
- * later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author:
  *   Wei WANG (wei_wang@realsil.com.cn)
@@ -471,10 +460,8 @@ int spi_set_parameter(struct scsi_cmnd *srb, struct rtsx_chip *chip)
 	spi->clk_div = ((u16)(srb->cmnd[4]) << 8) | srb->cmnd[5];
 	spi->write_en = srb->cmnd[6];
 
-	dev_dbg(rtsx_dev(chip), "%s: ", __func__);
-	dev_dbg(rtsx_dev(chip), "spi_clock = %d, ", spi->spi_clock);
-	dev_dbg(rtsx_dev(chip), "clk_div = %d, ", spi->clk_div);
-	dev_dbg(rtsx_dev(chip), "write_en = %d\n", spi->write_en);
+	dev_dbg(rtsx_dev(chip), "spi_clock = %d, clk_div = %d, write_en = %d\n",
+		spi->spi_clock, spi->clk_div, spi->write_en);
 
 	return STATUS_SUCCESS;
 }

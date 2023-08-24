@@ -1,17 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2013, Steffen Trumtrar <s.trumtrar@pengutronix.de>
  *
  * based on drivers/clk/tegra/clk.h
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
  */
 
 #ifndef __SOCFPGA_CLK_H
@@ -37,7 +28,6 @@
 
 extern void __iomem *clk_mgr_base_addr;
 extern void __iomem *clk_mgr_a10_base_addr;
-extern void __iomem *clk_mgr_s10_base_addr;
 
 void __init socfpga_pll_init(struct device_node *node);
 void __init socfpga_periph_init(struct device_node *node);
@@ -45,9 +35,6 @@ void __init socfpga_gate_init(struct device_node *node);
 void socfpga_a10_pll_init(struct device_node *node);
 void socfpga_a10_periph_init(struct device_node *node);
 void socfpga_a10_gate_init(struct device_node *node);
-void socfpga_s10_pll_init(struct device_node *node);
-void socfpga_s10_periph_init(struct device_node *node);
-void socfpga_s10_gate_init(struct device_node *node);
 
 struct socfpga_pll {
 	struct clk_gate	hw;

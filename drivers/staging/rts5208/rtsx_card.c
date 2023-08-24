@@ -1,19 +1,8 @@
-/* Driver for Realtek PCI-Express card reader
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Driver for Realtek PCI-Express card reader
  *
  * Copyright(c) 2009-2013 Realtek Semiconductor Corp. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2, or (at your option) any
- * later version.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author:
  *   Wei WANG (wei_wang@realsil.com.cn)
@@ -176,7 +165,7 @@ void do_reset_sd_card(struct rtsx_chip *chip)
 		chip->card_fail &= ~SD_CARD;
 		chip->rw_card[chip->card2lun[SD_CARD]] = sd_rw;
 	} else {
-		if (chip->sd_io || (chip->sd_reset_counter >= MAX_RESET_CNT)) {
+		if (chip->sd_io || chip->sd_reset_counter >= MAX_RESET_CNT) {
 			clear_bit(SD_NR, &chip->need_reset);
 			chip->sd_reset_counter = 0;
 			chip->sd_show_cnt = 0;
@@ -647,7 +636,7 @@ int switch_ssc_clock(struct rtsx_chip *chip, int clk)
 	dev_dbg(rtsx_dev(chip), "Switch SSC clock to %dMHz (cur_clk = %d)\n",
 		clk, chip->cur_clk);
 
-	if ((clk <= 2) || (n > max_n))
+	if (clk <= 2 || n > max_n)
 		return STATUS_FAIL;
 
 	mcu_cnt = (u8)(125 / clk + 3);
@@ -897,7 +886,7 @@ int card_power_on(struct rtsx_chip *chip, u8 card)
 	int retval;
 	u8 mask, val1, val2;
 
-	if (CHECK_LUN_MODE(chip, SD_MS_2LUN) && (card == MS_CARD)) {
+	if (CHECK_LUN_MODE(chip, SD_MS_2LUN) && card == MS_CARD) {
 		mask = MS_POWER_MASK;
 		val1 = MS_PARTIAL_POWER_ON;
 		val2 = MS_POWER_ON;
@@ -931,7 +920,7 @@ int card_power_off(struct rtsx_chip *chip, u8 card)
 	int retval;
 	u8 mask, val;
 
-	if (CHECK_LUN_MODE(chip, SD_MS_2LUN) && (card == MS_CARD)) {
+	if (CHECK_LUN_MODE(chip, SD_MS_2LUN) && card == MS_CARD) {
 		mask = MS_POWER_MASK;
 		val = MS_POWER_OFF;
 	} else {

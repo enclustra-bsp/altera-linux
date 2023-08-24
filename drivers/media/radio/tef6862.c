@@ -1,15 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * tef6862.c Philips TEF6862 Car Radio Enhanced Selectivity Tuner
  * Copyright (c) 2009 Intel Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/module.h>
@@ -173,13 +165,12 @@ static int tef6862_probe(struct i2c_client *client,
 	return 0;
 }
 
-static int tef6862_remove(struct i2c_client *client)
+static void tef6862_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 
 	v4l2_device_unregister_subdev(sd);
 	kfree(to_state(sd));
-	return 0;
 }
 
 static const struct i2c_device_id tef6862_id[] = {

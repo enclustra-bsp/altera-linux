@@ -1,6 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2000 - 2007 Jeff Dike (jdike@{addtoit,linux.intel}.com)
- * Licensed under the GPL
  */
 
 #include <linux/module.h>
@@ -143,6 +143,7 @@ int phys_mapping(unsigned long phys, unsigned long long *offset_out)
 
 	return fd;
 }
+EXPORT_SYMBOL(phys_mapping);
 
 static int __init uml_mem_setup(char *line, int *add)
 {
@@ -168,7 +169,7 @@ __uml_setup("iomem=", parse_iomem,
 );
 
 /*
- * This list is constructed in parse_iomem and addresses filled in in
+ * This list is constructed in parse_iomem and addresses filled in
  * setup_iomem, both of which run during early boot.  Afterwards, it's
  * unchanged.
  */

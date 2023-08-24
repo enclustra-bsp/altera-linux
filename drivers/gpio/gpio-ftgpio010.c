@@ -68,6 +68,7 @@ static void ftgpio_gpio_mask_irq(struct irq_data *d)
 	val = readl(g->base + GPIO_INT_EN);
 	val &= ~BIT(irqd_to_hwirq(d));
 	writel(val, g->base + GPIO_INT_EN);
+	gpiochip_disable_irq(gc, irqd_to_hwirq(d));
 }
 
 static void ftgpio_gpio_unmask_irq(struct irq_data *d)
@@ -76,6 +77,7 @@ static void ftgpio_gpio_unmask_irq(struct irq_data *d)
 	struct ftgpio_gpio *g = gpiochip_get_data(gc);
 	u32 val;
 
+	gpiochip_enable_irq(gc, irqd_to_hwirq(d));
 	val = readl(g->base + GPIO_INT_EN);
 	val |= BIT(irqd_to_hwirq(d));
 	writel(val, g->base + GPIO_INT_EN);
@@ -134,14 +136,6 @@ static int ftgpio_gpio_set_irq_type(struct irq_data *d, unsigned int type)
 	return 0;
 }
 
-static struct irq_chip ftgpio_gpio_irqchip = {
-	.name = "FTGPIO010",
-	.irq_ack = ftgpio_gpio_ack_irq,
-	.irq_mask = ftgpio_gpio_mask_irq,
-	.irq_unmask = ftgpio_gpio_unmask_irq,
-	.irq_set_type = ftgpio_gpio_set_irq_type,
-};
-
 static void ftgpio_gpio_irq_handler(struct irq_desc *desc)
 {
 	struct gpio_chip *gc = irq_desc_get_handler_data(desc);
@@ -155,8 +149,7 @@ static void ftgpio_gpio_irq_handler(struct irq_desc *desc)
 	stat = readl(g->base + GPIO_INT_STAT_RAW);
 	if (stat)
 		for_each_set_bit(offset, &stat, gc->ngpio)
-			generic_handle_irq(irq_find_mapping(gc->irq.domain,
-							    offset));
+			generic_handle_domain_irq(gc->irq.domain, offset);
 
 	chained_irq_exit(irqchip, desc);
 }
@@ -199,7 +192,7 @@ static int ftgpio_gpio_set_config(struct gpio_chip *gc, unsigned int offset,
 	if (val == deb_div) {
 		/*
 		 * The debounce timer happens to already be set to the
-		 * desireable value, what a coincidence! We can just enable
+		 * desirable value, what a coincidence! We can just enable
 		 * debounce on this GPIO line and return. This happens more
 		 * often than you think, for example when all GPIO keys
 		 * on a system are requesting the same debounce interval.
@@ -228,11 +221,21 @@ static int ftgpio_gpio_set_config(struct gpio_chip *gc, unsigned int offset,
 	return 0;
 }
 
+static const struct irq_chip ftgpio_irq_chip = {
+	.name = "FTGPIO010",
+	.irq_ack = ftgpio_gpio_ack_irq,
+	.irq_mask = ftgpio_gpio_mask_irq,
+	.irq_unmask = ftgpio_gpio_unmask_irq,
+	.irq_set_type = ftgpio_gpio_set_irq_type,
+	.flags = IRQCHIP_IMMUTABLE,
+	 GPIOCHIP_IRQ_RESOURCE_HELPERS,
+};
+
 static int ftgpio_gpio_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	struct resource *res;
 	struct ftgpio_gpio *g;
+	struct gpio_irq_chip *girq;
 	int irq;
 	int ret;
 
@@ -242,8 +245,7 @@ static int ftgpio_gpio_probe(struct platform_device *pdev)
 
 	g->dev = dev;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	g->base = devm_ioremap_resource(dev, res);
+	g->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(g->base))
 		return PTR_ERR(g->base);
 
@@ -285,9 +287,19 @@ static int ftgpio_gpio_probe(struct platform_device *pdev)
 	if (!IS_ERR(g->clk))
 		g->gc.set_config = ftgpio_gpio_set_config;
 
-	ret = devm_gpiochip_add_data(dev, &g->gc, g);
-	if (ret)
+	girq = &g->gc.irq;
+	gpio_irq_chip_set_chip(girq, &ftgpio_irq_chip);
+	girq->parent_handler = ftgpio_gpio_irq_handler;
+	girq->num_parents = 1;
+	girq->parents = devm_kcalloc(dev, 1, sizeof(*girq->parents),
+				     GFP_KERNEL);
+	if (!girq->parents) {
+		ret = -ENOMEM;
 		goto dis_clk;
+	}
+	girq->default_type = IRQ_TYPE_NONE;
+	girq->handler = handle_bad_irq;
+	girq->parents[0] = irq;
 
 	/* Disable, unmask and clear all interrupts */
 	writel(0x0, g->base + GPIO_INT_EN);
@@ -297,15 +309,9 @@ static int ftgpio_gpio_probe(struct platform_device *pdev)
 	/* Clear any use of debounce */
 	writel(0x0, g->base + GPIO_DEBOUNCE_EN);
 
-	ret = gpiochip_irqchip_add(&g->gc, &ftgpio_gpio_irqchip,
-				   0, handle_bad_irq,
-				   IRQ_TYPE_NONE);
-	if (ret) {
-		dev_info(dev, "could not add irqchip\n");
+	ret = devm_gpiochip_add_data(dev, &g->gc, g);
+	if (ret)
 		goto dis_clk;
-	}
-	gpiochip_set_chained_irqchip(&g->gc, &ftgpio_gpio_irqchip,
-				     irq, ftgpio_gpio_irq_handler);
 
 	platform_set_drvdata(pdev, g);
 	dev_info(dev, "FTGPIO010 @%p registered\n", g->base);
@@ -313,8 +319,8 @@ static int ftgpio_gpio_probe(struct platform_device *pdev)
 	return 0;
 
 dis_clk:
-	if (!IS_ERR(g->clk))
-		clk_disable_unprepare(g->clk);
+	clk_disable_unprepare(g->clk);
+
 	return ret;
 }
 
@@ -322,8 +328,8 @@ static int ftgpio_gpio_remove(struct platform_device *pdev)
 {
 	struct ftgpio_gpio *g = platform_get_drvdata(pdev);
 
-	if (!IS_ERR(g->clk))
-		clk_disable_unprepare(g->clk);
+	clk_disable_unprepare(g->clk);
+
 	return 0;
 }
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Programming the mspx4xx sound processor family
  *
@@ -11,7 +12,7 @@
  *
  *  FM-Mono
  *      should work. The stereo modes are backward compatible to FM-mono,
- *      therefore FM-Mono should be allways available.
+ *      therefore FM-Mono should be always available.
  *
  *  FM-Stereo (B/G, used in germany)
  *      should work, with autodetect
@@ -29,16 +30,6 @@
  *
  * 980623  Thomas Sailer (sailer@ife.ee.ethz.ch)
  *         using soundcore instead of OSS
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 
@@ -868,7 +859,7 @@ static int msp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	return 0;
 }
 
-static int msp_remove(struct i2c_client *client)
+static void msp_remove(struct i2c_client *client)
 {
 	struct msp_state *state = to_state(i2c_get_clientdata(client));
 
@@ -881,7 +872,6 @@ static int msp_remove(struct i2c_client *client)
 	msp_reset(client);
 
 	v4l2_ctrl_handler_free(&state->hdl);
-	return 0;
 }
 
 /* ----------------------------------------------------------------------- */

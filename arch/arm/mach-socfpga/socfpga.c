@@ -1,24 +1,13 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (C) 2012-2015 Altera Corporation
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <linux/irqchip.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
 #include <linux/reboot.h>
+#include <linux/reset/socfpga.h>
 
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/mach/arch.h>
@@ -31,9 +20,8 @@ void __iomem *sys_manager_base_addr;
 void __iomem *rst_manager_base_addr;
 void __iomem *sdr_ctl_base_addr;
 unsigned long socfpga_cpu1start_addr;
-void __iomem *clkmgr_base_addr;
 
-void __init socfpga_sysmgr_init(void)
+static void __init socfpga_sysmgr_init(void)
 {
 	struct device_node *np;
 
@@ -52,10 +40,6 @@ void __init socfpga_sysmgr_init(void)
 	np = of_find_compatible_node(NULL, NULL, "altr,rst-mgr");
 	rst_manager_base_addr = of_iomap(np, 0);
 
-	np = of_find_compatible_node(NULL, NULL, "altr,clk-mgr");
-	clkmgr_base_addr = of_iomap(np, 0);
-	WARN_ON(!clkmgr_base_addr);
-
 	np = of_find_compatible_node(NULL, NULL, "altr,sdr-ctl");
 	sdr_ctl_base_addr = of_iomap(np, 0);
 }
@@ -69,6 +53,7 @@ static void __init socfpga_init_irq(void)
 
 	if (IS_ENABLED(CONFIG_EDAC_ALTERA_OCRAM))
 		socfpga_init_ocram_ecc();
+	socfpga_reset_init();
 }
 
 static void __init socfpga_arria10_init_irq(void)
@@ -79,21 +64,19 @@ static void __init socfpga_arria10_init_irq(void)
 		socfpga_init_arria10_l2_ecc();
 	if (IS_ENABLED(CONFIG_EDAC_ALTERA_OCRAM))
 		socfpga_init_arria10_ocram_ecc();
+	socfpga_reset_init();
 }
 
 static void socfpga_cyclone5_restart(enum reboot_mode mode, const char *cmd)
 {
 	u32 temp;
 
-	/* Turn on all periph PLL clocks */
-	writel(0xffff, clkmgr_base_addr + SOCFPGA_ENABLE_PLL_REG);
-
 	temp = readl(rst_manager_base_addr + SOCFPGA_RSTMGR_CTRL);
 
-	if (mode == REBOOT_HARD)
-		temp |= RSTMGR_CTRL_SWCOLDRSTREQ;
-	else
+	if (mode == REBOOT_WARM)
 		temp |= RSTMGR_CTRL_SWWARMRSTREQ;
+	else
+		temp |= RSTMGR_CTRL_SWCOLDRSTREQ;
 	writel(temp, rst_manager_base_addr + SOCFPGA_RSTMGR_CTRL);
 }
 
@@ -101,16 +84,12 @@ static void socfpga_arria10_restart(enum reboot_mode mode, const char *cmd)
 {
 	u32 temp;
 
-	temp = readl(sys_manager_base_addr + SOCFPGA_A10_SYSMGR_ROMCODE_CTRL);
-	temp |= ROMCODE_CTRL_WARMRSTCFGIO | ROMCODE_CTRL_WARMRSTCFGPINMUX;
-	writel(temp, sys_manager_base_addr + SOCFPGA_A10_SYSMGR_ROMCODE_CTRL);
-
 	temp = readl(rst_manager_base_addr + SOCFPGA_A10_RSTMGR_CTRL);
 
-	if (mode == REBOOT_HARD)
-		temp |= RSTMGR_CTRL_SWCOLDRSTREQ;
-	else
+	if (mode == REBOOT_WARM)
 		temp |= RSTMGR_CTRL_SWWARMRSTREQ;
+	else
+		temp |= RSTMGR_CTRL_SWCOLDRSTREQ;
 	writel(temp, rst_manager_base_addr + SOCFPGA_A10_RSTMGR_CTRL);
 }
 

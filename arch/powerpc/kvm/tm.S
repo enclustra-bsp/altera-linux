@@ -1,17 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License, version 2, as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  *
  * Derived from book3s_hv_rmhandlers.S, which is:
  *
  * Copyright 2011 Paul Mackerras, IBM Corp. <paulus@au1.ibm.com>
- *
  */
 
 #include <asm/reg.h>
@@ -118,7 +110,7 @@ END_FTR_SECTION_IFSET(CPU_FTR_P9_TM_HV_ASSIST)
 	mtmsrd	r2, 1
 
 	/* Reload TOC pointer. */
-	ld	r2, PACATOC(r13)
+	LOAD_PACA_TOC()
 
 	/* Save all but r0-r2, r9 & r13 */
 	reg = 3

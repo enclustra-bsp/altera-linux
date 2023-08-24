@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Driver for the Analog Devices digital potentiometers (I2C bus)
  *
  * Copyright (C) 2010-2011 Michael Hennerich, Analog Devices Inc.
- *
- * Licensed under the GPL-2 or later.
  */
 
 #include <linux/i2c.h>
@@ -68,9 +67,9 @@ static int ad_dpot_i2c_probe(struct i2c_client *client,
 	return ad_dpot_probe(&client->dev, &bdata, id->driver_data, id->name);
 }
 
-static int ad_dpot_i2c_remove(struct i2c_client *client)
+static void ad_dpot_i2c_remove(struct i2c_client *client)
 {
-	return ad_dpot_remove(&client->dev);
+	ad_dpot_remove(&client->dev);
 }
 
 static const struct i2c_device_id ad_dpot_id[] = {

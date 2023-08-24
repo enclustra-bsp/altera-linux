@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * This file is part of the ROHM BH1770GLC / OSRAM SFH7770 sensor driver.
  * Chip is combined proximity and ambient light sensor.
@@ -5,21 +6,6 @@
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
  *
  * Contact: Samu Onkalo <samu.p.onkalo@nokia.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.	 See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA
- *
  */
 
 #include <linux/kernel.h>
@@ -1294,7 +1280,7 @@ fail0:
 	return err;
 }
 
-static int bh1770_remove(struct i2c_client *client)
+static void bh1770_remove(struct i2c_client *client)
 {
 	struct bh1770_chip *chip = i2c_get_clientdata(client);
 
@@ -1313,8 +1299,6 @@ static int bh1770_remove(struct i2c_client *client)
 
 	pm_runtime_disable(&client->dev);
 	pm_runtime_set_suspended(&client->dev);
-
-	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP

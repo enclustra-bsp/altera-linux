@@ -1,19 +1,9 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2015-2021 The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef _DPU_CRTC_H_
@@ -23,7 +13,6 @@
 #include <drm/drm_crtc.h>
 #include "dpu_kms.h"
 #include "dpu_core_perf.h"
-#include "dpu_hw_blk.h"
 
 #define DPU_CRTC_NAME_SIZE	12
 
@@ -81,19 +70,33 @@ struct dpu_crtc_smmu_state_data {
 };
 
 /**
+ * enum dpu_crtc_crc_source: CRC source
+ * @DPU_CRTC_CRC_SOURCE_NONE: no source set
+ * @DPU_CRTC_CRC_SOURCE_LAYER_MIXER: CRC in layer mixer
+ * @DPU_CRTC_CRC_SOURCE_ENCODER: CRC in encoder
+ * @DPU_CRTC_CRC_SOURCE_INVALID: Invalid source
+ */
+enum dpu_crtc_crc_source {
+	DPU_CRTC_CRC_SOURCE_NONE = 0,
+	DPU_CRTC_CRC_SOURCE_LAYER_MIXER,
+	DPU_CRTC_CRC_SOURCE_ENCODER,
+	DPU_CRTC_CRC_SOURCE_MAX,
+	DPU_CRTC_CRC_SOURCE_INVALID = -1
+};
+
+/**
  * struct dpu_crtc_mixer: stores the map for each virtual pipeline in the CRTC
  * @hw_lm:	LM HW Driver context
  * @lm_ctl:	CTL Path HW driver context
- * @encoder:	Encoder attached to this lm & ctl
+ * @lm_dspp:	DSPP HW driver context
  * @mixer_op_mode:	mixer blending operation mode
  * @flush_mask:	mixer flush mask for ctl, mixer and pipe
  */
 struct dpu_crtc_mixer {
 	struct dpu_hw_mixer *hw_lm;
 	struct dpu_hw_ctl *lm_ctl;
-	struct drm_encoder *encoder;
+	struct dpu_hw_dspp *hw_dspp;
 	u32 mixer_op_mode;
-	u32 flush_mask;
 };
 
 /**
@@ -127,13 +130,9 @@ struct dpu_crtc_frame_event {
  * @drm_requested_vblank : Whether vblanks have been enabled in the encoder
  * @property_info : Opaque structure for generic property support
  * @property_defaults : Array of default values for generic property support
- * @stage_cfg     : H/w mixer stage configuration
- * @debugfs_root  : Parent of debugfs node
  * @vblank_cb_count : count of vblank callback since last reset
  * @play_count    : frame count between crtc enable and disable
  * @vblank_cb_time  : ktime at vblank count reset
- * @vblank_requested : whether the user has requested vblank events
- * @suspend         : whether or not a suspend operation is in progress
  * @enabled       : whether the DPU CRTC is currently enabled. updated in the
  *                  commit-thread, not state-swap time which is earlier, so
  *                  safe to make decisions on during VBLANK on/off work
@@ -142,7 +141,6 @@ struct dpu_crtc_frame_event {
  * @dirty_list    : list of color processing features are dirty
  * @ad_dirty: list containing ad properties that are dirty
  * @ad_active: list containing ad properties that are active
- * @crtc_lock     : crtc lock around create, destroy and access.
  * @frame_pending : Whether or not an update is pending
  * @frame_events  : static allocation of in-flight frame events
  * @frame_event_list : available frame event list
@@ -152,8 +150,8 @@ struct dpu_crtc_frame_event {
  * @event_worker  : Event worker queue
  * @event_lock    : Spinlock around event handling code
  * @phandle: Pointer to power handler
- * @power_event   : registered power event handle
  * @cur_perf      : current performance committed to clock/bandwidth driver
+ * @crc_source    : CRC source
  */
 struct dpu_crtc {
 	struct drm_crtc base;
@@ -162,14 +160,9 @@ struct dpu_crtc {
 	struct drm_pending_vblank_event *event;
 	u32 vsync_count;
 
-	struct dpu_hw_stage_cfg stage_cfg;
-	struct dentry *debugfs_root;
-
 	u32 vblank_cb_count;
 	u64 play_count;
 	ktime_t vblank_cb_time;
-	bool vblank_requested;
-	bool suspend;
 	bool enabled;
 
 	struct list_head feature_list;
@@ -177,8 +170,6 @@ struct dpu_crtc {
 	struct list_head dirty_list;
 	struct list_head ad_dirty;
 	struct list_head ad_active;
-
-	struct mutex crtc_lock;
 
 	atomic_t frame_pending;
 	struct dpu_crtc_frame_event frame_events[DPU_CRTC_FRAME_EVENT_SIZE];
@@ -188,9 +179,6 @@ struct dpu_crtc {
 
 	/* for handling internal event thread */
 	spinlock_t event_lock;
-
-	struct dpu_power_handle *phandle;
-	struct dpu_power_event *power_event;
 
 	struct dpu_core_perf_params cur_perf;
 
@@ -214,6 +202,8 @@ struct dpu_crtc {
  * @mixers        : List of active mixers
  * @num_ctls      : Number of ctl paths in use
  * @hw_ctls       : List of active ctl paths
+ * @crc_source    : CRC source
+ * @crc_frame_skip_count: Number of frames skipped before getting CRC
  */
 struct dpu_crtc_state {
 	struct drm_crtc_state base;
@@ -232,33 +222,13 @@ struct dpu_crtc_state {
 
 	u32 num_ctls;
 	struct dpu_hw_ctl *hw_ctls[CRTC_DUAL_MIXERS];
+
+	enum dpu_crtc_crc_source crc_source;
+	int crc_frame_skip_count;
 };
 
 #define to_dpu_crtc_state(x) \
 	container_of(x, struct dpu_crtc_state, base)
-
-/**
- * dpu_crtc_state_is_stereo - Is crtc virtualized with two mixers?
- * @cstate: Pointer to dpu crtc state
- * @Return: true - has two mixers, false - has one mixer
- */
-static inline bool dpu_crtc_state_is_stereo(struct dpu_crtc_state *cstate)
-{
-	return cstate->num_mixers == CRTC_DUAL_MIXERS;
-}
-
-/**
- * dpu_crtc_get_mixer_height - get the mixer height
- * Mixer height will be same as panel height
- */
-static inline int dpu_crtc_get_mixer_height(struct dpu_crtc *dpu_crtc,
-		struct dpu_crtc_state *cstate, struct drm_display_mode *mode)
-{
-	if (!dpu_crtc || !cstate || !mode)
-		return 0;
-
-	return mode->vdisplay;
-}
 
 /**
  * dpu_crtc_frame_pending - retun the number of pending frames
@@ -266,13 +236,7 @@ static inline int dpu_crtc_get_mixer_height(struct dpu_crtc *dpu_crtc,
  */
 static inline int dpu_crtc_frame_pending(struct drm_crtc *crtc)
 {
-	struct dpu_crtc *dpu_crtc;
-
-	if (!crtc)
-		return -EINVAL;
-
-	dpu_crtc = to_dpu_crtc(crtc);
-	return atomic_read(&dpu_crtc->frame_pending);
+	return crtc ? atomic_read(&to_dpu_crtc(crtc)->frame_pending) : -EINVAL;
 }
 
 /**
@@ -283,6 +247,12 @@ static inline int dpu_crtc_frame_pending(struct drm_crtc *crtc)
 int dpu_crtc_vblank(struct drm_crtc *crtc, bool en);
 
 /**
+ * dpu_crtc_vblank_callback - called on vblank irq, issues completion events
+ * @crtc: Pointer to drm crtc object
+ */
+void dpu_crtc_vblank_callback(struct drm_crtc *crtc);
+
+/**
  * dpu_crtc_commit_kickoff - trigger kickoff of the commit for this crtc
  * @crtc: Pointer to drm crtc object
  */
@@ -291,10 +261,8 @@ void dpu_crtc_commit_kickoff(struct drm_crtc *crtc);
 /**
  * dpu_crtc_complete_commit - callback signalling completion of current commit
  * @crtc: Pointer to drm crtc object
- * @old_state: Pointer to drm crtc old state object
  */
-void dpu_crtc_complete_commit(struct drm_crtc *crtc,
-		struct drm_crtc_state *old_state);
+void dpu_crtc_complete_commit(struct drm_crtc *crtc);
 
 /**
  * dpu_crtc_init - create a new crtc object
@@ -329,22 +297,7 @@ enum dpu_intf_mode dpu_crtc_get_intf_mode(struct drm_crtc *crtc);
 static inline enum dpu_crtc_client_type dpu_crtc_get_client_type(
 						struct drm_crtc *crtc)
 {
-	struct dpu_crtc_state *cstate =
-			crtc ? to_dpu_crtc_state(crtc->state) : NULL;
-
-	if (!cstate)
-		return NRT_CLIENT;
-
-	return RT_CLIENT;
-}
-
-/**
- * dpu_crtc_is_enabled - check if dpu crtc is enabled or not
- * @crtc: Pointer to crtc
- */
-static inline bool dpu_crtc_is_enabled(struct drm_crtc *crtc)
-{
-	return crtc ? crtc->enabled : false;
+	return crtc && crtc->state ? RT_CLIENT : NRT_CLIENT;
 }
 
 #endif /* _DPU_CRTC_H_ */

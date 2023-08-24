@@ -1,18 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  GPIO driven matrix keyboard driver
  *
  *  Copyright (c) 2008 Marek Vasut <marek.vasut@gmail.com>
  *
  *  Based on corgikbd.c
- *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License version 2 as
- *  published by the Free Software Foundation.
- *
  */
 
 #include <linux/types.h>
 #include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/platform_device.h>
 #include <linux/input.h>
 #include <linux/irq.h>
@@ -222,7 +219,7 @@ static void matrix_keypad_stop(struct input_dev *dev)
 	keypad->stopped = true;
 	spin_unlock_irq(&keypad->lock);
 
-	flush_work(&keypad->work.work);
+	flush_delayed_work(&keypad->work);
 	/*
 	 * matrix_keypad_scan() will leave IRQs enabled;
 	 * we should disable them now.
@@ -420,9 +417,9 @@ matrix_keypad_parse_dt(struct device *dev)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	pdata->num_row_gpios = nrow = of_gpio_named_count(np, "row-gpios");
-	pdata->num_col_gpios = ncol = of_gpio_named_count(np, "col-gpios");
-	if (nrow <= 0 || ncol <= 0) {
+	pdata->num_row_gpios = nrow = gpiod_count(dev, "row");
+	pdata->num_col_gpios = ncol = gpiod_count(dev, "col");
+	if (nrow < 0 || ncol < 0) {
 		dev_err(dev, "number of keypad rows/columns not specified\n");
 		return ERR_PTR(-EINVAL);
 	}

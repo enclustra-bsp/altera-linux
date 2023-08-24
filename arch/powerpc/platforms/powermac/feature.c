@@ -1,11 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (C) 1996-2001 Paul Mackerras (paulus@cs.anu.edu.au)
  *                          Ben. Herrenschmidt (benh@kernel.crashing.org)
- *
- *  This program is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU General Public License
- *  as published by the Free Software Foundation; either version
- *  2 of the License, or (at your option) any later version.
  *
  *  TODO:
  *
@@ -14,7 +10,6 @@
  *     power)
  *   - Refcount some clocks (see darwin)
  *   - Split split split...
- *
  */
 #include <linux/types.h>
 #include <linux/init.h>
@@ -36,7 +31,6 @@
 #include <asm/keylargo.h>
 #include <asm/uninorth.h>
 #include <asm/io.h>
-#include <asm/prom.h>
 #include <asm/machdep.h>
 #include <asm/pmac_feature.h>
 #include <asm/dbdma.h>
@@ -51,7 +45,7 @@
 #define DBG(fmt...)
 #endif
 
-#ifdef CONFIG_6xx
+#ifdef CONFIG_PPC_BOOK3S_32
 extern int powersave_lowspeed;
 #endif
 
@@ -173,9 +167,9 @@ static long ohare_htw_scc_enable(struct device_node *node, long param,
 	macio = macio_find(node, 0);
 	if (!macio)
 		return -ENODEV;
-	if (!strcmp(node->name, "ch-a"))
+	if (of_node_name_eq(node, "ch-a"))
 		chan_mask = MACIO_FLAG_SCCA_ON;
-	else if (!strcmp(node->name, "ch-b"))
+	else if (of_node_name_eq(node, "ch-b"))
 		chan_mask = MACIO_FLAG_SCCB_ON;
 	else
 		return -ENODEV;
@@ -610,9 +604,9 @@ static long core99_scc_enable(struct device_node *node, long param, long value)
 	macio = macio_find(node, 0);
 	if (!macio)
 		return -ENODEV;
-	if (!strcmp(node->name, "ch-a"))
+	if (of_node_name_eq(node, "ch-a"))
 		chan_mask = MACIO_FLAG_SCCA_ON;
-	else if (!strcmp(node->name, "ch-b"))
+	else if (of_node_name_eq(node, "ch-b"))
 		chan_mask = MACIO_FLAG_SCCB_ON;
 	else
 		return -ENODEV;
@@ -1392,8 +1386,7 @@ static long g5_mpic_enable(struct device_node *node, long param, long value)
 
 	if (parent == NULL)
 		return 0;
-	is_u3 = strcmp(parent->name, "u3") == 0 ||
-		strcmp(parent->name, "u4") == 0;
+	is_u3 = of_node_name_eq(parent, "u3") || of_node_name_eq(parent, "u4");
 	of_node_put(parent);
 	if (!is_u3)
 		return 0;
@@ -1471,6 +1464,7 @@ static long g5_i2s_enable(struct device_node *node, long param, long value)
 	case 2:
 		if (macio->type == macio_shasta)
 			break;
+		fallthrough;
 	default:
 		return -ENODEV;
 	}
@@ -1535,7 +1529,7 @@ static long g5_reset_cpu(struct device_node *node, long param, long value)
  * This takes the second CPU off the bus on dual CPU machines
  * running UP
  */
-void g5_phy_disable_cpu1(void)
+void __init g5_phy_disable_cpu1(void)
 {
 	if (uninorth_maj == 3)
 		UN_OUT(U3_API_PHY_CONFIG_1, 0);
@@ -2638,31 +2632,31 @@ static void __init probe_one_macio(const char *name, const char *compat, int typ
 		if (!macio_chips[i].of_node)
 			break;
 		if (macio_chips[i].of_node == node)
-			return;
+			goto out_put;
 	}
 
 	if (i >= MAX_MACIO_CHIPS) {
 		printk(KERN_ERR "pmac_feature: Please increase MAX_MACIO_CHIPS !\n");
 		printk(KERN_ERR "pmac_feature: %pOF skipped\n", node);
-		return;
+		goto out_put;
 	}
 	addrp = of_get_pci_address(node, 0, &size, NULL);
 	if (addrp == NULL) {
 		printk(KERN_ERR "pmac_feature: %pOF: can't find base !\n",
 		       node);
-		return;
+		goto out_put;
 	}
 	addr = of_translate_address(node, addrp);
 	if (addr == 0) {
 		printk(KERN_ERR "pmac_feature: %pOF, can't translate base !\n",
 		       node);
-		return;
+		goto out_put;
 	}
 	base = ioremap(addr, (unsigned long)size);
 	if (!base) {
 		printk(KERN_ERR "pmac_feature: %pOF, can't map mac-io chip !\n",
 		       node);
-		return;
+		goto out_put;
 	}
 	if (type == macio_keylargo || type == macio_keylargo2) {
 		const u32 *did = of_get_property(node, "device-id", NULL);
@@ -2683,6 +2677,11 @@ static void __init probe_one_macio(const char *name, const char *compat, int typ
 		macio_chips[i].rev = *revp;
 	printk(KERN_INFO "Found a %s mac-io controller, rev: %d, mapped at 0x%p\n",
 		macio_names[type], macio_chips[i].rev, macio_chips[i].base);
+
+	return;
+
+out_put:
+	of_node_put(node);
 }
 
 static int __init

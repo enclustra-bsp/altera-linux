@@ -296,7 +296,7 @@ static int prism2_fwapply(const struct ihex_binrec *rfptr,
 	memset(&getmsg, 0, sizeof(getmsg));
 	getmsg.msgcode = DIDMSG_DOT11REQ_MIBGET;
 	getmsg.msglen = sizeof(getmsg);
-	strcpy(getmsg.devname, wlandev->name);
+	strscpy(getmsg.devname, wlandev->name, sizeof(getmsg.devname));
 
 	getmsg.mibattribute.did = DIDMSG_DOT11REQ_MIBGET_MIBATTRIBUTE;
 	getmsg.mibattribute.status = P80211ENUM_msgitem_status_data_ok;
@@ -406,7 +406,6 @@ static int crcimage(struct imgchunk *fchunk, unsigned int nfchunks,
 	int i;
 	int c;
 	u32 crcstart;
-	u32 crcend;
 	u32 cstart = 0;
 	u32 cend;
 	u8 *dest;
@@ -416,7 +415,6 @@ static int crcimage(struct imgchunk *fchunk, unsigned int nfchunks,
 		if (!s3crc[i].dowrite)
 			continue;
 		crcstart = s3crc[i].addr;
-		crcend = s3crc[i].addr + s3crc[i].len;
 		/* Find chunk */
 		for (c = 0; c < nfchunks; c++) {
 			cstart = fchunk[c].addr;
@@ -558,10 +556,9 @@ static int mkimage(struct imgchunk *clist, unsigned int *ccnt)
 	/* Allocate buffer space for chunks */
 	for (i = 0; i < *ccnt; i++) {
 		clist[i].data = kzalloc(clist[i].len, GFP_KERNEL);
-		if (!clist[i].data) {
-			pr_err("failed to allocate image space, exitting.\n");
+		if (!clist[i].data)
 			return 1;
-		}
+
 		pr_debug("chunk[%d]: addr=0x%06x len=%d\n",
 			 i, clist[i].addr, clist[i].len);
 	}
@@ -789,7 +786,7 @@ static int read_cardpda(struct pda *pda, struct wlandevice *wlandev)
 	/* set up the msg */
 	msg->msgcode = DIDMSG_P2REQ_READPDA;
 	msg->msglen = sizeof(msg);
-	strcpy(msg->devname, wlandev->name);
+	strscpy(msg->devname, wlandev->name, sizeof(msg->devname));
 	msg->pda.did = DIDMSG_P2REQ_READPDA_PDA;
 	msg->pda.len = HFA384x_PDA_LEN_MAX;
 	msg->pda.status = P80211ENUM_msgitem_status_no_value;
@@ -1020,7 +1017,7 @@ static int writeimage(struct wlandevice *wlandev, struct imgchunk *fchunk,
 	}
 
 	/* Initialize the messages */
-	strcpy(rstmsg->devname, wlandev->name);
+	strscpy(rstmsg->devname, wlandev->name, sizeof(rstmsg->devname));
 	rstmsg->msgcode = DIDMSG_P2REQ_RAMDL_STATE;
 	rstmsg->msglen = sizeof(*rstmsg);
 	rstmsg->enable.did = DIDMSG_P2REQ_RAMDL_STATE_ENABLE;
@@ -1033,7 +1030,7 @@ static int writeimage(struct wlandevice *wlandev, struct imgchunk *fchunk,
 	rstmsg->exeaddr.len = sizeof(u32);
 	rstmsg->resultcode.len = sizeof(u32);
 
-	strcpy(rwrmsg->devname, wlandev->name);
+	strscpy(rwrmsg->devname, wlandev->name, sizeof(rwrmsg->devname));
 	rwrmsg->msgcode = DIDMSG_P2REQ_RAMDL_WRITE;
 	rwrmsg->msglen = sizeof(*rwrmsg);
 	rwrmsg->addr.did = DIDMSG_P2REQ_RAMDL_WRITE_ADDR;

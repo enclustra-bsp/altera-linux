@@ -434,38 +434,11 @@ wildfire_write_config(struct pci_bus *bus, unsigned int devfn, int where,
 	return PCIBIOS_SUCCESSFUL;
 }
 
-struct pci_ops wildfire_pci_ops = 
+struct pci_ops wildfire_pci_ops =
 {
 	.read =		wildfire_read_config,
 	.write =	wildfire_write_config,
 };
-
-
-/*
- * NUMA Support
- */
-int wildfire_pa_to_nid(unsigned long pa)
-{
-	return pa >> 36;
-}
-
-int wildfire_cpuid_to_nid(int cpuid)
-{
-	/* assume 4 CPUs per node */
-	return cpuid >> 2;
-}
-
-unsigned long wildfire_node_mem_start(int nid)
-{
-	/* 64GB per node */
-	return (unsigned long)nid * (64UL * 1024 * 1024 * 1024);
-}
-
-unsigned long wildfire_node_mem_size(int nid)
-{
-	/* 64GB per node */
-	return 64UL * 1024 * 1024 * 1024;
-}
 
 #if DEBUG_DUMP_REGS
 
@@ -559,7 +532,7 @@ wildfire_dump_qsd_regs(int qbbno)
 	printk(KERN_ERR " QSD_REV:           0x%16lx\n", qsd->qsd_rev.csr);
 	printk(KERN_ERR " QSD_PORT_PRESENT:  0x%16lx\n",
 	       qsd->qsd_port_present.csr);
-	printk(KERN_ERR " QSD_PORT_ACTUVE:   0x%16lx\n",
+	printk(KERN_ERR " QSD_PORT_ACTIVE:   0x%16lx\n",
 	       qsd->qsd_port_active.csr);
 	printk(KERN_ERR " QSD_FAULT_ENA:     0x%16lx\n",
 	       qsd->qsd_fault_ena.csr);

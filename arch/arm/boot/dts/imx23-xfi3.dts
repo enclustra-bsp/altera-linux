@@ -49,6 +49,7 @@
 	compatible = "creative,x-fi3", "fsl,imx23";
 
 	memory@40000000 {
+		device_type = "memory";
 		reg = <0x40000000 0x04000000>;
 	};
 
@@ -157,19 +158,19 @@
 		default-brightness-level = <6>;
 	};
 
-	gpio_keys {
+	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
 		pinctrl-0 = <&key_pins_a>;
 
-		voldown {
+		key-voldown {
 			label = "volume-down";
 			linux,code = <114>;
 			gpios = <&gpio2 7 0>;
 			debounce-interval = <20>;
 		};
 
-		volup {
+		key-volup {
 			label = "volume-up";
 			linux,code = <115>;
 			gpios = <&gpio2 8 0>;

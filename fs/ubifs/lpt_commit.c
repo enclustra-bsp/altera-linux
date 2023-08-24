@@ -1,20 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * This file is part of UBIFS.
  *
  * Copyright (C) 2006-2008 Nokia Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published by
- * the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc., 51
- * Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  *
  * Authors: Adrian Hunter
  *          Artem Bityutskiy (Битюцкий Артём)
@@ -1608,7 +1596,7 @@ static int dbg_check_ltab_lnum(struct ubifs_info *c, int lnum)
 	if (!dbg_is_chk_lprops(c))
 		return 0;
 
-	buf = p = __vmalloc(c->leb_size, GFP_NOFS, PAGE_KERNEL);
+	buf = p = __vmalloc(c->leb_size, GFP_NOFS);
 	if (!buf) {
 		ubifs_err(c, "cannot allocate memory for ltab checking");
 		return 0;
@@ -1857,7 +1845,7 @@ static void dump_lpt_leb(const struct ubifs_info *c, int lnum)
 	void *buf, *p;
 
 	pr_err("(pid %d) start dumping LEB %d\n", current->pid, lnum);
-	buf = p = __vmalloc(c->leb_size, GFP_NOFS, PAGE_KERNEL);
+	buf = p = __vmalloc(c->leb_size, GFP_NOFS);
 	if (!buf) {
 		ubifs_err(c, "cannot allocate memory to dump LPT");
 		return;
@@ -1982,28 +1970,28 @@ static int dbg_populate_lsave(struct ubifs_info *c)
 
 	if (!dbg_is_chk_gen(c))
 		return 0;
-	if (prandom_u32() & 3)
+	if (prandom_u32_max(4))
 		return 0;
 
 	for (i = 0; i < c->lsave_cnt; i++)
 		c->lsave[i] = c->main_first;
 
 	list_for_each_entry(lprops, &c->empty_list, list)
-		c->lsave[prandom_u32() % c->lsave_cnt] = lprops->lnum;
+		c->lsave[prandom_u32_max(c->lsave_cnt)] = lprops->lnum;
 	list_for_each_entry(lprops, &c->freeable_list, list)
-		c->lsave[prandom_u32() % c->lsave_cnt] = lprops->lnum;
+		c->lsave[prandom_u32_max(c->lsave_cnt)] = lprops->lnum;
 	list_for_each_entry(lprops, &c->frdi_idx_list, list)
-		c->lsave[prandom_u32() % c->lsave_cnt] = lprops->lnum;
+		c->lsave[prandom_u32_max(c->lsave_cnt)] = lprops->lnum;
 
 	heap = &c->lpt_heap[LPROPS_DIRTY_IDX - 1];
 	for (i = 0; i < heap->cnt; i++)
-		c->lsave[prandom_u32() % c->lsave_cnt] = heap->arr[i]->lnum;
+		c->lsave[prandom_u32_max(c->lsave_cnt)] = heap->arr[i]->lnum;
 	heap = &c->lpt_heap[LPROPS_DIRTY - 1];
 	for (i = 0; i < heap->cnt; i++)
-		c->lsave[prandom_u32() % c->lsave_cnt] = heap->arr[i]->lnum;
+		c->lsave[prandom_u32_max(c->lsave_cnt)] = heap->arr[i]->lnum;
 	heap = &c->lpt_heap[LPROPS_FREE - 1];
 	for (i = 0; i < heap->cnt; i++)
-		c->lsave[prandom_u32() % c->lsave_cnt] = heap->arr[i]->lnum;
+		c->lsave[prandom_u32_max(c->lsave_cnt)] = heap->arr[i]->lnum;
 
 	return 1;
 }
