@@ -4,13 +4,6 @@ SuperH Interfaces Guide
 
 :Author: Paul Mundt
 
-.. toctree::
-    :maxdepth: 1
-
-    booting
-    new-machine
-    register-banks
-
 Memory Management
 =================
 
@@ -22,6 +15,18 @@ Store Queue API
 
 .. kernel-doc:: arch/sh/kernel/cpu/sh4/sq.c
    :export:
+
+SH-5
+----
+
+TLB Interfaces
+~~~~~~~~~~~~~~
+
+.. kernel-doc:: arch/sh/mm/tlb-sh5.c
+   :internal:
+
+.. kernel-doc:: arch/sh/include/asm/tlb_64.h
+   :internal:
 
 Machine Specific Interfaces
 ===========================

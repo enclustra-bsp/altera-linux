@@ -113,34 +113,6 @@ static inline ktime_t ktime_get_coarse_clocktai(void)
 	return ktime_get_coarse_with_offset(TK_OFFS_TAI);
 }
 
-static inline ktime_t ktime_get_coarse(void)
-{
-	struct timespec64 ts;
-
-	ktime_get_coarse_ts64(&ts);
-	return timespec64_to_ktime(ts);
-}
-
-static inline u64 ktime_get_coarse_ns(void)
-{
-	return ktime_to_ns(ktime_get_coarse());
-}
-
-static inline u64 ktime_get_coarse_real_ns(void)
-{
-	return ktime_to_ns(ktime_get_coarse_real());
-}
-
-static inline u64 ktime_get_coarse_boottime_ns(void)
-{
-	return ktime_to_ns(ktime_get_coarse_boottime());
-}
-
-static inline u64 ktime_get_coarse_clocktai_ns(void)
-{
-	return ktime_to_ns(ktime_get_coarse_clocktai());
-}
-
 /**
  * ktime_mono_to_real - Convert monotonic time to clock realtime
  */
@@ -159,12 +131,12 @@ static inline u64 ktime_get_real_ns(void)
 	return ktime_to_ns(ktime_get_real());
 }
 
-static inline u64 ktime_get_boottime_ns(void)
+static inline u64 ktime_get_boot_ns(void)
 {
 	return ktime_to_ns(ktime_get_boottime());
 }
 
-static inline u64 ktime_get_clocktai_ns(void)
+static inline u64 ktime_get_tai_ns(void)
 {
 	return ktime_to_ns(ktime_get_clocktai());
 }
@@ -223,20 +195,8 @@ extern bool timekeeping_rtc_skipresume(void);
 extern void timekeeping_inject_sleeptime64(const struct timespec64 *delta);
 
 /*
- * struct ktime_timestanps - Simultaneous mono/boot/real timestamps
- * @mono:	Monotonic timestamp
- * @boot:	Boottime timestamp
- * @real:	Realtime timestamp
- */
-struct ktime_timestamps {
-	u64		mono;
-	u64		boot;
-	u64		real;
-};
-
-/**
  * struct system_time_snapshot - simultaneous raw/real time capture with
- *				 counter value
+ *	counter value
  * @cycles:	Clocksource counter value to produce the system times
  * @real:	Realtime system time
  * @raw:	Monotonic raw system time
@@ -251,9 +211,9 @@ struct system_time_snapshot {
 	u8		cs_was_changed_seq;
 };
 
-/**
+/*
  * struct system_device_crosststamp - system/device cross-timestamp
- *				      (synchronized capture)
+ *	(syncronized capture)
  * @device:		Device time
  * @sys_realtime:	Realtime simultaneous with device time
  * @sys_monoraw:	Monotonic raw simultaneous with device time
@@ -264,12 +224,12 @@ struct system_device_crosststamp {
 	ktime_t sys_monoraw;
 };
 
-/**
+/*
  * struct system_counterval_t - system counter value with the pointer to the
- *				corresponding clocksource
+ *	corresponding clocksource
  * @cycles:	System counter value
  * @cs:		Clocksource corresponding to system counter value. Used by
- *		timekeeping code to verify comparibility of two cycle values
+ *	timekeeping code to verify comparibility of two cycle values
  */
 struct system_counterval_t {
 	u64			cycles;
@@ -292,9 +252,6 @@ extern int get_device_system_crosststamp(
  */
 extern void ktime_get_snapshot(struct system_time_snapshot *systime_snapshot);
 
-/* NMI safe mono/boot/realtime timestamps */
-extern void ktime_get_fast_timestamps(struct ktime_timestamps *snap);
-
 /*
  * Persistent clock related interfaces
  */
@@ -304,5 +261,19 @@ extern void read_persistent_clock64(struct timespec64 *ts);
 void read_persistent_wall_and_boot_offset(struct timespec64 *wall_clock,
 					  struct timespec64 *boot_offset);
 extern int update_persistent_clock64(struct timespec64 now);
+
+/*
+ * deprecated aliases, don't use in new code
+ */
+#define getnstimeofday64(ts)		ktime_get_real_ts64(ts)
+
+static inline struct timespec64 current_kernel_time64(void)
+{
+	struct timespec64 ts;
+
+	ktime_get_coarse_real_ts64(&ts);
+
+	return ts;
+}
 
 #endif

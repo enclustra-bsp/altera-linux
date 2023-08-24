@@ -68,8 +68,12 @@
  * Lacking toolchain and or architecture support, static keys fall back to a
  * simple conditional branch.
  *
- * Additional babbling in: Documentation/staging/static-keys.rst
+ * Additional babbling in: Documentation/static-keys.txt
  */
+
+#if defined(CC_HAVE_ASM_GOTO) && defined(CONFIG_JUMP_LABEL)
+# define HAVE_JUMP_LABEL
+#endif
 
 #ifndef __ASSEMBLY__
 
@@ -82,7 +86,7 @@ extern bool static_key_initialized;
 				    "%s(): static key '%pS' used before call to jump_label_init()", \
 				    __func__, (key))
 
-#ifdef CONFIG_JUMP_LABEL
+#ifdef HAVE_JUMP_LABEL
 
 struct static_key {
 	atomic_t enabled;
@@ -110,10 +114,10 @@ struct static_key {
 struct static_key {
 	atomic_t enabled;
 };
-#endif	/* CONFIG_JUMP_LABEL */
+#endif	/* HAVE_JUMP_LABEL */
 #endif /* __ASSEMBLY__ */
 
-#ifdef CONFIG_JUMP_LABEL
+#ifdef HAVE_JUMP_LABEL
 #include <asm/jump_label.h>
 
 #ifndef __ASSEMBLY__
@@ -188,7 +192,7 @@ enum jump_label_type {
 
 struct module;
 
-#ifdef CONFIG_JUMP_LABEL
+#ifdef HAVE_JUMP_LABEL
 
 #define JUMP_TYPE_FALSE		0UL
 #define JUMP_TYPE_TRUE		1UL
@@ -215,9 +219,6 @@ extern void arch_jump_label_transform(struct jump_entry *entry,
 				      enum jump_label_type type);
 extern void arch_jump_label_transform_static(struct jump_entry *entry,
 					     enum jump_label_type type);
-extern bool arch_jump_label_transform_queue(struct jump_entry *entry,
-					    enum jump_label_type type);
-extern void arch_jump_label_transform_apply(void);
 extern int jump_label_text_reserved(void *start, void *end);
 extern void static_key_slow_inc(struct static_key *key);
 extern void static_key_slow_dec(struct static_key *key);
@@ -244,7 +245,7 @@ extern void static_key_disable_cpuslocked(struct static_key *key);
 	{ .enabled = { 0 },					\
 	  { .entries = (void *)JUMP_TYPE_FALSE } }
 
-#else  /* !CONFIG_JUMP_LABEL */
+#else  /* !HAVE_JUMP_LABEL */
 
 #include <linux/atomic.h>
 #include <linux/bug.h>
@@ -329,7 +330,7 @@ static inline void static_key_disable(struct static_key *key)
 #define STATIC_KEY_INIT_TRUE	{ .enabled = ATOMIC_INIT(1) }
 #define STATIC_KEY_INIT_FALSE	{ .enabled = ATOMIC_INIT(0) }
 
-#endif	/* CONFIG_JUMP_LABEL */
+#endif	/* HAVE_JUMP_LABEL */
 
 #define STATIC_KEY_INIT STATIC_KEY_INIT_FALSE
 #define jump_label_enabled static_key_enabled
@@ -393,7 +394,7 @@ extern bool ____wrong_branch_error(void);
 	static_key_count((struct static_key *)x) > 0;				\
 })
 
-#ifdef CONFIG_JUMP_LABEL
+#ifdef HAVE_JUMP_LABEL
 
 /*
  * Combine the right initial value (type) with the right branch order
@@ -475,12 +476,12 @@ extern bool ____wrong_branch_error(void);
 	unlikely(branch);							\
 })
 
-#else /* !CONFIG_JUMP_LABEL */
+#else /* !HAVE_JUMP_LABEL */
 
 #define static_branch_likely(x)		likely(static_key_enabled(&(x)->key))
 #define static_branch_unlikely(x)	unlikely(static_key_enabled(&(x)->key))
 
-#endif /* CONFIG_JUMP_LABEL */
+#endif /* HAVE_JUMP_LABEL */
 
 /*
  * Advanced usage; refcount, branch is enabled when: count != 0

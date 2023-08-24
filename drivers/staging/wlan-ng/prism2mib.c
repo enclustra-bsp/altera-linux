@@ -126,13 +126,19 @@ static int prism2mib_privacyinvoked(struct mibrec *mib,
 				    struct p80211msg_dot11req_mibset *msg,
 				    void *data);
 
-static int
-prism2mib_fragmentationthreshold(struct mibrec *mib,
-				 int isget,
-				 struct wlandevice *wlandev,
-				 struct hfa384x *hw,
-				 struct p80211msg_dot11req_mibset *msg,
-				 void *data);
+static int prism2mib_excludeunencrypted(struct mibrec *mib,
+					int isget,
+					struct wlandevice *wlandev,
+					struct hfa384x *hw,
+					struct p80211msg_dot11req_mibset *msg,
+					void *data);
+
+static int prism2mib_fragmentationthreshold(struct mibrec *mib,
+					    int isget,
+					    struct wlandevice *wlandev,
+					    struct hfa384x *hw,
+					    struct p80211msg_dot11req_mibset *msg,
+					    void *data);
 
 static int prism2mib_priv(struct mibrec *mib,
 			  int isget,
@@ -169,7 +175,7 @@ static struct mibrec mibtab[] = {
 	{DIDMIB_DOT11SMT_PRIVACYTABLE_EXCLUDEUNENCRYPTED,
 	 F_STA | F_READ | F_WRITE,
 	 HFA384x_RID_CNFWEPFLAGS, HFA384x_WEPFLAGS_EXCLUDE, 0,
-	 prism2mib_flag},
+	 prism2mib_excludeunencrypted},
 
 	/* dot11mac MIB's */
 
@@ -292,7 +298,7 @@ int prism2mgmt_mibset_mibget(struct wlandevice *wlandev, void *msgp)
 	/*
 	 ** Determine if this is a "mibget" or a "mibset".  If this is a
 	 ** "mibget", then make sure that the MIB may be read.  Otherwise,
-	 ** this is a "mibset" so make sure that the MIB may be written.
+	 ** this is a "mibset" so make make sure that the MIB may be written.
 	 */
 
 	isget = (msg->msgcode == DIDMSG_DOT11REQ_MIBGET);
@@ -587,6 +593,41 @@ static int prism2mib_privacyinvoked(struct mibrec *mib,
 }
 
 /*
+ * prism2mib_excludeunencrypted
+ *
+ * Get/set the dot11ExcludeUnencrypted value.
+ *
+ * MIB record parameters:
+ *       parm1    Prism2 RID value.
+ *       parm2    Bit value for ExcludeUnencrypted flag.
+ *       parm3    Not used.
+ *
+ * Arguments:
+ *       mib      MIB record.
+ *       isget    MIBGET/MIBSET flag.
+ *       wlandev  wlan device structure.
+ *       priv     "priv" structure.
+ *       hw       "hw" structure.
+ *       msg      Message structure.
+ *       data     Data buffer.
+ *
+ * Returns:
+ *       0   - Success.
+ *       ~0  - Error.
+ *
+ */
+
+static int prism2mib_excludeunencrypted(struct mibrec *mib,
+					int isget,
+					struct wlandevice *wlandev,
+					struct hfa384x *hw,
+					struct p80211msg_dot11req_mibset *msg,
+					void *data)
+{
+	return prism2mib_flag(mib, isget, wlandev, hw, msg, data);
+}
+
+/*
  * prism2mib_fragmentationthreshold
  *
  * Get/set the fragmentation threshold.
@@ -611,13 +652,12 @@ static int prism2mib_privacyinvoked(struct mibrec *mib,
  *
  */
 
-static int
-prism2mib_fragmentationthreshold(struct mibrec *mib,
-				 int isget,
-				 struct wlandevice *wlandev,
-				 struct hfa384x *hw,
-				 struct p80211msg_dot11req_mibset *msg,
-				 void *data)
+static int prism2mib_fragmentationthreshold(struct mibrec *mib,
+					    int isget,
+					    struct wlandevice *wlandev,
+					    struct hfa384x *hw,
+					    struct p80211msg_dot11req_mibset *msg,
+					    void *data)
 {
 	u32 *uint32 = data;
 

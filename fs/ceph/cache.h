@@ -1,9 +1,24 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Ceph cache definitions.
  *
  *  Copyright (C) 2013 by Adfin Solutions, Inc. All Rights Reserved.
  *  Written by Milosz Tanski (milosz@adfin.com)
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License version 2
+ *  as published by the Free Software Foundation.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to:
+ *  Free Software Foundation
+ *  51 Franklin Street, Fifth Floor
+ *  Boston, MA  02111-1301  USA
+ *
  */
 
 #ifndef _CEPH_CACHE_H
@@ -16,7 +31,7 @@ extern struct fscache_netfs ceph_cache_netfs;
 int ceph_fscache_register(void);
 void ceph_fscache_unregister(void);
 
-int ceph_fscache_register_fs(struct ceph_fs_client* fsc, struct fs_context *fc);
+int ceph_fscache_register_fs(struct ceph_fs_client* fsc);
 void ceph_fscache_unregister_fs(struct ceph_fs_client* fsc);
 
 void ceph_fscache_register_inode_cookie(struct inode *inode);
@@ -88,8 +103,7 @@ static inline void ceph_fscache_unregister(void)
 {
 }
 
-static inline int ceph_fscache_register_fs(struct ceph_fs_client* fsc,
-					   struct fs_context *fc)
+static inline int ceph_fscache_register_fs(struct ceph_fs_client* fsc)
 {
 	return 0;
 }

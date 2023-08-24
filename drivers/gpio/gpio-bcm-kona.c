@@ -19,6 +19,7 @@
 #include <linux/io.h>
 #include <linux/gpio/driver.h>
 #include <linux/of_device.h>
+#include <linux/of_irq.h>
 #include <linux/init.h>
 #include <linux/irqdomain.h>
 #include <linux/irqchip/chained_irq.h>
@@ -126,7 +127,7 @@ static int bcm_kona_gpio_get_dir(struct gpio_chip *chip, unsigned gpio)
 	u32 val;
 
 	val = readl(reg_base + GPIO_CONTROL(gpio)) & GPIO_GPCTR0_IOTR_MASK;
-	return val ? GPIO_LINE_DIRECTION_IN : GPIO_LINE_DIRECTION_OUT;
+	return !!val;
 }
 
 static void bcm_kona_gpio_set(struct gpio_chip *chip, unsigned gpio, int value)
@@ -143,7 +144,7 @@ static void bcm_kona_gpio_set(struct gpio_chip *chip, unsigned gpio, int value)
 	raw_spin_lock_irqsave(&kona_gpio->lock, flags);
 
 	/* this function only applies to output pin */
-	if (bcm_kona_gpio_get_dir(chip, gpio) == GPIO_LINE_DIRECTION_IN)
+	if (bcm_kona_gpio_get_dir(chip, gpio) == 1)
 		goto out;
 
 	reg_offset = value ? GPIO_OUT_SET(bank_id) : GPIO_OUT_CLEAR(bank_id);
@@ -169,7 +170,7 @@ static int bcm_kona_gpio_get(struct gpio_chip *chip, unsigned gpio)
 	reg_base = kona_gpio->reg_base;
 	raw_spin_lock_irqsave(&kona_gpio->lock, flags);
 
-	if (bcm_kona_gpio_get_dir(chip, gpio) == GPIO_LINE_DIRECTION_IN)
+	if (bcm_kona_gpio_get_dir(chip, gpio) == 1)
 		reg_offset = GPIO_IN_STATUS(bank_id);
 	else
 		reg_offset = GPIO_OUT_STATUS(bank_id);
@@ -567,6 +568,7 @@ static int bcm_kona_gpio_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	const struct of_device_id *match;
+	struct resource *res;
 	struct bcm_kona_gpio_bank *bank;
 	struct bcm_kona_gpio *kona_gpio;
 	struct gpio_chip *chip;
@@ -585,15 +587,11 @@ static int bcm_kona_gpio_probe(struct platform_device *pdev)
 
 	kona_gpio->gpio_chip = template_chip;
 	chip = &kona_gpio->gpio_chip;
-	ret = platform_irq_count(pdev);
-	if (!ret) {
+	kona_gpio->num_bank = of_irq_count(dev->of_node);
+	if (kona_gpio->num_bank == 0) {
 		dev_err(dev, "Couldn't determine # GPIO banks\n");
 		return -ENOENT;
-	} else if (ret < 0) {
-		return dev_err_probe(dev, ret, "Couldn't determine GPIO banks\n");
 	}
-	kona_gpio->num_bank = ret;
-
 	if (kona_gpio->num_bank > GPIO_MAX_BANK_NUM) {
 		dev_err(dev, "Too many GPIO banks configured (max=%d)\n",
 			GPIO_MAX_BANK_NUM);
@@ -620,9 +618,10 @@ static int bcm_kona_gpio_probe(struct platform_device *pdev)
 		return -ENXIO;
 	}
 
-	kona_gpio->reg_base = devm_platform_ioremap_resource(pdev, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	kona_gpio->reg_base = devm_ioremap_resource(dev, res);
 	if (IS_ERR(kona_gpio->reg_base)) {
-		ret = PTR_ERR(kona_gpio->reg_base);
+		ret = -ENXIO;
 		goto err_irq_domain;
 	}
 

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  * u_ether_configfs.h
  *
@@ -7,7 +7,7 @@
  * Copyright (c) 2013 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
  *
- * Author: Andrzej Pietrasiewicz <andrzejtp2010@gmail.com>
+ * Author: Andrzej Pietrasiewicz <andrzej.p@samsung.com>
  */
 
 #ifndef __U_ETHER_CONFIGFS_H
@@ -169,11 +169,12 @@ out:									\
 						size_t len)		\
 	{								\
 		struct f_##_f_##_opts *opts = to_f_##_f_##_opts(item);	\
-		int ret = -EINVAL;					\
+		int ret;						\
 		u8 val;							\
 									\
 		mutex_lock(&opts->lock);				\
-		if (sscanf(page, "%02hhx", &val) > 0) {			\
+		ret = sscanf(page, "%02hhx", &val);			\
+		if (ret > 0) {						\
 			opts->_n_ = val;				\
 			ret = len;					\
 		}							\

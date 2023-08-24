@@ -1,7 +1,18 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2011 Texas Instruments Incorporated - http://www.ti.com/
  * Author: Rob Clark <rob@ti.com>
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef __OMAPDRM_DRV_H__
@@ -11,10 +22,12 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
-#include "dss/omapdss.h"
-
+#include <drm/drmP.h>
+#include <drm/drm_crtc_helper.h>
 #include <drm/drm_gem.h>
 #include <drm/omap_drm.h>
+
+#include "dss/omapdss.h"
 
 #include "omap_connector.h"
 #include "omap_crtc.h"
@@ -25,8 +38,8 @@
 #include "omap_irq.h"
 #include "omap_plane.h"
 
-#define DBG(fmt, ...) DRM_DEBUG_DRIVER(fmt"\n", ##__VA_ARGS__)
-#define VERB(fmt, ...) if (0) DRM_DEBUG_DRIVER(fmt, ##__VA_ARGS__) /* verbose debug */
+#define DBG(fmt, ...) DRM_DEBUG(fmt"\n", ##__VA_ARGS__)
+#define VERB(fmt, ...) if (0) DRM_DEBUG(fmt, ##__VA_ARGS__) /* verbose debug */
 
 #define MODULE_NAME     "omapdrm"
 
@@ -37,7 +50,7 @@ struct omap_drm_pipeline {
 	struct drm_encoder *encoder;
 	struct drm_connector *connector;
 	struct omap_dss_device *output;
-	unsigned int alias_id;
+	struct omap_dss_device *display;
 };
 
 struct omap_drm_private {
@@ -82,6 +95,6 @@ struct omap_drm_private {
 };
 
 
-void omap_debugfs_init(struct drm_minor *minor);
+int omap_debugfs_init(struct drm_minor *minor);
 
 #endif /* __OMAPDRM_DRV_H__ */

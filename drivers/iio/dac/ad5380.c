@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Analog devices AD5380, AD5381, AD5382, AD5383, AD5390, AD5391, AD5392
  * multi-channel Digital to Analog Converters driver
  *
  * Copyright 2011 Analog Devices Inc.
+ *
+ * Licensed under the GPL-2.
  */
 
 #include <linux/device.h>
@@ -51,7 +52,6 @@ struct ad5380_chip_info {
  * @vref_reg:		vref supply regulator
  * @vref:		actual reference voltage used in uA
  * @pwr_down:		whether the chip is currently in power down mode
- * @lock:		lock to protect the data buffer during regmap ops
  */
 
 struct ad5380_state {
@@ -60,7 +60,6 @@ struct ad5380_state {
 	struct regulator		*vref_reg;
 	int				vref;
 	bool				pwr_down;
-	struct mutex			lock;
 };
 
 enum ad5380_type {
@@ -100,7 +99,7 @@ static ssize_t ad5380_write_dac_powerdown(struct iio_dev *indio_dev,
 	if (ret)
 		return ret;
 
-	mutex_lock(&st->lock);
+	mutex_lock(&indio_dev->mlock);
 
 	if (pwr_down)
 		ret = regmap_write(st->regmap, AD5380_REG_SF_PWR_DOWN, 0);
@@ -109,7 +108,7 @@ static ssize_t ad5380_write_dac_powerdown(struct iio_dev *indio_dev,
 
 	st->pwr_down = pwr_down;
 
-	mutex_unlock(&st->lock);
+	mutex_unlock(&indio_dev->mlock);
 
 	return ret ? ret : len;
 }
@@ -222,7 +221,7 @@ static int ad5380_read_raw(struct iio_dev *indio_dev,
 		if (ret)
 			return ret;
 		*val >>= chan->scan_type.shift;
-		*val -= (1 << chan->scan_type.realbits) / 2;
+		val -= (1 << chan->scan_type.realbits) / 2;
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SCALE:
 		*val = 2 * st->vref;
@@ -240,7 +239,7 @@ static const struct iio_info ad5380_info = {
 	.write_raw = ad5380_write_raw,
 };
 
-static const struct iio_chan_spec_ext_info ad5380_ext_info[] = {
+static struct iio_chan_spec_ext_info ad5380_ext_info[] = {
 	{
 		.name = "powerdown",
 		.read = ad5380_read_dac_powerdown,
@@ -386,12 +385,11 @@ static int ad5380_probe(struct device *dev, struct regmap *regmap,
 	st->chip_info = &ad5380_chip_info_tbl[type];
 	st->regmap = regmap;
 
+	indio_dev->dev.parent = dev;
 	indio_dev->name = name;
 	indio_dev->info = &ad5380_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->num_channels = st->chip_info->num_channels;
-
-	mutex_init(&st->lock);
 
 	ret = ad5380_alloc_channels(indio_dev);
 	if (ret) {

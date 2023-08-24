@@ -145,52 +145,42 @@ static int b53_spi_read8(struct b53_device *dev, u8 page, u8 reg, u8 *val)
 
 static int b53_spi_read16(struct b53_device *dev, u8 page, u8 reg, u16 *val)
 {
-	__le16 value;
-	int ret;
-
-	ret = b53_spi_read(dev, page, reg, (u8 *)&value, 2);
+	int ret = b53_spi_read(dev, page, reg, (u8 *)val, 2);
 
 	if (!ret)
-		*val = le16_to_cpu(value);
+		*val = le16_to_cpu(*val);
 
 	return ret;
 }
 
 static int b53_spi_read32(struct b53_device *dev, u8 page, u8 reg, u32 *val)
 {
-	__le32 value;
-	int ret;
-
-	ret = b53_spi_read(dev, page, reg, (u8 *)&value, 4);
+	int ret = b53_spi_read(dev, page, reg, (u8 *)val, 4);
 
 	if (!ret)
-		*val = le32_to_cpu(value);
+		*val = le32_to_cpu(*val);
 
 	return ret;
 }
 
 static int b53_spi_read48(struct b53_device *dev, u8 page, u8 reg, u64 *val)
 {
-	__le64 value;
 	int ret;
 
 	*val = 0;
-	ret = b53_spi_read(dev, page, reg, (u8 *)&value, 6);
+	ret = b53_spi_read(dev, page, reg, (u8 *)val, 6);
 	if (!ret)
-		*val = le64_to_cpu(value);
+		*val = le64_to_cpu(*val);
 
 	return ret;
 }
 
 static int b53_spi_read64(struct b53_device *dev, u8 page, u8 reg, u64 *val)
 {
-	__le64 value;
-	int ret;
-
-	ret = b53_spi_read(dev, page, reg, (u8 *)&value, 8);
+	int ret = b53_spi_read(dev, page, reg, (u8 *)val, 8);
 
 	if (!ret)
-		*val = le64_to_cpu(value);
+		*val = le64_to_cpu(*val);
 
 	return ret;
 }

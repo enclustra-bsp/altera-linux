@@ -1,8 +1,20 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * This file is part of UBIFS.
  *
  * Copyright (C) 2006-2008 Nokia Corporation.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 51
+ * Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  *
  * Authors: Adrian Hunter
  *          Artem Bityutskiy (Битюцкий Артём)
@@ -360,6 +372,7 @@ static int lnc_add_directly(struct ubifs_info *c, struct ubifs_zbranch *zbr,
 /**
  * lnc_free - remove a leaf node from the leaf node cache.
  * @zbr: zbranch of leaf node
+ * @node: leaf node
  */
 static void lnc_free(struct ubifs_zbranch *zbr)
 {
@@ -466,13 +479,14 @@ static int try_read_node(const struct ubifs_info *c, void *buf, int type,
 	if (node_len != len)
 		return 0;
 
-	if (type != UBIFS_DATA_NODE || !c->no_chk_data_crc || c->mounting ||
-	    c->remounting_rw) {
-		crc = crc32(UBIFS_CRC32_INIT, buf + 8, node_len - 8);
-		node_crc = le32_to_cpu(ch->crc);
-		if (crc != node_crc)
-			return 0;
-	}
+	if (type == UBIFS_DATA_NODE && c->no_chk_data_crc && !c->mounting &&
+	    !c->remounting_rw)
+		return 1;
+
+	crc = crc32(UBIFS_CRC32_INIT, buf + 8, node_len - 8);
+	node_crc = le32_to_cpu(ch->crc);
+	if (crc != node_crc)
+		return 0;
 
 	err = ubifs_node_check_hash(c, buf, zbr->hash);
 	if (err) {
@@ -891,7 +905,7 @@ static int fallible_resolve_collision(struct ubifs_info *c,
 				      int adding)
 {
 	struct ubifs_znode *o_znode = NULL, *znode = *zn;
-	int o_n, err, cmp, unsure = 0, nn = *n;
+	int uninitialized_var(o_n), err, cmp, unsure = 0, nn = *n;
 
 	cmp = fallible_matches_name(c, &znode->zbranch[nn], nm);
 	if (unlikely(cmp < 0))
@@ -1157,8 +1171,8 @@ static struct ubifs_znode *dirty_cow_bottom_up(struct ubifs_info *c,
  *   o exact match, i.e. the found zero-level znode contains key @key, then %1
  *     is returned and slot number of the matched branch is stored in @n;
  *   o not exact match, which means that zero-level znode does not contain
- *     @key, then %0 is returned and slot number of the closest branch or %-1
- *     is stored in @n; In this case calling tnc_next() is mandatory.
+ *     @key, then %0 is returned and slot number of the closest branch is stored
+ *     in @n;
  *   o @key is so small that it is even less than the lowest key of the
  *     leftmost zero-level node, then %0 is returned and %0 is stored in @n.
  *
@@ -1513,8 +1527,8 @@ out:
  */
 int ubifs_tnc_get_bu_keys(struct ubifs_info *c, struct bu_info *bu)
 {
-	int n, err = 0, lnum = -1, offs;
-	int len;
+	int n, err = 0, lnum = -1, uninitialized_var(offs);
+	int uninitialized_var(len);
 	unsigned int block = key_block(c, &bu->key);
 	struct ubifs_znode *znode;
 
@@ -1881,18 +1895,12 @@ int ubifs_tnc_lookup_nm(struct ubifs_info *c, const union ubifs_key *key,
 
 static int search_dh_cookie(struct ubifs_info *c, const union ubifs_key *key,
 			    struct ubifs_dent_node *dent, uint32_t cookie,
-			    struct ubifs_znode **zn, int *n, int exact)
+			    struct ubifs_znode **zn, int *n)
 {
 	int err;
 	struct ubifs_znode *znode = *zn;
 	struct ubifs_zbranch *zbr;
 	union ubifs_key *dkey;
-
-	if (!exact) {
-		err = tnc_next(c, &znode, n);
-		if (err)
-			return err;
-	}
 
 	for (;;) {
 		zbr = &znode->zbranch[*n];
@@ -1935,7 +1943,7 @@ static int do_lookup_dh(struct ubifs_info *c, const union ubifs_key *key,
 	if (unlikely(err < 0))
 		goto out_unlock;
 
-	err = search_dh_cookie(c, key, dent, cookie, &znode, &n, err);
+	err = search_dh_cookie(c, key, dent, cookie, &znode, &n);
 
 out_unlock:
 	mutex_unlock(&c->tnc_mutex);
@@ -2728,7 +2736,7 @@ int ubifs_tnc_remove_dh(struct ubifs_info *c, const union ubifs_key *key,
 		if (unlikely(err < 0))
 			goto out_free;
 
-		err = search_dh_cookie(c, key, dent, cookie, &znode, &n, err);
+		err = search_dh_cookie(c, key, dent, cookie, &znode, &n);
 		if (err)
 			goto out_free;
 	}
@@ -2884,7 +2892,6 @@ int ubifs_tnc_remove_ino(struct ubifs_info *c, ino_t inum)
 			err = PTR_ERR(xent);
 			if (err == -ENOENT)
 				break;
-			kfree(pxent);
 			return err;
 		}
 
@@ -2898,7 +2905,6 @@ int ubifs_tnc_remove_ino(struct ubifs_info *c, ino_t inum)
 		fname_len(&nm) = le16_to_cpu(xent->nlen);
 		err = ubifs_tnc_remove_nm(c, &key1, &nm);
 		if (err) {
-			kfree(pxent);
 			kfree(xent);
 			return err;
 		}
@@ -2907,7 +2913,6 @@ int ubifs_tnc_remove_ino(struct ubifs_info *c, ino_t inum)
 		highest_ino_key(c, &key2, xattr_inum);
 		err = ubifs_tnc_remove_range(c, &key1, &key2);
 		if (err) {
-			kfree(pxent);
 			kfree(xent);
 			return err;
 		}
@@ -3468,7 +3473,7 @@ out_unlock:
 /**
  * dbg_check_inode_size - check if inode size is correct.
  * @c: UBIFS file-system description object
- * @inode: inode to check
+ * @inum: inode number
  * @size: inode size
  *
  * This function makes sure that the inode size (@size) is correct and it does

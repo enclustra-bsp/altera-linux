@@ -6,25 +6,14 @@
 #include <linux/page_ext.h>
 #include <linux/poison.h>
 #include <linux/ratelimit.h>
-#include <linux/kasan.h>
 
-static DEFINE_STATIC_KEY_FALSE_RO(want_page_poisoning);
+static bool want_page_poisoning __read_mostly;
 
 static int __init early_page_poison_param(char *buf)
 {
-	int ret;
-	bool tmp;
-
-	ret = strtobool(buf, &tmp);
-	if (ret)
-		return ret;
-
-	if (tmp)
-		static_branch_enable(&want_page_poisoning);
-	else
-		static_branch_disable(&want_page_poisoning);
-
-	return 0;
+	if (!buf)
+		return -EINVAL;
+	return strtobool(buf, &want_page_poisoning);
 }
 early_param("page_poison", early_page_poison_param);
 
@@ -41,7 +30,7 @@ bool page_poisoning_enabled(void)
 	 * Page poisoning is debug page alloc for some arches. If
 	 * either of those options are enabled, enable poisoning.
 	 */
-	return (static_branch_unlikely(&want_page_poisoning) ||
+	return (want_page_poisoning ||
 		(!IS_ENABLED(CONFIG_ARCH_SUPPORTS_DEBUG_PAGEALLOC) &&
 		debug_pagealloc_enabled()));
 }
@@ -51,10 +40,7 @@ static void poison_page(struct page *page)
 {
 	void *addr = kmap_atomic(page);
 
-	/* KASAN still think the page is in-use, so skip it. */
-	kasan_disable_current();
 	memset(addr, PAGE_POISON, PAGE_SIZE);
-	kasan_enable_current();
 	kunmap_atomic(addr);
 }
 
@@ -111,7 +97,7 @@ static void unpoison_page(struct page *page)
 	/*
 	 * Page poisoning when enabled poisons each and every page
 	 * that is freed to buddy. Thus no extra check is done to
-	 * see if a page was poisoned.
+	 * see if a page was posioned.
 	 */
 	check_poison_mem(addr, PAGE_SIZE);
 	kunmap_atomic(addr);

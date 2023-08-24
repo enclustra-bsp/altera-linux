@@ -77,7 +77,15 @@ static int tps65217_bl_update_status(struct backlight_device *bl)
 {
 	struct tps65217_bl *tps65217_bl = bl_get_data(bl);
 	int rc;
-	int brightness = backlight_get_brightness(bl);
+	int brightness = bl->props.brightness;
+
+	if (bl->props.state & BL_CORE_SUSPENDED)
+		brightness = 0;
+
+	if ((bl->props.power != FB_BLANK_UNBLANK) ||
+		(bl->props.fb_blank != FB_BLANK_UNBLANK))
+		/* framebuffer in low power mode or blanking active */
+		brightness = 0;
 
 	if (brightness > 0) {
 		rc = tps65217_reg_write(tps65217_bl->tps,

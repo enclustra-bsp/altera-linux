@@ -37,6 +37,7 @@ jackson@realtek.com.tw
 
 u8 _rtw_read8(struct adapter *adapter, u32 addr)
 {
+	u8 r_val;
 	/* struct	io_queue	*pio_queue = (struct io_queue *)adapter->pio_queue; */
 	struct io_priv *pio_priv = &adapter->iopriv;
 	struct	intf_hdl		*pintfhdl = &(pio_priv->intf);
@@ -44,7 +45,8 @@ u8 _rtw_read8(struct adapter *adapter, u32 addr)
 
 	_read8 = pintfhdl->io_ops._read8;
 
-	return _read8(pintfhdl, addr);
+	r_val = _read8(pintfhdl, addr);
+	return r_val;
 }
 
 u16 _rtw_read16(struct adapter *adapter, u32 addr)
@@ -140,10 +142,13 @@ u32 _rtw_write_port(struct adapter *adapter, u32 addr, u32 cnt, u8 *pmem)
 	u32 (*_write_port)(struct intf_hdl *pintfhdl, u32 addr, u32 cnt, u8 *pmem);
 	struct io_priv *pio_priv = &adapter->iopriv;
 	struct	intf_hdl		*pintfhdl = &(pio_priv->intf);
+	u32 ret = _SUCCESS;
 
 	_write_port = pintfhdl->io_ops._write_port;
 
-	return _write_port(pintfhdl, addr, cnt, pmem);
+	ret = _write_port(pintfhdl, addr, cnt, pmem);
+
+	return ret;
 }
 
 int rtw_init_io_priv(struct adapter *padapter, void (*set_intf_ops)(struct adapter *padapter, struct _io_ops *pops))
@@ -151,7 +156,7 @@ int rtw_init_io_priv(struct adapter *padapter, void (*set_intf_ops)(struct adapt
 	struct io_priv *piopriv = &padapter->iopriv;
 	struct intf_hdl *pintf = &piopriv->intf;
 
-	if (!set_intf_ops)
+	if (set_intf_ops == NULL)
 		return _FAIL;
 
 	piopriv->padapter = padapter;

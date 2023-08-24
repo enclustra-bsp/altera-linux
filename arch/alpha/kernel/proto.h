@@ -2,6 +2,8 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 
+#include <asm/pgtable.h>
+
 /* Prototypes of functions used across modules here in this directory.  */
 
 #define vucp	volatile unsigned char  *

@@ -650,7 +650,7 @@ static void myrb_bgi_control(struct myrb_hba *cb)
 		if (sdev && cb->bgi_status.status == MYRB_BGI_INPROGRESS)
 			sdev_printk(KERN_INFO, sdev,
 				    "Background Initialization Aborted\n");
-		fallthrough;
+		/* Fallthrough */
 	case MYRB_STATUS_NO_BGI_INPROGRESS:
 		cb->bgi_status.status = MYRB_BGI_INVALID;
 		break;
@@ -1050,7 +1050,7 @@ static int myrb_get_hba_config(struct myrb_hba *cb)
 		enquiry2->fw.turn_id = 0;
 	}
 	snprintf(cb->fw_version, sizeof(cb->fw_version),
-		"%u.%02u-%c-%02u",
+		"%d.%02d-%c-%02d",
 		enquiry2->fw.major_version,
 		enquiry2->fw.minor_version,
 		enquiry2->fw.firmware_type,
@@ -1528,7 +1528,6 @@ static int myrb_ldev_queuecommand(struct Scsi_Host *shost,
 			scmd->scsi_done(scmd);
 			return 0;
 		}
-		fallthrough;
 	case WRITE_6:
 		lba = (((scmd->cmnd[1] & 0x1F) << 16) |
 		       (scmd->cmnd[2] << 8) |
@@ -1545,7 +1544,6 @@ static int myrb_ldev_queuecommand(struct Scsi_Host *shost,
 			scmd->scsi_done(scmd);
 			return 0;
 		}
-		fallthrough;
 	case WRITE_10:
 	case VERIFY:		/* 0x2F */
 	case WRITE_VERIFY:	/* 0x2E */
@@ -1562,7 +1560,6 @@ static int myrb_ldev_queuecommand(struct Scsi_Host *shost,
 			scmd->scsi_done(scmd);
 			return 0;
 		}
-		fallthrough;
 	case WRITE_12:
 	case VERIFY_12: /* 0xAF */
 	case WRITE_VERIFY_12:	/* 0xAE */
@@ -2167,7 +2164,7 @@ static ssize_t ctlr_num_show(struct device *dev,
 	struct Scsi_Host *shost = class_to_shost(dev);
 	struct myrb_hba *cb = shost_priv(shost);
 
-	return snprintf(buf, 20, "%u\n", cb->ctlr_num);
+	return snprintf(buf, 20, "%d\n", cb->ctlr_num);
 }
 static DEVICE_ATTR_RO(ctlr_num);
 
@@ -2226,7 +2223,7 @@ static struct device_attribute *myrb_shost_attrs[] = {
 	NULL,
 };
 
-static struct scsi_host_template myrb_template = {
+struct scsi_host_template myrb_template = {
 	.module			= THIS_MODULE,
 	.name			= "DAC960",
 	.proc_name		= "myrb",
@@ -2315,7 +2312,7 @@ static void myrb_get_state(struct device *dev)
 	raid_set_state(myrb_raid_template, dev, state);
 }
 
-static struct raid_function_template myrb_raid_functions = {
+struct raid_function_template myrb_raid_functions = {
 	.cookie		= &myrb_template,
 	.is_raid	= myrb_is_raid,
 	.get_resync	= myrb_get_resync,
@@ -2489,7 +2486,7 @@ static void myrb_monitor(struct work_struct *work)
  *
  * Return: true for fatal errors and false otherwise.
  */
-static bool myrb_err_status(struct myrb_hba *cb, unsigned char error,
+bool myrb_err_status(struct myrb_hba *cb, unsigned char error,
 		unsigned char parm0, unsigned char parm1)
 {
 	struct pci_dev *pdev = cb->pdev;
@@ -2732,6 +2729,7 @@ static int DAC960_LA_hw_init(struct pci_dev *pdev,
 	DAC960_LA_disable_intr(base);
 	DAC960_LA_ack_hw_mbox_status(base);
 	udelay(1000);
+	timeout = 0;
 	while (DAC960_LA_init_in_progress(base) &&
 	       timeout < MYRB_MAILBOX_TIMEOUT) {
 		if (DAC960_LA_read_error_status(base, &error,
@@ -3530,7 +3528,7 @@ static struct myrb_hba *myrb_detect(struct pci_dev *pdev,
 	spin_lock_init(&cb->queue_lock);
 	if (mmio_size < PAGE_SIZE)
 		mmio_size = PAGE_SIZE;
-	cb->mmio_base = ioremap(cb->pci_addr & PAGE_MASK, mmio_size);
+	cb->mmio_base = ioremap_nocache(cb->pci_addr & PAGE_MASK, mmio_size);
 	if (cb->mmio_base == NULL) {
 		dev_err(&pdev->dev,
 			"Unable to map Controller Register Window\n");

@@ -23,7 +23,7 @@
 */
 
 /* Bluetooth HCI sockets. */
-#include <linux/compat.h>
+
 #include <linux/export.h>
 #include <linux/utsname.h>
 #include <linux/sched.h>
@@ -52,23 +52,12 @@ struct hci_pinfo {
 	struct bt_sock    bt;
 	struct hci_dev    *hdev;
 	struct hci_filter filter;
-	__u8              cmsg_mask;
+	__u32             cmsg_mask;
 	unsigned short    channel;
 	unsigned long     flags;
 	__u32             cookie;
 	char              comm[TASK_COMM_LEN];
 };
-
-static struct hci_dev *hci_hdev_from_sock(struct sock *sk)
-{
-	struct hci_dev *hdev = hci_pi(sk)->hdev;
-
-	if (!hdev)
-		return ERR_PTR(-EBADFD);
-	if (hci_dev_test_flag(hdev, HCI_UNREGISTER))
-		return ERR_PTR(-EPIPE);
-	return hdev;
-}
 
 void hci_sock_set_flag(struct sock *sk, int nr)
 {
@@ -222,8 +211,7 @@ void hci_send_to_sock(struct hci_dev *hdev, struct sk_buff *skb)
 			if (hci_skb_pkt_type(skb) != HCI_COMMAND_PKT &&
 			    hci_skb_pkt_type(skb) != HCI_EVENT_PKT &&
 			    hci_skb_pkt_type(skb) != HCI_ACLDATA_PKT &&
-			    hci_skb_pkt_type(skb) != HCI_SCODATA_PKT &&
-			    hci_skb_pkt_type(skb) != HCI_ISODATA_PKT)
+			    hci_skb_pkt_type(skb) != HCI_SCODATA_PKT)
 				continue;
 			if (is_filtered_packet(sk, skb))
 				continue;
@@ -232,8 +220,7 @@ void hci_send_to_sock(struct hci_dev *hdev, struct sk_buff *skb)
 				continue;
 			if (hci_skb_pkt_type(skb) != HCI_EVENT_PKT &&
 			    hci_skb_pkt_type(skb) != HCI_ACLDATA_PKT &&
-			    hci_skb_pkt_type(skb) != HCI_SCODATA_PKT &&
-			    hci_skb_pkt_type(skb) != HCI_ISODATA_PKT)
+			    hci_skb_pkt_type(skb) != HCI_SCODATA_PKT)
 				continue;
 		} else {
 			/* Don't send frame to other channel types */
@@ -336,12 +323,6 @@ void hci_send_to_monitor(struct hci_dev *hdev, struct sk_buff *skb)
 			opcode = cpu_to_le16(HCI_MON_SCO_RX_PKT);
 		else
 			opcode = cpu_to_le16(HCI_MON_SCO_TX_PKT);
-		break;
-	case HCI_ISODATA_PKT:
-		if (bt_cb(skb)->incoming)
-			opcode = cpu_to_le16(HCI_MON_ISO_RX_PKT);
-		else
-			opcode = cpu_to_le16(HCI_MON_ISO_TX_PKT);
 		break;
 	case HCI_DIAG_PKT:
 		opcode = cpu_to_le16(HCI_MON_VENDOR_DIAG);
@@ -454,7 +435,8 @@ static struct sk_buff *create_monitor_event(struct hci_dev *hdev, int event)
 	case HCI_DEV_SETUP:
 		if (hdev->manufacturer == 0xffff)
 			return NULL;
-		fallthrough;
+
+		/* fall through */
 
 	case HCI_DEV_UP:
 		skb = bt_skb_alloc(HCI_MON_INDEX_INFO_SIZE, GFP_ATOMIC);
@@ -770,13 +752,19 @@ void hci_sock_dev_event(struct hci_dev *hdev, int event)
 	if (event == HCI_DEV_UNREG) {
 		struct sock *sk;
 
-		/* Wake up sockets using this dead device */
+		/* Detach sockets from device */
 		read_lock(&hci_sk_list.lock);
 		sk_for_each(sk, &hci_sk_list.head) {
+			bh_lock_sock_nested(sk);
 			if (hci_pi(sk)->hdev == hdev) {
+				hci_pi(sk)->hdev = NULL;
 				sk->sk_err = EPIPE;
+				sk->sk_state = BT_OPEN;
 				sk->sk_state_change(sk);
+
+				hci_dev_put(hdev);
 			}
+			bh_unlock_sock(sk);
 		}
 		read_unlock(&hci_sk_list.lock);
 	}
@@ -843,7 +831,7 @@ static int hci_sock_release(struct socket *sock)
 	if (!sk)
 		return 0;
 
-	lock_sock(sk);
+	hdev = hci_pi(sk)->hdev;
 
 	switch (hci_pi(sk)->channel) {
 	case HCI_CHANNEL_MONITOR:
@@ -866,7 +854,6 @@ static int hci_sock_release(struct socket *sock)
 
 	bt_sock_unlink(&hci_sk_list, sk);
 
-	hdev = hci_pi(sk)->hdev;
 	if (hdev) {
 		if (hci_pi(sk)->channel == HCI_CHANNEL_USER) {
 			/* When releasing a user channel exclusive access,
@@ -892,7 +879,6 @@ static int hci_sock_release(struct socket *sock)
 	skb_queue_purge(&sk->sk_receive_queue);
 	skb_queue_purge(&sk->sk_write_queue);
 
-	release_sock(sk);
 	sock_put(sk);
 	return 0;
 }
@@ -935,10 +921,10 @@ static int hci_sock_blacklist_del(struct hci_dev *hdev, void __user *arg)
 static int hci_sock_bound_ioctl(struct sock *sk, unsigned int cmd,
 				unsigned long arg)
 {
-	struct hci_dev *hdev = hci_hdev_from_sock(sk);
+	struct hci_dev *hdev = hci_pi(sk)->hdev;
 
-	if (IS_ERR(hdev))
-		return PTR_ERR(hdev);
+	if (!hdev)
+		return -EBADFD;
 
 	if (hci_dev_test_flag(hdev, HCI_USER_CHANNEL))
 		return -EBUSY;
@@ -1069,22 +1055,6 @@ done:
 	return err;
 }
 
-#ifdef CONFIG_COMPAT
-static int hci_sock_compat_ioctl(struct socket *sock, unsigned int cmd,
-				 unsigned long arg)
-{
-	switch (cmd) {
-	case HCIDEVUP:
-	case HCIDEVDOWN:
-	case HCIDEVRESET:
-	case HCIDEVRESTAT:
-		return hci_sock_ioctl(sock, cmd, arg);
-	}
-
-	return hci_sock_ioctl(sock, cmd, (unsigned long)compat_ptr(arg));
-}
-#endif
-
 static int hci_sock_bind(struct socket *sock, struct sockaddr *addr,
 			 int addr_len)
 {
@@ -1107,18 +1077,6 @@ static int hci_sock_bind(struct socket *sock, struct sockaddr *addr,
 		return -EINVAL;
 
 	lock_sock(sk);
-
-	/* Allow detaching from dead device and attaching to alive device, if
-	 * the caller wants to re-bind (instead of close) this socket in
-	 * response to hci_sock_dev_event(HCI_DEV_UNREG) notification.
-	 */
-	hdev = hci_pi(sk)->hdev;
-	if (hdev && hci_dev_test_flag(hdev, HCI_UNREGISTER)) {
-		hci_pi(sk)->hdev = NULL;
-		sk->sk_state = BT_OPEN;
-		hci_dev_put(hdev);
-	}
-	hdev = NULL;
 
 	if (sk->sk_state == BT_BOUND) {
 		err = -EALREADY;
@@ -1396,9 +1354,9 @@ static int hci_sock_getname(struct socket *sock, struct sockaddr *addr,
 
 	lock_sock(sk);
 
-	hdev = hci_hdev_from_sock(sk);
-	if (IS_ERR(hdev)) {
-		err = PTR_ERR(hdev);
+	hdev = hci_pi(sk)->hdev;
+	if (!hdev) {
+		err = -EBADFD;
 		goto done;
 	}
 
@@ -1415,7 +1373,7 @@ done:
 static void hci_sock_cmsg(struct sock *sk, struct msghdr *msg,
 			  struct sk_buff *skb)
 {
-	__u8 mask = hci_pi(sk)->cmsg_mask;
+	__u32 mask = hci_pi(sk)->cmsg_mask;
 
 	if (mask & HCI_CMSG_DIR) {
 		int incoming = bt_cb(skb)->incoming;
@@ -1425,9 +1383,9 @@ static void hci_sock_cmsg(struct sock *sk, struct msghdr *msg,
 
 	if (mask & HCI_CMSG_TSTAMP) {
 #ifdef CONFIG_COMPAT
-		struct old_timeval32 ctv;
+		struct compat_timeval ctv;
 #endif
-		struct __kernel_old_timeval tv;
+		struct timeval tv;
 		void *data;
 		int len;
 
@@ -1595,13 +1553,11 @@ static int hci_mgmt_cmd(struct hci_mgmt_chan *chan, struct sock *sk,
 		}
 	}
 
-	if (!(handler->flags & HCI_MGMT_HDEV_OPTIONAL)) {
-		no_hdev = (handler->flags & HCI_MGMT_NO_HDEV);
-		if (no_hdev != !hdev) {
-			err = mgmt_cmd_status(sk, index, opcode,
-					      MGMT_STATUS_INVALID_INDEX);
-			goto done;
-		}
+	no_hdev = (handler->flags & HCI_MGMT_NO_HDEV);
+	if (no_hdev != !hdev) {
+		err = mgmt_cmd_status(sk, index, opcode,
+				      MGMT_STATUS_INVALID_INDEX);
+		goto done;
 	}
 
 	var_len = (handler->flags & HCI_MGMT_VAR_LEN);
@@ -1760,9 +1716,9 @@ static int hci_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 		goto done;
 	}
 
-	hdev = hci_hdev_from_sock(sk);
-	if (IS_ERR(hdev)) {
-		err = PTR_ERR(hdev);
+	hdev = hci_pi(sk)->hdev;
+	if (!hdev) {
+		err = -EBADFD;
 		goto done;
 	}
 
@@ -1791,8 +1747,7 @@ static int hci_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 		 */
 		if (hci_skb_pkt_type(skb) != HCI_COMMAND_PKT &&
 		    hci_skb_pkt_type(skb) != HCI_ACLDATA_PKT &&
-		    hci_skb_pkt_type(skb) != HCI_SCODATA_PKT &&
-		    hci_skb_pkt_type(skb) != HCI_ISODATA_PKT) {
+		    hci_skb_pkt_type(skb) != HCI_SCODATA_PKT) {
 			err = -EINVAL;
 			goto drop;
 		}
@@ -1836,8 +1791,7 @@ static int hci_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 		}
 
 		if (hci_skb_pkt_type(skb) != HCI_ACLDATA_PKT &&
-		    hci_skb_pkt_type(skb) != HCI_SCODATA_PKT &&
-		    hci_skb_pkt_type(skb) != HCI_ISODATA_PKT) {
+		    hci_skb_pkt_type(skb) != HCI_SCODATA_PKT) {
 			err = -EINVAL;
 			goto drop;
 		}
@@ -1858,7 +1812,7 @@ drop:
 }
 
 static int hci_sock_setsockopt(struct socket *sock, int level, int optname,
-			       sockptr_t optval, unsigned int len)
+			       char __user *optval, unsigned int len)
 {
 	struct hci_ufilter uf = { .opcode = 0 };
 	struct sock *sk = sock->sk;
@@ -1878,7 +1832,7 @@ static int hci_sock_setsockopt(struct socket *sock, int level, int optname,
 
 	switch (optname) {
 	case HCI_DATA_DIR:
-		if (copy_from_sockptr(&opt, optval, sizeof(opt))) {
+		if (get_user(opt, (int __user *)optval)) {
 			err = -EFAULT;
 			break;
 		}
@@ -1890,7 +1844,7 @@ static int hci_sock_setsockopt(struct socket *sock, int level, int optname,
 		break;
 
 	case HCI_TIME_STAMP:
-		if (copy_from_sockptr(&opt, optval, sizeof(opt))) {
+		if (get_user(opt, (int __user *)optval)) {
 			err = -EFAULT;
 			break;
 		}
@@ -1912,7 +1866,7 @@ static int hci_sock_setsockopt(struct socket *sock, int level, int optname,
 		}
 
 		len = min_t(unsigned int, len, sizeof(uf));
-		if (copy_from_sockptr(&uf, optval, len)) {
+		if (copy_from_user(&uf, optval, len)) {
 			err = -EFAULT;
 			break;
 		}
@@ -2021,9 +1975,6 @@ static const struct proto_ops hci_sock_ops = {
 	.sendmsg	= hci_sock_sendmsg,
 	.recvmsg	= hci_sock_recvmsg,
 	.ioctl		= hci_sock_ioctl,
-#ifdef CONFIG_COMPAT
-	.compat_ioctl	= hci_sock_compat_ioctl,
-#endif
 	.poll		= datagram_poll,
 	.listen		= sock_no_listen,
 	.shutdown	= sock_no_shutdown,

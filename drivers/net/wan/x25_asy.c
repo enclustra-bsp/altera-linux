@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *	Things to sort out:
  *
@@ -183,7 +182,7 @@ static inline void x25_asy_unlock(struct x25_asy *sl)
 	netif_wake_queue(sl->dev);
 }
 
-/* Send an LAPB frame to the LAPB module to process. */
+/* Send one completely decapsulated IP datagram to the IP layer. */
 
 static void x25_asy_bump(struct x25_asy *sl)
 {
@@ -195,18 +194,21 @@ static void x25_asy_bump(struct x25_asy *sl)
 	count = sl->rcount;
 	dev->stats.rx_bytes += count;
 
-	skb = dev_alloc_skb(count);
+	skb = dev_alloc_skb(count+1);
 	if (skb == NULL) {
 		netdev_warn(sl->dev, "memory squeeze, dropping packet\n");
 		dev->stats.rx_dropped++;
 		return;
 	}
+	skb_push(skb, 1);	/* LAPB internal control */
 	skb_put_data(skb, sl->rbuff, count);
-	err = lapb_data_received(sl->dev, skb);
+	skb->protocol = x25_type_trans(skb, sl->dev);
+	err = lapb_data_received(skb->dev, skb);
 	if (err != LAPB_OK) {
 		kfree_skb(skb);
 		printk(KERN_DEBUG "x25_asy: data received err - %d\n", err);
 	} else {
+		netif_rx(skb);
 		dev->stats.rx_packets++;
 	}
 }
@@ -242,6 +244,8 @@ static void x25_asy_encaps(struct x25_asy *sl, unsigned char *icp, int len)
 	actual = sl->tty->ops->write(sl->tty, sl->xbuff, count);
 	sl->xleft = count - actual;
 	sl->xhead = sl->xbuff + actual;
+	/* VSV */
+	clear_bit(SLF_OUTWAIT, &sl->flags);	/* reset outfill flag */
 }
 
 /*
@@ -271,7 +275,7 @@ static void x25_asy_write_wakeup(struct tty_struct *tty)
 	sl->xhead += actual;
 }
 
-static void x25_asy_timeout(struct net_device *dev, unsigned int txqueue)
+static void x25_asy_timeout(struct net_device *dev)
 {
 	struct x25_asy *sl = netdev_priv(dev);
 
@@ -304,14 +308,6 @@ static netdev_tx_t x25_asy_xmit(struct sk_buff *skb,
 		return NETDEV_TX_OK;
 	}
 
-	/* There should be a pseudo header of 1 byte added by upper layers.
-	 * Check to make sure it is there before reading it.
-	 */
-	if (skb->len < 1) {
-		kfree_skb(skb);
-		return NETDEV_TX_OK;
-	}
-
 	switch (skb->data[0]) {
 	case X25_IFACE_DATA:
 		break;
@@ -327,7 +323,7 @@ static netdev_tx_t x25_asy_xmit(struct sk_buff *skb,
 		if (err != LAPB_OK)
 			netdev_err(dev, "lapb_disconnect_request error: %d\n",
 				   err);
-		fallthrough;
+		/* fall through */
 	default:
 		kfree_skb(skb);
 		return NETDEV_TX_OK;
@@ -359,21 +355,12 @@ static netdev_tx_t x25_asy_xmit(struct sk_buff *skb,
  */
 
 /*
- *	Called when I frame data arrive. We add a pseudo header for upper
- *	layers and pass it to upper layers.
+ *	Called when I frame data arrives. We did the work above - throw it
+ *	at the net layer.
  */
 
 static int x25_asy_data_indication(struct net_device *dev, struct sk_buff *skb)
 {
-	if (skb_cow(skb, 1)) {
-		kfree_skb(skb);
-		return NET_RX_DROP;
-	}
-	skb_push(skb, 1);
-	skb->data[0] = X25_IFACE_DATA;
-
-	skb->protocol = x25_type_trans(skb, dev);
-
 	return netif_rx(skb);
 }
 
@@ -461,6 +448,7 @@ static int x25_asy_open(struct net_device *dev)
 {
 	struct x25_asy *sl = netdev_priv(dev);
 	unsigned long len;
+	int err;
 
 	if (sl->tty == NULL)
 		return -ENODEV;
@@ -486,14 +474,19 @@ static int x25_asy_open(struct net_device *dev)
 	sl->xleft    = 0;
 	sl->flags   &= (1 << SLF_INUSE);      /* Clear ESCAPE & ERROR flags */
 
-	return 0;
+	netif_start_queue(dev);
+
+	/*
+	 *	Now attach LAPB
+	 */
+	err = lapb_register(dev, &x25_asy_callbacks);
+	if (err == LAPB_OK)
+		return 0;
 
 	/* Cleanup */
 	kfree(sl->xbuff);
-	sl->xbuff = NULL;
 noxbuff:
 	kfree(sl->rbuff);
-	sl->rbuff = NULL;
 norbuff:
 	return -ENOMEM;
 }
@@ -508,6 +501,7 @@ static int x25_asy_close(struct net_device *dev)
 	if (sl->tty)
 		clear_bit(TTY_DO_WRITE_WAKEUP, &sl->tty->flags);
 
+	netif_stop_queue(dev);
 	sl->rcount = 0;
 	sl->xleft  = 0;
 	spin_unlock(&sl->lock);
@@ -592,6 +586,7 @@ static int x25_asy_open_tty(struct tty_struct *tty)
 static void x25_asy_close_tty(struct tty_struct *tty)
 {
 	struct x25_asy *sl = tty->disc_data;
+	int err;
 
 	/* First make sure we're connected. */
 	if (!sl || sl->magic != X25_ASY_MAGIC)
@@ -601,6 +596,11 @@ static void x25_asy_close_tty(struct tty_struct *tty)
 	if (sl->dev->flags & IFF_UP)
 		dev_close(sl->dev);
 	rtnl_unlock();
+
+	err = lapb_unregister(sl->dev);
+	if (err != LAPB_OK)
+		pr_err("x25_asy_close: lapb_unregister error: %d\n",
+		       err);
 
 	tty->disc_data = NULL;
 	sl->tty = NULL;
@@ -654,7 +654,7 @@ static void x25_asy_unesc(struct x25_asy *sl, unsigned char s)
 	switch (s) {
 	case X25_END:
 		if (!test_and_clear_bit(SLF_ERROR, &sl->flags) &&
-		    sl->rcount >= 2)
+		    sl->rcount > 2)
 			x25_asy_bump(sl);
 		clear_bit(SLF_ESCAPE, &sl->flags);
 		sl->rcount = 0;
@@ -704,39 +704,15 @@ static int x25_asy_ioctl(struct tty_struct *tty, struct file *file,
 
 static int x25_asy_open_dev(struct net_device *dev)
 {
-	int err;
 	struct x25_asy *sl = netdev_priv(dev);
 	if (sl->tty == NULL)
 		return -ENODEV;
-
-	err = lapb_register(dev, &x25_asy_callbacks);
-	if (err != LAPB_OK)
-		return -ENOMEM;
-
-	netif_start_queue(dev);
-
-	return 0;
-}
-
-static int x25_asy_close_dev(struct net_device *dev)
-{
-	int err;
-
-	netif_stop_queue(dev);
-
-	err = lapb_unregister(dev);
-	if (err != LAPB_OK)
-		pr_err("%s: lapb_unregister error: %d\n",
-		       __func__, err);
-
-	x25_asy_close(dev);
-
 	return 0;
 }
 
 static const struct net_device_ops x25_asy_netdev_ops = {
 	.ndo_open	= x25_asy_open_dev,
-	.ndo_stop	= x25_asy_close_dev,
+	.ndo_stop	= x25_asy_close,
 	.ndo_start_xmit	= x25_asy_xmit,
 	.ndo_tx_timeout	= x25_asy_timeout,
 	.ndo_change_mtu	= x25_asy_change_mtu,
@@ -765,12 +741,6 @@ static void x25_asy_setup(struct net_device *dev)
 	dev->addr_len		= 0;
 	dev->type		= ARPHRD_X25;
 	dev->tx_queue_len	= 10;
-
-	/* When transmitting data:
-	 * first this driver removes a pseudo header of 1 byte,
-	 * then the lapb module prepends an LAPB header of at most 3 bytes.
-	 */
-	dev->needed_headroom	= 3 - 1;
 
 	/* New-style flags. */
 	dev->flags		= IFF_NOARP;

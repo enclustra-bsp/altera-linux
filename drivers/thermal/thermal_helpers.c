@@ -12,12 +12,11 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/sysfs.h>
 #include <linux/device.h>
 #include <linux/err.h>
-#include <linux/export.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include <linux/sysfs.h>
 
 #include <trace/events/thermal.h>
 
@@ -114,18 +113,6 @@ exit:
 }
 EXPORT_SYMBOL_GPL(thermal_zone_get_temp);
 
-/**
- * thermal_zone_set_trips - Computes the next trip points for the driver
- * @tz: a pointer to a thermal zone device structure
- *
- * The function computes the next temperature boundaries by browsing
- * the trip points. The result is the closer low and high trip points
- * to the current temperature. These values are passed to the backend
- * driver to let it set its own notification mechanism (usually an
- * interrupt).
- *
- * It does not return a value
- */
 void thermal_zone_set_trips(struct thermal_zone_device *tz)
 {
 	int low = -INT_MAX;
@@ -174,16 +161,7 @@ void thermal_zone_set_trips(struct thermal_zone_device *tz)
 exit:
 	mutex_unlock(&tz->lock);
 }
-
-static void thermal_cdev_set_cur_state(struct thermal_cooling_device *cdev,
-				       int target)
-{
-	if (cdev->ops->set_cur_state(cdev, target))
-		return;
-
-	thermal_notify_cdev_state_update(cdev->id, target);
-	thermal_cooling_device_stats_update(cdev, target);
-}
+EXPORT_SYMBOL_GPL(thermal_zone_set_trips);
 
 void thermal_cdev_update(struct thermal_cooling_device *cdev)
 {
@@ -207,7 +185,8 @@ void thermal_cdev_update(struct thermal_cooling_device *cdev)
 			target = instance->target;
 	}
 
-	thermal_cdev_set_cur_state(cdev, target);
+	if (!cdev->ops->set_cur_state(cdev, target))
+		thermal_cooling_device_stats_update(cdev, target);
 
 	cdev->updated = true;
 	mutex_unlock(&cdev->lock);

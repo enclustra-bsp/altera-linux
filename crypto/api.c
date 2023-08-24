@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Scatterlist Cryptographic API.
  *
@@ -8,6 +7,12 @@
  *
  * Portions derived from Cryptoapi, by Alexander Kjeldaas <astor@fast.no>
  * and Nettle, by Niels Möller.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
  */
 
 #include <linux/err.h>
@@ -97,7 +102,7 @@ static void crypto_larval_destroy(struct crypto_alg *alg)
 	struct crypto_larval *larval = (void *)alg;
 
 	BUG_ON(!crypto_is_larval(alg));
-	if (!IS_ERR_OR_NULL(larval->adult))
+	if (larval->adult)
 		crypto_mod_put(larval->adult);
 	kfree(larval);
 }
@@ -178,8 +183,6 @@ static struct crypto_alg *crypto_larval_wait(struct crypto_alg *alg)
 		alg = ERR_PTR(-ETIMEDOUT);
 	else if (!alg)
 		alg = ERR_PTR(-ENOENT);
-	else if (IS_ERR(alg))
-		;
 	else if (crypto_is_test_larval(larval) &&
 		 !(alg->cra_flags & CRYPTO_ALG_TESTED))
 		alg = ERR_PTR(-EAGAIN);
@@ -297,7 +300,20 @@ static int crypto_init_ops(struct crypto_tfm *tfm, u32 type, u32 mask)
 
 	if (type_obj)
 		return type_obj->init(tfm, type, mask);
-	return 0;
+
+	switch (crypto_tfm_alg_type(tfm)) {
+	case CRYPTO_ALG_TYPE_CIPHER:
+		return crypto_init_cipher_ops(tfm);
+
+	case CRYPTO_ALG_TYPE_COMPRESS:
+		return crypto_init_compress_ops(tfm);
+
+	default:
+		break;
+	}
+
+	BUG();
+	return -EINVAL;
 }
 
 static void crypto_exit_ops(struct crypto_tfm *tfm)
@@ -395,7 +411,7 @@ EXPORT_SYMBOL_GPL(__crypto_alloc_tfm);
  *
  *	The returned transform is of a non-determinate type.  Most people
  *	should use one of the more specific allocation functions such as
- *	crypto_alloc_skcipher().
+ *	crypto_alloc_blkcipher.
  *
  *	In case of error the return value is an error pointer.
  */
@@ -433,9 +449,8 @@ err:
 }
 EXPORT_SYMBOL_GPL(crypto_alloc_base);
 
-void *crypto_create_tfm_node(struct crypto_alg *alg,
-			const struct crypto_type *frontend,
-			int node)
+void *crypto_create_tfm(struct crypto_alg *alg,
+			const struct crypto_type *frontend)
 {
 	char *mem;
 	struct crypto_tfm *tfm = NULL;
@@ -446,13 +461,12 @@ void *crypto_create_tfm_node(struct crypto_alg *alg,
 	tfmsize = frontend->tfmsize;
 	total = tfmsize + sizeof(*tfm) + frontend->extsize(alg);
 
-	mem = kzalloc_node(total, GFP_KERNEL, node);
+	mem = kzalloc(total, GFP_KERNEL);
 	if (mem == NULL)
 		goto out_err;
 
 	tfm = (struct crypto_tfm *)(mem + tfmsize);
 	tfm->__crt_alg = alg;
-	tfm->node = node;
 
 	err = frontend->init_tfm(tfm);
 	if (err)
@@ -474,7 +488,7 @@ out_err:
 out:
 	return mem;
 }
-EXPORT_SYMBOL_GPL(crypto_create_tfm_node);
+EXPORT_SYMBOL_GPL(crypto_create_tfm);
 
 struct crypto_alg *crypto_find_alg(const char *alg_name,
 				   const struct crypto_type *frontend,
@@ -492,13 +506,11 @@ struct crypto_alg *crypto_find_alg(const char *alg_name,
 EXPORT_SYMBOL_GPL(crypto_find_alg);
 
 /*
- *	crypto_alloc_tfm_node - Locate algorithm and allocate transform
+ *	crypto_alloc_tfm - Locate algorithm and allocate transform
  *	@alg_name: Name of algorithm
  *	@frontend: Frontend algorithm type
  *	@type: Type of algorithm
  *	@mask: Mask for type comparison
- *	@node: NUMA node in which users desire to put requests, if node is
- *		NUMA_NO_NODE, it means users have no special requirement.
  *
  *	crypto_alloc_tfm() will first attempt to locate an already loaded
  *	algorithm.  If that fails and the kernel supports dynamically loadable
@@ -509,14 +521,12 @@ EXPORT_SYMBOL_GPL(crypto_find_alg);
  *
  *	The returned transform is of a non-determinate type.  Most people
  *	should use one of the more specific allocation functions such as
- *	crypto_alloc_skcipher().
+ *	crypto_alloc_blkcipher.
  *
  *	In case of error the return value is an error pointer.
  */
-
-void *crypto_alloc_tfm_node(const char *alg_name,
-		       const struct crypto_type *frontend, u32 type, u32 mask,
-		       int node)
+void *crypto_alloc_tfm(const char *alg_name,
+		       const struct crypto_type *frontend, u32 type, u32 mask)
 {
 	void *tfm;
 	int err;
@@ -530,7 +540,7 @@ void *crypto_alloc_tfm_node(const char *alg_name,
 			goto err;
 		}
 
-		tfm = crypto_create_tfm_node(alg, frontend, node);
+		tfm = crypto_create_tfm(alg, frontend);
 		if (!IS_ERR(tfm))
 			return tfm;
 
@@ -548,7 +558,7 @@ err:
 
 	return ERR_PTR(err);
 }
-EXPORT_SYMBOL_GPL(crypto_alloc_tfm_node);
+EXPORT_SYMBOL_GPL(crypto_alloc_tfm);
 
 /*
  *	crypto_destroy_tfm - Free crypto transform
@@ -562,7 +572,7 @@ void crypto_destroy_tfm(void *mem, struct crypto_tfm *tfm)
 {
 	struct crypto_alg *alg;
 
-	if (IS_ERR_OR_NULL(mem))
+	if (unlikely(!mem))
 		return;
 
 	alg = tfm->__crt_alg;
@@ -571,7 +581,7 @@ void crypto_destroy_tfm(void *mem, struct crypto_tfm *tfm)
 		alg->cra_exit(tfm);
 	crypto_exit_ops(tfm);
 	crypto_mod_put(alg);
-	kfree_sensitive(mem);
+	kzfree(mem);
 }
 EXPORT_SYMBOL_GPL(crypto_destroy_tfm);
 

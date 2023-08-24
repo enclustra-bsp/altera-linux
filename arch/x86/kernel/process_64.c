@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  Copyright (C) 1995  Linus Torvalds
  *
@@ -40,6 +39,7 @@
 #include <linux/ftrace.h>
 #include <linux/syscalls.h>
 
+#include <asm/pgtable.h>
 #include <asm/processor.h>
 #include <asm/fpu/internal.h>
 #include <asm/mmu_context.h>
@@ -47,11 +47,12 @@
 #include <asm/desc.h>
 #include <asm/proto.h>
 #include <asm/ia32.h>
+#include <asm/syscalls.h>
 #include <asm/debugreg.h>
 #include <asm/switch_to.h>
 #include <asm/xen/hypervisor.h>
 #include <asm/vdso.h>
-#include <asm/resctrl.h>
+#include <asm/intel_rdt_sched.h>
 #include <asm/unistd.h>
 #include <asm/fsgsbase.h>
 #ifdef CONFIG_IA32_EMULATION
@@ -62,31 +63,30 @@
 #include "process.h"
 
 /* Prints also some state that isn't saved in the pt_regs */
-void __show_regs(struct pt_regs *regs, enum show_regs_mode mode,
-		 const char *log_lvl)
+void __show_regs(struct pt_regs *regs, enum show_regs_mode mode)
 {
 	unsigned long cr0 = 0L, cr2 = 0L, cr3 = 0L, cr4 = 0L, fs, gs, shadowgs;
 	unsigned long d0, d1, d2, d3, d6, d7;
 	unsigned int fsindex, gsindex;
-	unsigned int ds, es;
+	unsigned int ds, cs, es;
 
-	show_iret_regs(regs, log_lvl);
+	show_iret_regs(regs);
 
 	if (regs->orig_ax != -1)
 		pr_cont(" ORIG_RAX: %016lx\n", regs->orig_ax);
 	else
 		pr_cont("\n");
 
-	printk("%sRAX: %016lx RBX: %016lx RCX: %016lx\n",
-	       log_lvl, regs->ax, regs->bx, regs->cx);
-	printk("%sRDX: %016lx RSI: %016lx RDI: %016lx\n",
-	       log_lvl, regs->dx, regs->si, regs->di);
-	printk("%sRBP: %016lx R08: %016lx R09: %016lx\n",
-	       log_lvl, regs->bp, regs->r8, regs->r9);
-	printk("%sR10: %016lx R11: %016lx R12: %016lx\n",
-	       log_lvl, regs->r10, regs->r11, regs->r12);
-	printk("%sR13: %016lx R14: %016lx R15: %016lx\n",
-	       log_lvl, regs->r13, regs->r14, regs->r15);
+	printk(KERN_DEFAULT "RAX: %016lx RBX: %016lx RCX: %016lx\n",
+	       regs->ax, regs->bx, regs->cx);
+	printk(KERN_DEFAULT "RDX: %016lx RSI: %016lx RDI: %016lx\n",
+	       regs->dx, regs->si, regs->di);
+	printk(KERN_DEFAULT "RBP: %016lx R08: %016lx R09: %016lx\n",
+	       regs->bp, regs->r8, regs->r9);
+	printk(KERN_DEFAULT "R10: %016lx R11: %016lx R12: %016lx\n",
+	       regs->r10, regs->r11, regs->r12);
+	printk(KERN_DEFAULT "R13: %016lx R14: %016lx R15: %016lx\n",
+	       regs->r13, regs->r14, regs->r15);
 
 	if (mode == SHOW_REGS_SHORT)
 		return;
@@ -94,12 +94,13 @@ void __show_regs(struct pt_regs *regs, enum show_regs_mode mode,
 	if (mode == SHOW_REGS_USER) {
 		rdmsrl(MSR_FS_BASE, fs);
 		rdmsrl(MSR_KERNEL_GS_BASE, shadowgs);
-		printk("%sFS:  %016lx GS:  %016lx\n",
-		       log_lvl, fs, shadowgs);
+		printk(KERN_DEFAULT "FS:  %016lx GS:  %016lx\n",
+		       fs, shadowgs);
 		return;
 	}
 
 	asm("movl %%ds,%0" : "=r" (ds));
+	asm("movl %%cs,%0" : "=r" (cs));
 	asm("movl %%es,%0" : "=r" (es));
 	asm("movl %%fs,%0" : "=r" (fsindex));
 	asm("movl %%gs,%0" : "=r" (gsindex));
@@ -113,12 +114,12 @@ void __show_regs(struct pt_regs *regs, enum show_regs_mode mode,
 	cr3 = __read_cr3();
 	cr4 = __read_cr4();
 
-	printk("%sFS:  %016lx(%04x) GS:%016lx(%04x) knlGS:%016lx\n",
-	       log_lvl, fs, fsindex, gs, gsindex, shadowgs);
-	printk("%sCS:  %04lx DS: %04x ES: %04x CR0: %016lx\n",
-		log_lvl, regs->cs, ds, es, cr0);
-	printk("%sCR2: %016lx CR3: %016lx CR4: %016lx\n",
-		log_lvl, cr2, cr3, cr4);
+	printk(KERN_DEFAULT "FS:  %016lx(%04x) GS:%016lx(%04x) knlGS:%016lx\n",
+	       fs, fsindex, gs, gsindex, shadowgs);
+	printk(KERN_DEFAULT "CS:  %04x DS: %04x ES: %04x CR0: %016lx\n", cs, ds,
+			es, cr0);
+	printk(KERN_DEFAULT "CR2: %016lx CR3: %016lx CR4: %016lx\n", cr2, cr3,
+			cr4);
 
 	get_debugreg(d0, 0);
 	get_debugreg(d1, 1);
@@ -130,75 +131,35 @@ void __show_regs(struct pt_regs *regs, enum show_regs_mode mode,
 	/* Only print out debug registers if they are in their non-default state. */
 	if (!((d0 == 0) && (d1 == 0) && (d2 == 0) && (d3 == 0) &&
 	    (d6 == DR6_RESERVED) && (d7 == 0x400))) {
-		printk("%sDR0: %016lx DR1: %016lx DR2: %016lx\n",
-		       log_lvl, d0, d1, d2);
-		printk("%sDR3: %016lx DR6: %016lx DR7: %016lx\n",
-		       log_lvl, d3, d6, d7);
+		printk(KERN_DEFAULT "DR0: %016lx DR1: %016lx DR2: %016lx\n",
+		       d0, d1, d2);
+		printk(KERN_DEFAULT "DR3: %016lx DR6: %016lx DR7: %016lx\n",
+		       d3, d6, d7);
 	}
 
 	if (boot_cpu_has(X86_FEATURE_OSPKE))
-		printk("%sPKRU: %08x\n", log_lvl, read_pkru());
+		printk(KERN_DEFAULT "PKRU: %08x\n", read_pkru());
 }
 
 void release_thread(struct task_struct *dead_task)
 {
-	WARN_ON(dead_task->mm);
+	if (dead_task->mm) {
+#ifdef CONFIG_MODIFY_LDT_SYSCALL
+		if (dead_task->mm->context.ldt) {
+			pr_warn("WARNING: dead process %s still has LDT? <%p/%d>\n",
+				dead_task->comm,
+				dead_task->mm->context.ldt->entries,
+				dead_task->mm->context.ldt->nr_entries);
+			BUG();
+		}
+#endif
+	}
 }
 
 enum which_selector {
 	FS,
 	GS
 };
-
-/*
- * Out of line to be protected from kprobes and tracing. If this would be
- * traced or probed than any access to a per CPU variable happens with
- * the wrong GS.
- *
- * It is not used on Xen paravirt. When paravirt support is needed, it
- * needs to be renamed with native_ prefix.
- */
-static noinstr unsigned long __rdgsbase_inactive(void)
-{
-	unsigned long gsbase;
-
-	lockdep_assert_irqs_disabled();
-
-	if (!static_cpu_has(X86_FEATURE_XENPV)) {
-		native_swapgs();
-		gsbase = rdgsbase();
-		native_swapgs();
-	} else {
-		instrumentation_begin();
-		rdmsrl(MSR_KERNEL_GS_BASE, gsbase);
-		instrumentation_end();
-	}
-
-	return gsbase;
-}
-
-/*
- * Out of line to be protected from kprobes and tracing. If this would be
- * traced or probed than any access to a per CPU variable happens with
- * the wrong GS.
- *
- * It is not used on Xen paravirt. When paravirt support is needed, it
- * needs to be renamed with native_ prefix.
- */
-static noinstr void __wrgsbase_inactive(unsigned long gsbase)
-{
-	lockdep_assert_irqs_disabled();
-
-	if (!static_cpu_has(X86_FEATURE_XENPV)) {
-		native_swapgs();
-		wrgsbase(gsbase);
-		native_swapgs();
-	} else {
-		instrumentation_begin();
-		wrmsrl(MSR_KERNEL_GS_BASE, gsbase);
-		instrumentation_end();
-	}
-}
 
 /*
  * Saves the FS or GS base for an outgoing thread if FSGSBASE extensions are
@@ -249,35 +210,22 @@ static __always_inline void save_fsgs(struct task_struct *task)
 {
 	savesegment(fs, task->thread.fsindex);
 	savesegment(gs, task->thread.gsindex);
-	if (static_cpu_has(X86_FEATURE_FSGSBASE)) {
-		/*
-		 * If FSGSBASE is enabled, we can't make any useful guesses
-		 * about the base, and user code expects us to save the current
-		 * value.  Fortunately, reading the base directly is efficient.
-		 */
-		task->thread.fsbase = rdfsbase();
-		task->thread.gsbase = __rdgsbase_inactive();
-	} else {
-		save_base_legacy(task, task->thread.fsindex, FS);
-		save_base_legacy(task, task->thread.gsindex, GS);
-	}
+	save_base_legacy(task, task->thread.fsindex, FS);
+	save_base_legacy(task, task->thread.gsindex, GS);
 }
 
+#if IS_ENABLED(CONFIG_KVM)
 /*
  * While a process is running,current->thread.fsbase and current->thread.gsbase
- * may not match the corresponding CPU registers (see save_base_legacy()).
+ * may not match the corresponding CPU registers (see save_base_legacy()). KVM
+ * wants an efficient way to save and restore FSBASE and GSBASE.
+ * When FSGSBASE extensions are enabled, this will have to use RD{FS,GS}BASE.
  */
-void current_save_fsgs(void)
+void save_fsgs_for_kvm(void)
 {
-	unsigned long flags;
-
-	/* Interrupts need to be off for FSGSBASE */
-	local_irq_save(flags);
 	save_fsgs(current);
-	local_irq_restore(flags);
 }
-#if IS_ENABLED(CONFIG_KVM)
-EXPORT_SYMBOL_GPL(current_save_fsgs);
+EXPORT_SYMBOL_GPL(save_fsgs_for_kvm);
 #endif
 
 static __always_inline void loadseg(enum which_selector which,
@@ -342,26 +290,14 @@ static __always_inline void load_seg_legacy(unsigned short prev_index,
 static __always_inline void x86_fsgsbase_load(struct thread_struct *prev,
 					      struct thread_struct *next)
 {
-	if (static_cpu_has(X86_FEATURE_FSGSBASE)) {
-		/* Update the FS and GS selectors if they could have changed. */
-		if (unlikely(prev->fsindex || next->fsindex))
-			loadseg(FS, next->fsindex);
-		if (unlikely(prev->gsindex || next->gsindex))
-			loadseg(GS, next->gsindex);
-
-		/* Update the bases. */
-		wrfsbase(next->fsbase);
-		__wrgsbase_inactive(next->gsbase);
-	} else {
-		load_seg_legacy(prev->fsindex, prev->fsbase,
-				next->fsindex, next->fsbase, FS);
-		load_seg_legacy(prev->gsindex, prev->gsbase,
-				next->gsindex, next->gsbase, GS);
-	}
+	load_seg_legacy(prev->fsindex, prev->fsbase,
+			next->fsindex, next->fsbase, FS);
+	load_seg_legacy(prev->gsindex, prev->gsbase,
+			next->gsindex, next->gsbase, GS);
 }
 
-unsigned long x86_fsgsbase_read_task(struct task_struct *task,
-				     unsigned short selector)
+static unsigned long x86_fsgsbase_read_task(struct task_struct *task,
+					    unsigned short selector)
 {
 	unsigned short idx = selector >> 3;
 	unsigned long base;
@@ -390,7 +326,7 @@ unsigned long x86_fsgsbase_read_task(struct task_struct *task,
 		 */
 		mutex_lock(&task->mm->context.lock);
 		ldt = task->mm->context.ldt;
-		if (unlikely(!ldt || idx >= ldt->nr_entries))
+		if (unlikely(idx >= ldt->nr_entries))
 			base = 0;
 		else
 			base = get_desc_base(ldt->entries + idx);
@@ -403,44 +339,13 @@ unsigned long x86_fsgsbase_read_task(struct task_struct *task,
 	return base;
 }
 
-unsigned long x86_gsbase_read_cpu_inactive(void)
-{
-	unsigned long gsbase;
-
-	if (boot_cpu_has(X86_FEATURE_FSGSBASE)) {
-		unsigned long flags;
-
-		local_irq_save(flags);
-		gsbase = __rdgsbase_inactive();
-		local_irq_restore(flags);
-	} else {
-		rdmsrl(MSR_KERNEL_GS_BASE, gsbase);
-	}
-
-	return gsbase;
-}
-
-void x86_gsbase_write_cpu_inactive(unsigned long gsbase)
-{
-	if (boot_cpu_has(X86_FEATURE_FSGSBASE)) {
-		unsigned long flags;
-
-		local_irq_save(flags);
-		__wrgsbase_inactive(gsbase);
-		local_irq_restore(flags);
-	} else {
-		wrmsrl(MSR_KERNEL_GS_BASE, gsbase);
-	}
-}
-
 unsigned long x86_fsbase_read_task(struct task_struct *task)
 {
 	unsigned long fsbase;
 
 	if (task == current)
 		fsbase = x86_fsbase_read_cpu();
-	else if (boot_cpu_has(X86_FEATURE_FSGSBASE) ||
-		 (task->thread.fsindex == 0))
+	else if (task->thread.fsindex == 0)
 		fsbase = task->thread.fsbase;
 	else
 		fsbase = x86_fsgsbase_read_task(task, task->thread.fsindex);
@@ -454,8 +359,7 @@ unsigned long x86_gsbase_read_task(struct task_struct *task)
 
 	if (task == current)
 		gsbase = x86_gsbase_read_cpu_inactive();
-	else if (boot_cpu_has(X86_FEATURE_FSGSBASE) ||
-		 (task->thread.gsindex == 0))
+	else if (task->thread.gsindex == 0)
 		gsbase = task->thread.gsbase;
 	else
 		gsbase = x86_fsgsbase_read_task(task, task->thread.gsindex);
@@ -475,6 +379,80 @@ void x86_gsbase_write_task(struct task_struct *task, unsigned long gsbase)
 	WARN_ON_ONCE(task == current);
 
 	task->thread.gsbase = gsbase;
+}
+
+int copy_thread_tls(unsigned long clone_flags, unsigned long sp,
+		unsigned long arg, struct task_struct *p, unsigned long tls)
+{
+	int err;
+	struct pt_regs *childregs;
+	struct fork_frame *fork_frame;
+	struct inactive_task_frame *frame;
+	struct task_struct *me = current;
+
+	childregs = task_pt_regs(p);
+	fork_frame = container_of(childregs, struct fork_frame, regs);
+	frame = &fork_frame->frame;
+	frame->bp = 0;
+	frame->ret_addr = (unsigned long) ret_from_fork;
+	p->thread.sp = (unsigned long) fork_frame;
+	p->thread.io_bitmap_ptr = NULL;
+
+	savesegment(gs, p->thread.gsindex);
+	p->thread.gsbase = p->thread.gsindex ? 0 : me->thread.gsbase;
+	savesegment(fs, p->thread.fsindex);
+	p->thread.fsbase = p->thread.fsindex ? 0 : me->thread.fsbase;
+	savesegment(es, p->thread.es);
+	savesegment(ds, p->thread.ds);
+	memset(p->thread.ptrace_bps, 0, sizeof(p->thread.ptrace_bps));
+
+	if (unlikely(p->flags & PF_KTHREAD)) {
+		/* kernel thread */
+		memset(childregs, 0, sizeof(struct pt_regs));
+		frame->bx = sp;		/* function */
+		frame->r12 = arg;
+		return 0;
+	}
+	frame->bx = 0;
+	*childregs = *current_pt_regs();
+
+	childregs->ax = 0;
+	if (sp)
+		childregs->sp = sp;
+
+	err = -ENOMEM;
+	if (unlikely(test_tsk_thread_flag(me, TIF_IO_BITMAP))) {
+		p->thread.io_bitmap_ptr = kmemdup(me->thread.io_bitmap_ptr,
+						  IO_BITMAP_BYTES, GFP_KERNEL);
+		if (!p->thread.io_bitmap_ptr) {
+			p->thread.io_bitmap_max = 0;
+			return -ENOMEM;
+		}
+		set_tsk_thread_flag(p, TIF_IO_BITMAP);
+	}
+
+	/*
+	 * Set a new TLS for the child thread?
+	 */
+	if (clone_flags & CLONE_SETTLS) {
+#ifdef CONFIG_IA32_EMULATION
+		if (in_ia32_syscall())
+			err = do_set_thread_area(p, -1,
+				(struct user_desc __user *)tls, 0);
+		else
+#endif
+			err = do_arch_prctl_64(p, ARCH_SET_FS, tls);
+		if (err)
+			goto out;
+	}
+	err = 0;
+out:
+	if (err && p->thread.io_bitmap_ptr) {
+		kfree(p->thread.io_bitmap_ptr);
+		p->thread.io_bitmap_max = 0;
+	}
+
+	return err;
 }
 
 static void
@@ -500,6 +478,7 @@ start_thread_common(struct pt_regs *regs, unsigned long new_ip,
 	regs->cs		= _cs;
 	regs->ss		= _ss;
 	regs->flags		= X86_EFLAGS_IF;
+	force_iret();
 }
 
 void
@@ -542,8 +521,7 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	WARN_ON_ONCE(IS_ENABLED(CONFIG_DEBUG_ENTRY) &&
 		     this_cpu_read(irq_count) != -1);
 
-	if (!test_thread_flag(TIF_NEED_FPU_LOAD))
-		switch_fpu_prepare(prev_fpu, cpu);
+	switch_fpu_prepare(prev_fpu, cpu);
 
 	/* We must save %fs and %gs before load_TLS() because
 	 * %fs and %gs may be cleared by load_TLS().
@@ -561,7 +539,9 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	/*
 	 * Leave lazy mode, flushing any hypercalls made here.  This
 	 * must be done after loading TLS entries in the GDT but before
-	 * loading segments that might reference them.
+	 * loading segments that might reference them, and and it must
+	 * be done before fpu__restore(), so the TS bit is up to
+	 * date.
 	 */
 	arch_end_context_switch(next_p);
 
@@ -589,18 +569,29 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 
 	x86_fsgsbase_load(prev, next);
 
+	switch_fpu_finish(next_fpu, cpu);
+
 	/*
 	 * Switch the PDA and FPU contexts.
 	 */
 	this_cpu_write(current_task, next_p);
 	this_cpu_write(cpu_current_top_of_stack, task_top_of_stack(next_p));
 
-	switch_fpu_finish(next_fpu);
-
 	/* Reload sp0. */
 	update_task_stack(next_p);
 
 	switch_to_extra(prev_p, next_p);
+
+#ifdef CONFIG_XEN_PV
+	/*
+	 * On Xen PV, IOPL bits in pt_regs->flags have no effect, and
+	 * current_pt_regs()->flags may not match the current task's
+	 * intended IOPL.  We need to switch it manually.
+	 */
+	if (unlikely(static_cpu_has(X86_FEATURE_XENPV) &&
+		     prev->iopl != next->iopl))
+		xen_set_iopl_mask(next->iopl);
+#endif
 
 	if (static_cpu_has_bug(X86_BUG_SYSRET_SS_ATTRS)) {
 		/*
@@ -631,7 +622,7 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	}
 
 	/* Load the Intel cache allocation PQR MSR. */
-	resctrl_sched_in();
+	intel_rdt_sched_in();
 
 	return prev_p;
 }
@@ -655,7 +646,7 @@ void set_personality_64bit(void)
 	/* TBD: overwrites user setup. Should have two bits.
 	   But 64bit processes have always behaved this way,
 	   so it's not too bad. The main problem is just that
-	   32bit children are affected again. */
+	   32bit childs are affected again. */
 	current->personality &= ~READ_IMPLIES_EXEC;
 }
 

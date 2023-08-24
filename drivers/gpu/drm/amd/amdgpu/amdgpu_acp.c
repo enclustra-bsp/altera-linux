@@ -24,7 +24,6 @@
  */
 
 #include <linux/irqdomain.h>
-#include <linux/pci.h>
 #include <linux/pm_domain.h>
 #include <linux/platform_device.h>
 #include <sound/designware_i2s.h>
@@ -136,7 +135,9 @@ static int acp_poweroff(struct generic_pm_domain *genpd)
 	 * 2. power off the acp tiles
 	 * 3. check and enter ulv state
 	 */
-		amdgpu_dpm_set_powergating_by_smu(adev, AMD_IP_BLOCK_TYPE_ACP, true);
+		if (adev->powerplay.pp_funcs &&
+			adev->powerplay.pp_funcs->set_powergating_by_smu)
+			amdgpu_dpm_set_powergating_by_smu(adev, AMD_IP_BLOCK_TYPE_ACP, true);
 	}
 	return 0;
 }
@@ -155,33 +156,23 @@ static int acp_poweron(struct generic_pm_domain *genpd)
 	 * 2. turn on acp clock
 	 * 3. power on acp tiles
 	 */
-		amdgpu_dpm_set_powergating_by_smu(adev, AMD_IP_BLOCK_TYPE_ACP, false);
+		if (adev->powerplay.pp_funcs->set_powergating_by_smu)
+			amdgpu_dpm_set_powergating_by_smu(adev, AMD_IP_BLOCK_TYPE_ACP, false);
 	}
 	return 0;
 }
 
-static int acp_genpd_add_device(struct device *dev, void *data)
+static struct device *get_mfd_cell_dev(const char *device_name, int r)
 {
-	struct generic_pm_domain *gpd = data;
-	int ret;
+	char auto_dev_name[25];
+	struct device *dev;
 
-	ret = pm_genpd_add_device(gpd, dev);
-	if (ret)
-		dev_err(dev, "Failed to add dev to genpd %d\n", ret);
+	snprintf(auto_dev_name, sizeof(auto_dev_name),
+		 "%s.%d.auto", device_name, r);
+	dev = bus_find_device_by_name(&platform_bus_type, NULL, auto_dev_name);
+	dev_info(dev, "device %s added to pm domain\n", auto_dev_name);
 
-	return ret;
-}
-
-static int acp_genpd_remove_device(struct device *dev, void *data)
-{
-	int ret;
-
-	ret = pm_genpd_remove_device(dev);
-	if (ret)
-		dev_err(dev, "Failed to remove dev from genpd %d\n", ret);
-
-	/* Continue to remove */
-	return 0;
+	return dev;
 }
 
 /**
@@ -192,11 +183,12 @@ static int acp_genpd_remove_device(struct device *dev, void *data)
  */
 static int acp_hw_init(void *handle)
 {
-	int r;
+	int r, i;
 	uint64_t acp_base;
 	u32 val = 0;
 	u32 count = 0;
-	struct i2s_platform_data *i2s_pdata = NULL;
+	struct device *dev;
+	struct i2s_platform_data *i2s_pdata;
 
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
@@ -238,21 +230,20 @@ static int acp_hw_init(void *handle)
 	adev->acp.acp_cell = kcalloc(ACP_DEVS, sizeof(struct mfd_cell),
 							GFP_KERNEL);
 
-	if (adev->acp.acp_cell == NULL) {
-		r = -ENOMEM;
-		goto failure;
-	}
+	if (adev->acp.acp_cell == NULL)
+		return -ENOMEM;
 
 	adev->acp.acp_res = kcalloc(5, sizeof(struct resource), GFP_KERNEL);
 	if (adev->acp.acp_res == NULL) {
-		r = -ENOMEM;
-		goto failure;
+		kfree(adev->acp.acp_cell);
+		return -ENOMEM;
 	}
 
 	i2s_pdata = kcalloc(3, sizeof(struct i2s_platform_data), GFP_KERNEL);
 	if (i2s_pdata == NULL) {
-		r = -ENOMEM;
-		goto failure;
+		kfree(adev->acp.acp_res);
+		kfree(adev->acp.acp_cell);
+		return -ENOMEM;
 	}
 
 	switch (adev->asic_type) {
@@ -349,12 +340,17 @@ static int acp_hw_init(void *handle)
 	r = mfd_add_hotplug_devices(adev->acp.parent, adev->acp.acp_cell,
 								ACP_DEVS);
 	if (r)
-		goto failure;
+		return r;
 
-	r = device_for_each_child(adev->acp.parent, &adev->acp.acp_genpd->gpd,
-				  acp_genpd_add_device);
-	if (r)
-		goto failure;
+	for (i = 0; i < ACP_DEVS ; i++) {
+		dev = get_mfd_cell_dev(adev->acp.acp_cell[i].name, i);
+		r = pm_genpd_add_device(&adev->acp.acp_genpd->gpd, dev);
+		if (r) {
+			dev_err(dev, "Failed to add dev to genpd\n");
+			return r;
+		}
+	}
+
 
 	/* Assert Soft reset of ACP */
 	val = cgs_read_register(adev->acp.cgs_device, mmACP_SOFT_RESET);
@@ -370,8 +366,7 @@ static int acp_hw_init(void *handle)
 			break;
 		if (--count == 0) {
 			dev_err(&adev->pdev->dev, "Failed to reset ACP\n");
-			r = -ETIMEDOUT;
-			goto failure;
+			return -ETIMEDOUT;
 		}
 		udelay(100);
 	}
@@ -388,8 +383,7 @@ static int acp_hw_init(void *handle)
 			break;
 		if (--count == 0) {
 			dev_err(&adev->pdev->dev, "Failed to reset ACP\n");
-			r = -ETIMEDOUT;
-			goto failure;
+			return -ETIMEDOUT;
 		}
 		udelay(100);
 	}
@@ -398,13 +392,6 @@ static int acp_hw_init(void *handle)
 	val &= ~ACP_SOFT_RESET__SoftResetAud_MASK;
 	cgs_write_register(adev->acp.cgs_device, mmACP_SOFT_RESET, val);
 	return 0;
-
-failure:
-	kfree(i2s_pdata);
-	kfree(adev->acp.acp_res);
-	kfree(adev->acp.acp_cell);
-	kfree(adev->acp.acp_genpd);
-	return r;
 }
 
 /**
@@ -415,8 +402,10 @@ failure:
  */
 static int acp_hw_fini(void *handle)
 {
+	int i, ret;
 	u32 val = 0;
 	u32 count = 0;
+	struct device *dev;
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
 
 	/* return early if no ACP */
@@ -461,8 +450,13 @@ static int acp_hw_fini(void *handle)
 		udelay(100);
 	}
 
-	device_for_each_child(adev->acp.parent, NULL,
-			      acp_genpd_remove_device);
+	for (i = 0; i < ACP_DEVS ; i++) {
+		dev = get_mfd_cell_dev(adev->acp.acp_cell[i].name, i);
+		ret = pm_genpd_remove_device(dev);
+		/* If removal fails, dont giveup and try rest */
+		if (ret)
+			dev_err(dev, "remove dev from genpd failed\n");
+	}
 
 	mfd_remove_devices(adev->acp.parent);
 	kfree(adev->acp.acp_res);
@@ -522,9 +516,11 @@ static int acp_set_powergating_state(void *handle,
 				     enum amd_powergating_state state)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
-	bool enable = (state == AMD_PG_STATE_GATE);
+	bool enable = state == AMD_PG_STATE_GATE ? true : false;
 
-	amdgpu_dpm_set_powergating_by_smu(adev, AMD_IP_BLOCK_TYPE_ACP, enable);
+	if (adev->powerplay.pp_funcs &&
+		adev->powerplay.pp_funcs->set_powergating_by_smu)
+		amdgpu_dpm_set_powergating_by_smu(adev, AMD_IP_BLOCK_TYPE_ACP, enable);
 
 	return 0;
 }

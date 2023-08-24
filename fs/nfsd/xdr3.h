@@ -14,7 +14,7 @@ struct nfsd3_sattrargs {
 	struct svc_fh		fh;
 	struct iattr		attrs;
 	int			check_guard;
-	time64_t		guardtime;
+	time_t			guardtime;
 };
 
 struct nfsd3_diropargs {
@@ -151,7 +151,7 @@ struct nfsd3_readres {
 	__be32			status;
 	struct svc_fh		fh;
 	unsigned long		count;
-	__u32			eof;
+	int			eof;
 };
 
 struct nfsd3_writeres {
@@ -159,7 +159,6 @@ struct nfsd3_writeres {
 	struct svc_fh		fh;
 	unsigned long		count;
 	int			committed;
-	__be32			verf[2];
 };
 
 struct nfsd3_renameres {
@@ -224,7 +223,6 @@ struct nfsd3_pathconfres {
 struct nfsd3_commitres {
 	__be32			status;
 	struct svc_fh		fh;
-	__be32			verf[2];
 };
 
 struct nfsd3_getaclres {
@@ -273,7 +271,6 @@ union nfsd3_xdrstore {
 
 #define NFS3_SVC_XDRSIZE		sizeof(union nfsd3_xdrstore)
 
-int nfs3svc_decode_voidarg(struct svc_rqst *, __be32 *);
 int nfs3svc_decode_fhandle(struct svc_rqst *, __be32 *);
 int nfs3svc_decode_sattrargs(struct svc_rqst *, __be32 *);
 int nfs3svc_decode_diropargs(struct svc_rqst *, __be32 *);

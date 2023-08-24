@@ -67,7 +67,7 @@ If you can't figure out which subsystem caused the issue, you should file
 a bug in kernel.org bugzilla and send email to
 linux-kernel@vger.kernel.org, referencing the bugzilla URL.  (For more
 information on the linux-kernel mailing list see
-http://vger.kernel.org/lkml/).
+http://www.tux.org/lkml/).
 
 
 Tips for reporting bugs
@@ -75,7 +75,7 @@ Tips for reporting bugs
 
 If you haven't reported a bug before, please read:
 
-	https://www.chiark.greenend.org.uk/~sgtatham/bugs.html
+	http://www.chiark.greenend.org.uk/~sgtatham/bugs.html
 
 	http://www.catb.org/esr/faqs/smart-questions.html
 

@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Backlight driver for Analog Devices ADP8870 Backlight Devices
  *
  * Copyright 2009-2011 Analog Devices Inc.
+ *
+ * Licensed under the GPL-2 or later.
  */
 
 #include <linux/module.h>
@@ -399,7 +400,15 @@ static int adp8870_bl_set(struct backlight_device *bl, int brightness)
 
 static int adp8870_bl_update_status(struct backlight_device *bl)
 {
-	return adp8870_bl_set(bl, backlight_get_brightness(bl));
+	int brightness = bl->props.brightness;
+
+	if (bl->props.power != FB_BLANK_UNBLANK)
+		brightness = 0;
+
+	if (bl->props.fb_blank != FB_BLANK_UNBLANK)
+		brightness = 0;
+
+	return adp8870_bl_set(bl, brightness);
 }
 
 static int adp8870_bl_get_brightness(struct backlight_device *bl)

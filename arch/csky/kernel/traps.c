@@ -14,9 +14,6 @@
 #include <linux/kallsyms.h>
 #include <linux/rtc.h>
 #include <linux/uaccess.h>
-#include <linux/kprobes.h>
-#include <linux/kdebug.h>
-#include <linux/sched/debug.h>
 
 #include <asm/setup.h>
 #include <asm/traps.h>
@@ -28,8 +25,6 @@
 #ifdef CONFIG_CPU_HAS_FPU
 #include <abi/fpu.h>
 #endif
-
-int show_unhandled_signals = 1;
 
 /* Defined in entry.S */
 asmlinkage void csky_trap(void);
@@ -81,184 +76,94 @@ void __init trap_init(void)
 #endif
 }
 
-static DEFINE_SPINLOCK(die_lock);
-
-void die(struct pt_regs *regs, const char *str)
+void die_if_kernel(char *str, struct pt_regs *regs, int nr)
 {
-	static int die_counter;
-	int ret;
+	if (user_mode(regs))
+		return;
 
-	oops_enter();
-
-	spin_lock_irq(&die_lock);
 	console_verbose();
-	bust_spinlocks(1);
-
-	pr_emerg("%s [#%d]\n", str, ++die_counter);
-	print_modules();
+	pr_err("%s: %08x\n", str, nr);
 	show_regs(regs);
-	show_stack(current, (unsigned long *)regs->regs[4], KERN_INFO);
-
-	ret = notify_die(DIE_OOPS, str, regs, 0, trap_no(regs), SIGSEGV);
-
-	bust_spinlocks(0);
 	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
-	spin_unlock_irq(&die_lock);
-	oops_exit();
-
-	if (in_interrupt())
-		panic("Fatal exception in interrupt");
-	if (panic_on_oops)
-		panic("Fatal exception");
-	if (ret != NOTIFY_STOP)
-		do_exit(SIGSEGV);
+	do_exit(SIGSEGV);
 }
 
-void do_trap(struct pt_regs *regs, int signo, int code, unsigned long addr)
+void buserr(struct pt_regs *regs)
 {
-	struct task_struct *tsk = current;
+#ifdef CONFIG_CPU_CK810
+	static unsigned long prev_pc;
 
-	if (show_unhandled_signals && unhandled_signal(tsk, signo)
-	    && printk_ratelimit()) {
-		pr_info("%s[%d]: unhandled signal %d code 0x%x at 0x%08lx",
-			tsk->comm, task_pid_nr(tsk), signo, code, addr);
-		print_vma_addr(KERN_CONT " in ", instruction_pointer(regs));
-		pr_cont("\n");
-		show_regs(regs);
-	}
-
-	force_sig_fault(signo, code, (void __user *)addr);
-}
-
-static void do_trap_error(struct pt_regs *regs, int signo, int code,
-	unsigned long addr, const char *str)
-{
-	current->thread.trap_no = trap_no(regs);
-
-	if (user_mode(regs)) {
-		do_trap(regs, signo, code, addr);
+	if ((regs->pc == prev_pc) && prev_pc != 0) {
+		prev_pc = 0;
 	} else {
-		if (!fixup_exception(regs))
-			die(regs, str);
-	}
-}
-
-#define DO_ERROR_INFO(name, signo, code, str)				\
-asmlinkage __visible void name(struct pt_regs *regs)			\
-{									\
-	do_trap_error(regs, signo, code, regs->pc, "Oops - " str);	\
-}
-
-DO_ERROR_INFO(do_trap_unknown,
-	SIGILL, ILL_ILLTRP, "unknown exception");
-DO_ERROR_INFO(do_trap_zdiv,
-	SIGFPE, FPE_INTDIV, "error zero div exception");
-DO_ERROR_INFO(do_trap_buserr,
-	SIGSEGV, ILL_ILLADR, "error bus error exception");
-
-asmlinkage void do_trap_misaligned(struct pt_regs *regs)
-{
-#ifdef CONFIG_CPU_NEED_SOFTALIGN
-	csky_alignment(regs);
-#else
-	current->thread.trap_no = trap_no(regs);
-	do_trap_error(regs, SIGBUS, BUS_ADRALN, regs->pc,
-		      "Oops - load/store address misaligned");
-#endif
-}
-
-asmlinkage void do_trap_bkpt(struct pt_regs *regs)
-{
-#ifdef CONFIG_KPROBES
-	if (kprobe_single_step_handler(regs))
-		return;
-#endif
-#ifdef CONFIG_UPROBES
-	if (uprobe_single_step_handler(regs))
-		return;
-#endif
-	if (user_mode(regs)) {
-		send_sig(SIGTRAP, current, 0);
-		return;
-	}
-
-	do_trap_error(regs, SIGILL, ILL_ILLTRP, regs->pc,
-		      "Oops - illegal trap exception");
-}
-
-asmlinkage void do_trap_illinsn(struct pt_regs *regs)
-{
-	current->thread.trap_no = trap_no(regs);
-
-#ifdef CONFIG_KPROBES
-	if (kprobe_breakpoint_handler(regs))
-		return;
-#endif
-#ifdef CONFIG_UPROBES
-	if (uprobe_breakpoint_handler(regs))
-		return;
-#endif
-#ifndef CONFIG_CPU_NO_USER_BKPT
-	if (*(uint16_t *)instruction_pointer(regs) != USR_BKPT) {
-		send_sig(SIGTRAP, current, 0);
+		prev_pc = regs->pc;
 		return;
 	}
 #endif
 
-	do_trap_error(regs, SIGILL, ILL_ILLOPC, regs->pc,
-		      "Oops - illegal instruction exception");
+	die_if_kernel("Kernel mode BUS error", regs, 0);
+
+	pr_err("User mode Bus Error\n");
+	show_regs(regs);
+
+	current->thread.esp0 = (unsigned long) regs;
+	force_sig_fault(SIGSEGV, 0, (void __user *)regs->pc, current);
 }
 
-asmlinkage void do_trap_fpe(struct pt_regs *regs)
-{
-#ifdef CONFIG_CPU_HAS_FPU
-	return fpu_fpe(regs);
-#else
-	do_trap_error(regs, SIGILL, ILL_ILLOPC, regs->pc,
-		      "Oops - fpu instruction exception");
-#endif
-}
-
-asmlinkage void do_trap_priv(struct pt_regs *regs)
-{
-#ifdef CONFIG_CPU_HAS_FPU
-	if (user_mode(regs) && fpu_libc_helper(regs))
-		return;
-#endif
-	do_trap_error(regs, SIGILL, ILL_PRVOPC, regs->pc,
-		      "Oops - illegal privileged exception");
-}
-
+#define USR_BKPT 0x1464
 asmlinkage void trap_c(struct pt_regs *regs)
 {
-	switch (trap_no(regs)) {
+	int sig;
+	unsigned long vector;
+	siginfo_t info;
+
+	vector = (mfcr("psr") >> 16) & 0xff;
+
+	switch (vector) {
 	case VEC_ZERODIV:
-		do_trap_zdiv(regs);
+		sig = SIGFPE;
 		break;
+	/* ptrace */
 	case VEC_TRACE:
-		do_trap_bkpt(regs);
+		info.si_code = TRAP_TRACE;
+		sig = SIGTRAP;
 		break;
 	case VEC_ILLEGAL:
-		do_trap_illinsn(regs);
-		break;
+#ifndef CONFIG_CPU_NO_USER_BKPT
+		if (*(uint16_t *)instruction_pointer(regs) != USR_BKPT)
+#endif
+		{
+			sig = SIGILL;
+			break;
+		}
+	/* gdbserver  breakpoint */
 	case VEC_TRAP1:
+	/* jtagserver breakpoint */
 	case VEC_BREAKPOINT:
-		do_trap_bkpt(regs);
+		info.si_code = TRAP_BRKPT;
+		sig = SIGTRAP;
 		break;
 	case VEC_ACCESS:
-		do_trap_buserr(regs);
-		break;
+		return buserr(regs);
+#ifdef CONFIG_CPU_NEED_SOFTALIGN
 	case VEC_ALIGN:
-		do_trap_misaligned(regs);
-		break;
+		return csky_alignment(regs);
+#endif
+#ifdef CONFIG_CPU_HAS_FPU
 	case VEC_FPE:
-		do_trap_fpe(regs);
-		break;
+		return fpu_fpe(regs);
 	case VEC_PRIV:
-		do_trap_priv(regs);
-		break;
+		if (fpu_libc_helper(regs))
+			return;
+#endif
 	default:
-		do_trap_unknown(regs);
+		sig = SIGSEGV;
 		break;
 	}
+	send_sig(sig, current, 0);
+}
+
+asmlinkage void set_esp0(unsigned long ssp)
+{
+	current->thread.esp0 = ssp;
 }

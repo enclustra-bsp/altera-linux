@@ -1,9 +1,17 @@
-// SPDX-License-Identifier: GPL-2.0
-/*
+/******************************************************************************
  * Copyright(c) 2008 - 2010 Realtek Corporation. All rights reserved.
  *
- * Contact Information: wlanfae <wlanfae@realtek.com>
- */
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * The full GNU General Public License is included in this distribution in the
+ * file called LICENSE.
+ *
+ * Contact Information:
+ * wlanfae <wlanfae@realtek.com>
+ ******************************************************************************/
 #include <asm/byteorder.h>
 #include <asm/unaligned.h>
 #include <linux/etherdevice.h>
@@ -119,8 +127,8 @@ static struct sk_buff *rtllib_ADDBA(struct rtllib_device *ieee, u8 *Dst,
 	}
 
 #ifdef VERBOSE_DEBUG
-	print_hex_dump_bytes("%s: ", DUMP_PREFIX_NONE, skb->data,
-			     __func__, skb->len);
+	print_hex_dump_bytes("rtllib_ADDBA(): ", DUMP_PREFIX_NONE, skb->data,
+			     skb->len);
 #endif
 	return skb;
 }
@@ -131,7 +139,7 @@ static struct sk_buff *rtllib_DELBA(struct rtllib_device *ieee, u8 *dst,
 {
 	union delba_param_set DelbaParamSet;
 	struct sk_buff *skb = NULL;
-	struct rtllib_hdr_3addr *Delba = NULL;
+	 struct rtllib_hdr_3addr *Delba = NULL;
 	u8 *tag = NULL;
 	u16 len = 6 + ieee->tx_headroom;
 
@@ -170,8 +178,8 @@ static struct sk_buff *rtllib_DELBA(struct rtllib_device *ieee, u8 *dst,
 	tag += 2;
 
 #ifdef VERBOSE_DEBUG
-	print_hex_dump_bytes("%s: ", DUMP_PREFIX_NONE, skb->data,
-			     __func__, skb->len);
+	print_hex_dump_bytes("rtllib_DELBA(): ", DUMP_PREFIX_NONE, skb->data,
+			     skb->len);
 #endif
 	return skb;
 }
@@ -235,7 +243,7 @@ int rtllib_rx_ADDBAReq(struct rtllib_device *ieee, struct sk_buff *skb)
 	}
 
 #ifdef VERBOSE_DEBUG
-	print_hex_dump_bytes("%s: ", DUMP_PREFIX_NONE, __func__,
+	print_hex_dump_bytes("rtllib_rx_ADDBAReq(): ", DUMP_PREFIX_NONE,
 			     skb->data, skb->len);
 #endif
 
@@ -308,7 +316,7 @@ OnADDBAReq_Fail:
 
 int rtllib_rx_ADDBARsp(struct rtllib_device *ieee, struct sk_buff *skb)
 {
-	struct rtllib_hdr_3addr *rsp = NULL;
+	 struct rtllib_hdr_3addr *rsp = NULL;
 	struct ba_record *pPendingBA, *pAdmittedBA;
 	struct tx_ts_record *pTS = NULL;
 	u8 *dst = NULL, *pDialogToken = NULL, *tag = NULL;
@@ -412,7 +420,7 @@ OnADDBARsp_Reject:
 
 int rtllib_rx_DELBA(struct rtllib_device *ieee, struct sk_buff *skb)
 {
-	struct rtllib_hdr_3addr *delba = NULL;
+	 struct rtllib_hdr_3addr *delba = NULL;
 	union delba_param_set *pDelBaParamSet = NULL;
 	u8 *dst = NULL;
 
@@ -433,8 +441,8 @@ int rtllib_rx_DELBA(struct rtllib_device *ieee, struct sk_buff *skb)
 	}
 
 #ifdef VERBOSE_DEBUG
-	print_hex_dump_bytes("%s: ", DUMP_PREFIX_NONE, skb->data,
-			     __func__, skb->len);
+	print_hex_dump_bytes("rtllib_rx_DELBA(): ", DUMP_PREFIX_NONE, skb->data,
+			     skb->len);
 #endif
 	delba = (struct rtllib_hdr_3addr *)skb->data;
 	dst = (u8 *)(&delba->addr2[0]);

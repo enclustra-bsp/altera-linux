@@ -1,10 +1,13 @@
-; SPDX-License-Identifier: GPL-2.0-only
 ;
 ;  Port on Texas Instruments TMS320C6x architecture
 ;
 ;  Copyright (C) 2004-2011 Texas Instruments Incorporated
 ;  Author: Aurelien Jacquiot (aurelien.jacquiot@virtuallogix.com)
 ;  Updated for 2.6.34: Mark Salter <msalter@redhat.com>
+;
+;  This program is free software; you can redistribute it and/or modify
+;  it under the terms of the GNU General Public License version 2 as
+;  published by the Free Software Foundation.
 ;
 
 #include <linux/sys.h>
@@ -18,7 +21,7 @@
 #define DP	B14
 #define SP	B15
 
-#ifndef CONFIG_PREEMPTION
+#ifndef CONFIG_PREEMPT
 #define resume_kernel restore_all
 #endif
 
@@ -287,7 +290,7 @@ work_notifysig:
 	;; is a little bit different
 	;;
 ENTRY(ret_from_exception)
-#ifdef CONFIG_PREEMPTION
+#ifdef CONFIG_PREEMPT
 	MASK_INT B2
 #endif
 
@@ -557,7 +560,7 @@ ENDPROC(_nmi_handler)
 	;;
 	;; Jump to schedule() then return to ret_from_isr
 	;;
-#ifdef	CONFIG_PREEMPTION
+#ifdef	CONFIG_PREEMPT
 resume_kernel:
 	GET_THREAD_INFO A12
 	LDW	.D1T1	*+A12(THREAD_INFO_PREEMPT_COUNT),A1
@@ -582,7 +585,7 @@ preempt_schedule:
 	B	.S2	preempt_schedule_irq
 #endif
 	ADDKPC	.S2	preempt_schedule,B3,4
-#endif /* CONFIG_PREEMPTION */
+#endif /* CONFIG_PREEMPT */
 
 ENTRY(enable_exception)
 	DINT

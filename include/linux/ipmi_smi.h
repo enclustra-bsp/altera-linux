@@ -31,14 +31,6 @@ struct device;
 struct ipmi_smi;
 
 /*
- * Flags for set_check_watch() below.  Tells if the SMI should be
- * waiting for watchdog timeouts, commands and/or messages.
- */
-#define IPMI_WATCH_MASK_CHECK_MESSAGES	(1 << 0)
-#define IPMI_WATCH_MASK_CHECK_WATCHDOG	(1 << 1)
-#define IPMI_WATCH_MASK_CHECK_COMMANDS	(1 << 2)
-
-/*
  * Messages to/from the lower layer.  The smi interface will take one
  * of these to send. After the send has occurred and a response has
  * been received, it will report this same data structure back up to
@@ -63,10 +55,8 @@ struct ipmi_smi_msg {
 	int           rsp_size;
 	unsigned char rsp[IPMI_MAX_MSG_LENGTH];
 
-	/*
-	 * Will be called when the system is done with the message
-	 * (presumably to free it).
-	 */
+	/* Will be called when the system is done with the message
+	   (presumably to free it). */
 	void (*done)(struct ipmi_smi_msg *msg);
 };
 
@@ -115,15 +105,12 @@ struct ipmi_smi_handlers {
 
 	/*
 	 * Called by the upper layer when some user requires that the
-	 * interface watch for received messages and watchdog
-	 * pretimeouts (basically do a "Get Flags", or not.  Used by
-	 * the SMI to know if it should watch for these.  This may be
-	 * NULL if the SMI does not implement it.  watch_mask is from
-	 * IPMI_WATCH_MASK_xxx above.  The interface should run slower
-	 * timeouts for just watchdog checking or faster timeouts when
-	 * waiting for the message queue.
+	 * interface watch for events, received messages, watchdog
+	 * pretimeouts, or not.  Used by the SMI to know if it should
+	 * watch for these.  This may be NULL if the SMI does not
+	 * implement it.
 	 */
-	void (*set_need_watch)(void *send_info, unsigned int watch_mask);
+	void (*set_need_watch)(void *send_info, bool enable);
 
 	/*
 	 * Called when flushing all pending messages.
@@ -224,14 +211,10 @@ static inline int ipmi_demangle_device_id(uint8_t netfn, uint8_t cmd,
  * is called, and the lower layer must get the interface from that
  * call.
  */
-int ipmi_add_smi(struct module            *owner,
-		 const struct ipmi_smi_handlers *handlers,
-		 void                     *send_info,
-		 struct device            *dev,
-		 unsigned char            slave_addr);
-
-#define ipmi_register_smi(handlers, send_info, dev, slave_addr) \
-	ipmi_add_smi(THIS_MODULE, handlers, send_info, dev, slave_addr)
+int ipmi_register_smi(const struct ipmi_smi_handlers *handlers,
+		      void                     *send_info,
+		      struct device            *dev,
+		      unsigned char            slave_addr);
 
 /*
  * Remove a low-level interface from the IPMI driver.  This will

@@ -13,13 +13,6 @@ typedef int (*btree_keycmp)(const btree_key *, const btree_key *);
 
 #define NODE_HASH_SIZE  256
 
-/* B-tree mutex nested subclasses */
-enum hfs_btree_mutex_classes {
-	CATALOG_BTREE_MUTEX,
-	EXTENTS_BTREE_MUTEX,
-	ATTR_BTREE_MUTEX,
-};
-
 /* A HFS BTree held in memory */
 struct hfs_btree {
 	struct super_block *sb;
@@ -67,7 +60,7 @@ struct hfs_bnode {
 	wait_queue_head_t lock_wq;
 	atomic_t refcnt;
 	unsigned int page_offset;
-	struct page *page[];
+	struct page *page[0];
 };
 
 #define HFS_BNODE_ERROR		0

@@ -41,12 +41,10 @@
 
 #define PHY_F(regno, msb, lsb) { (regno), (msb), (lsb) }
 
-#define RX_CHK_SYNC	PHY_F(0, 5, 5)	/* RX sync mode */
-#define RX_SYNC_SEL	PHY_F(1, 1, 0)	/* RX sync length */
 #define LS_SLEW		PHY_F(10, 6, 6)	/* LS mode slew rate */
 #define FS_LS_DRV	PHY_F(10, 5, 5)	/* FS/LS slew rate */
 
-#define MAX_PHY_PARAMS	4
+#define MAX_PHY_PARAMS	2
 
 struct uniphier_u3hsphy_param {
 	struct {
@@ -68,14 +66,13 @@ struct uniphier_u3hsphy_trim_param {
 struct uniphier_u3hsphy_priv {
 	struct device *dev;
 	void __iomem *base;
-	struct clk *clk, *clk_parent, *clk_ext, *clk_parent_gio;
-	struct reset_control *rst, *rst_parent, *rst_parent_gio;
+	struct clk *clk, *clk_parent, *clk_ext;
+	struct reset_control *rst, *rst_parent;
 	struct regulator *vbus;
 	const struct uniphier_u3hsphy_soc_data *data;
 };
 
 struct uniphier_u3hsphy_soc_data {
-	bool is_legacy;
 	int nparams;
 	const struct uniphier_u3hsphy_param param[MAX_PHY_PARAMS];
 	u32 config0;
@@ -259,20 +256,11 @@ static int uniphier_u3hsphy_init(struct phy *phy)
 	if (ret)
 		return ret;
 
-	ret = clk_prepare_enable(priv->clk_parent_gio);
+	ret = reset_control_deassert(priv->rst_parent);
 	if (ret)
 		goto out_clk_disable;
 
-	ret = reset_control_deassert(priv->rst_parent);
-	if (ret)
-		goto out_clk_gio_disable;
-
-	ret = reset_control_deassert(priv->rst_parent_gio);
-	if (ret)
-		goto out_rst_assert;
-
-	if ((priv->data->is_legacy)
-	    || (!priv->data->config0 && !priv->data->config1))
+	if (!priv->data->config0 && !priv->data->config1)
 		return 0;
 
 	config0 = priv->data->config0;
@@ -292,8 +280,6 @@ static int uniphier_u3hsphy_init(struct phy *phy)
 
 out_rst_assert:
 	reset_control_assert(priv->rst_parent);
-out_clk_gio_disable:
-	clk_disable_unprepare(priv->clk_parent_gio);
 out_clk_disable:
 	clk_disable_unprepare(priv->clk_parent);
 
@@ -304,9 +290,7 @@ static int uniphier_u3hsphy_exit(struct phy *phy)
 {
 	struct uniphier_u3hsphy_priv *priv = phy_get_drvdata(phy);
 
-	reset_control_assert(priv->rst_parent_gio);
 	reset_control_assert(priv->rst_parent);
-	clk_disable_unprepare(priv->clk_parent_gio);
 	clk_disable_unprepare(priv->clk_parent);
 
 	return 0;
@@ -325,6 +309,7 @@ static int uniphier_u3hsphy_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct uniphier_u3hsphy_priv *priv;
 	struct phy_provider *phy_provider;
+	struct resource *res;
 	struct phy *phy;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
@@ -337,37 +322,30 @@ static int uniphier_u3hsphy_probe(struct platform_device *pdev)
 		    priv->data->nparams > MAX_PHY_PARAMS))
 		return -EINVAL;
 
-	priv->base = devm_platform_ioremap_resource(pdev, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	priv->base = devm_ioremap_resource(dev, res);
 	if (IS_ERR(priv->base))
 		return PTR_ERR(priv->base);
 
-	if (!priv->data->is_legacy) {
-		priv->clk = devm_clk_get(dev, "phy");
-		if (IS_ERR(priv->clk))
-			return PTR_ERR(priv->clk);
-
-		priv->clk_ext = devm_clk_get_optional(dev, "phy-ext");
-		if (IS_ERR(priv->clk_ext))
-			return PTR_ERR(priv->clk_ext);
-
-		priv->rst = devm_reset_control_get_shared(dev, "phy");
-		if (IS_ERR(priv->rst))
-			return PTR_ERR(priv->rst);
-
-	} else {
-		priv->clk_parent_gio = devm_clk_get(dev, "gio");
-		if (IS_ERR(priv->clk_parent_gio))
-			return PTR_ERR(priv->clk_parent_gio);
-
-		priv->rst_parent_gio =
-			devm_reset_control_get_shared(dev, "gio");
-		if (IS_ERR(priv->rst_parent_gio))
-			return PTR_ERR(priv->rst_parent_gio);
-	}
+	priv->clk = devm_clk_get(dev, "phy");
+	if (IS_ERR(priv->clk))
+		return PTR_ERR(priv->clk);
 
 	priv->clk_parent = devm_clk_get(dev, "link");
 	if (IS_ERR(priv->clk_parent))
 		return PTR_ERR(priv->clk_parent);
+
+	priv->clk_ext = devm_clk_get(dev, "phy-ext");
+	if (IS_ERR(priv->clk_ext)) {
+		if (PTR_ERR(priv->clk_ext) == -ENOENT)
+			priv->clk_ext = NULL;
+		else
+			return PTR_ERR(priv->clk_ext);
+	}
+
+	priv->rst = devm_reset_control_get_shared(dev, "phy");
+	if (IS_ERR(priv->rst))
+		return PTR_ERR(priv->rst);
 
 	priv->rst_parent = devm_reset_control_get_shared(dev, "link");
 	if (IS_ERR(priv->rst_parent))
@@ -390,26 +368,13 @@ static int uniphier_u3hsphy_probe(struct platform_device *pdev)
 	return PTR_ERR_OR_ZERO(phy_provider);
 }
 
-static const struct uniphier_u3hsphy_soc_data uniphier_pro5_data = {
-	.is_legacy = true,
+static const struct uniphier_u3hsphy_soc_data uniphier_pxs2_data = {
 	.nparams = 0,
 };
 
-static const struct uniphier_u3hsphy_soc_data uniphier_pxs2_data = {
-	.is_legacy = false,
+static const struct uniphier_u3hsphy_soc_data uniphier_ld20_data = {
 	.nparams = 2,
 	.param = {
-		{ RX_CHK_SYNC, 1 },
-		{ RX_SYNC_SEL, 1 },
-	},
-};
-
-static const struct uniphier_u3hsphy_soc_data uniphier_ld20_data = {
-	.is_legacy = false,
-	.nparams = 4,
-	.param = {
-		{ RX_CHK_SYNC, 1 },
-		{ RX_SYNC_SEL, 1 },
 		{ LS_SLEW, 1 },
 		{ FS_LS_DRV, 1 },
 	},
@@ -419,22 +384,13 @@ static const struct uniphier_u3hsphy_soc_data uniphier_ld20_data = {
 };
 
 static const struct uniphier_u3hsphy_soc_data uniphier_pxs3_data = {
-	.is_legacy = false,
-	.nparams = 2,
-	.param = {
-		{ RX_CHK_SYNC, 1 },
-		{ RX_SYNC_SEL, 1 },
-	},
+	.nparams = 0,
 	.trim_func = uniphier_u3hsphy_trim_ld20,
 	.config0 = 0x92316680,
 	.config1 = 0x00000106,
 };
 
 static const struct of_device_id uniphier_u3hsphy_match[] = {
-	{
-		.compatible = "socionext,uniphier-pro5-usb3-hsphy",
-		.data = &uniphier_pro5_data,
-	},
 	{
 		.compatible = "socionext,uniphier-pxs2-usb3-hsphy",
 		.data = &uniphier_pxs2_data,

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Minimal BPF debugger
  *
@@ -13,7 +12,7 @@
  * for making a verdict when multiple simple BPF programs are combined
  * into one in order to prevent parsing same headers multiple times.
  *
- * More on how to debug BPF opcodes see Documentation/networking/filter.rst
+ * More on how to debug BPF opcodes see Documentation/networking/filter.txt
  * which is the main document on BPF. Mini howto for getting started:
  *
  *  1) `./bpf_dbg` to enter the shell (shell cmds denoted with '>'):
@@ -29,6 +28,7 @@
  *  7) > step [-<n>, +<n>] (performs single stepping through the BPF)
  *
  * Copyright 2013 Daniel Borkmann <borkmann@redhat.com>
+ * Licensed under the GNU General Public License, version 2.0 (GPLv2)
  */
 
 #include <stdio.h>

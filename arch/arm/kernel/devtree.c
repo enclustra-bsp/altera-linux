@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/arch/arm/kernel/devtree.c
  *
  *  Copyright (C) 2009 Canonical Ltd. <jeremy.kerr@canonical.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/init.h>
@@ -29,7 +32,7 @@
 extern struct of_cpu_method __cpu_method_of_table[];
 
 static const struct of_cpu_method __cpu_method_of_table_sentinel
-	__used __section("__cpu_method_of_table_end");
+	__used __section(__cpu_method_of_table_end);
 
 
 static int __init set_smp_ops_by_method(struct device_node *node)
@@ -203,12 +206,12 @@ static const void * __init arch_get_next_mach(const char *const **match)
 
 /**
  * setup_machine_fdt - Machine setup when an dtb was passed to the kernel
- * @dt_virt: virtual address of dt blob
+ * @dt_phys: physical address of dt blob
  *
  * If a dtb was passed to the kernel in r2, then use it to choose the
  * correct machine_desc and to setup the system.
  */
-const struct machine_desc * __init setup_machine_fdt(void *dt_virt)
+const struct machine_desc * __init setup_machine_fdt(unsigned int dt_phys)
 {
 	const struct machine_desc *mdesc, *mdesc_best = NULL;
 
@@ -221,7 +224,7 @@ const struct machine_desc * __init setup_machine_fdt(void *dt_virt)
 	mdesc_best = &__mach_desc_GENERIC_DT;
 #endif
 
-	if (!dt_virt || !early_init_dt_verify(dt_virt))
+	if (!dt_phys || !early_init_dt_verify(phys_to_virt(dt_phys)))
 		return NULL;
 
 	mdesc = of_flat_dt_match_machine(mdesc_best, arch_get_next_mach);

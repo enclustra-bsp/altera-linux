@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 1999-2003		Andre Hedrick <andre@linux-ide.org>
  * Portions Copyright (C) 2001	        Sun Microsystems, Inc.
@@ -575,14 +574,14 @@ static u8 hpt3xx_udma_filter(ide_drive_t *drive)
 		if (!HPT370_ALLOW_ATA100_5 ||
 		    check_in_drive_list(drive, bad_ata100_5))
 			return ATA_UDMA4;
-		fallthrough;
+		/* else: fall through */
 	case HPT372 :
 	case HPT372A:
 	case HPT372N:
 	case HPT374 :
 		if (ata_id_is_sata(drive->id))
 			mask &= ~0x0e;
-		fallthrough;
+		/* fall through */
 	default:
 		return mask;
 	}
@@ -602,7 +601,7 @@ static u8 hpt3xx_mdma_filter(ide_drive_t *drive)
 	case HPT374 :
 		if (ata_id_is_sata(drive->id))
 			return 0x00;
-		fallthrough;
+		/* else: fall through */
 	default:
 		return 0x07;
 	}

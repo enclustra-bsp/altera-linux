@@ -1,7 +1,20 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *   Copyright (C) International Business Machines Corp., 2000-2004
  *   Portions Copyright (C) Christoph Hellwig, 2001-2002
+ *
+ *   This program is free software;  you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY;  without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ *   the GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program;  if not, write to the Free Software
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 #include <linux/fs.h>
@@ -18,7 +31,6 @@
 #include "jfs_extent.h"
 #include "jfs_unicode.h"
 #include "jfs_debug.h"
-#include "jfs_dmap.h"
 
 
 struct inode *jfs_iget(struct super_block *sb, unsigned long ino)
@@ -138,8 +150,6 @@ int jfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 
 void jfs_evict_inode(struct inode *inode)
 {
-	struct jfs_inode_info *ji = JFS_IP(inode);
-
 	jfs_info("In jfs_evict_inode, inode = 0x%p", inode);
 
 	if (!inode->i_nlink && !is_bad_inode(inode)) {
@@ -151,8 +161,7 @@ void jfs_evict_inode(struct inode *inode)
 			if (test_cflag(COMMIT_Freewmap, inode))
 				jfs_free_zero_link(inode);
 
-			if (JFS_SBI(inode->i_sb)->ipimap)
-				diFree(inode);
+			diFree(inode);
 
 			/*
 			 * Free the inode from the quota allocation.
@@ -164,16 +173,6 @@ void jfs_evict_inode(struct inode *inode)
 	}
 	clear_inode(inode);
 	dquot_drop(inode);
-
-	BUG_ON(!list_empty(&ji->anon_inode_list));
-
-	spin_lock_irq(&ji->ag_lock);
-	if (ji->active_ag != -1) {
-		struct bmap *bmap = JFS_SBI(inode->i_sb)->bmap;
-		atomic_dec(&bmap->db_active[ji->active_ag]);
-		ji->active_ag = -1;
-	}
-	spin_unlock_irq(&ji->ag_lock);
 }
 
 void jfs_dirty_inode(struct inode *inode, int flags)
@@ -297,9 +296,10 @@ static int jfs_readpage(struct file *file, struct page *page)
 	return mpage_readpage(page, jfs_get_block);
 }
 
-static void jfs_readahead(struct readahead_control *rac)
+static int jfs_readpages(struct file *file, struct address_space *mapping,
+		struct list_head *pages, unsigned nr_pages)
 {
-	mpage_readahead(rac, jfs_get_block);
+	return mpage_readpages(mapping, pages, nr_pages, jfs_get_block);
 }
 
 static void jfs_write_failed(struct address_space *mapping, loff_t to)
@@ -358,7 +358,7 @@ static ssize_t jfs_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 
 const struct address_space_operations jfs_aops = {
 	.readpage	= jfs_readpage,
-	.readahead	= jfs_readahead,
+	.readpages	= jfs_readpages,
 	.writepage	= jfs_writepage,
 	.writepages	= jfs_writepages,
 	.write_begin	= jfs_write_begin,

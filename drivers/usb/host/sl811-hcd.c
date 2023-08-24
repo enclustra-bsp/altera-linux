@@ -1287,10 +1287,11 @@ sl811h_hub_control(
 			goto error;
 		put_unaligned_le32(sl811->port1, buf);
 
-		if (__is_defined(VERBOSE) ||
-		    *(u16*)(buf+2)) /* only if wPortChange is interesting */
-			dev_dbg(hcd->self.controller, "GetPortStatus %08x\n",
-				sl811->port1);
+#ifndef	VERBOSE
+	if (*(u16*)(buf+2))	/* only if wPortChange is interesting */
+#endif
+		dev_dbg(hcd->self.controller, "GetPortStatus %08x\n",
+			sl811->port1);
 		break;
 	case SetPortFeature:
 		if (wIndex != 1 || wLength != 0)
@@ -1631,6 +1632,12 @@ sl811h_probe(struct platform_device *dev)
 	irq = ires->start;
 	irqflags = ires->flags & IRQF_TRIGGER_MASK;
 
+	/* refuse to confuse usbcore */
+	if (dev->dev.dma_mask) {
+		dev_dbg(&dev->dev, "no we won't dma\n");
+		return -EINVAL;
+	}
+
 	/* the chip may be wired for either kind of addressing */
 	addr = platform_get_resource(dev, IORESOURCE_MEM, 0);
 	data = platform_get_resource(dev, IORESOURCE_MEM, 1);
@@ -1791,7 +1798,7 @@ struct platform_driver sl811h_driver = {
 	.suspend =	sl811h_suspend,
 	.resume =	sl811h_resume,
 	.driver = {
-		.name =	hcd_name,
+		.name =	(char *) hcd_name,
 	},
 };
 EXPORT_SYMBOL(sl811h_driver);

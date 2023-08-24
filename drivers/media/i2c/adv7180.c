@@ -180,9 +180,6 @@
 
 #define V4L2_CID_ADV_FAST_SWITCH	(V4L2_CID_USER_ADV7180_BASE + 0x00)
 
-/* Initial number of frames to skip to avoid possible garbage */
-#define ADV7180_NUM_OF_SKIP_FRAMES       2
-
 struct adv7180_state;
 
 #define ADV7180_FLAG_RESET_POWERED	BIT(0)
@@ -726,7 +723,7 @@ static int adv7180_set_pad_format(struct v4l2_subdev *sd,
 	case V4L2_FIELD_NONE:
 		if (state->chip_info->flags & ADV7180_FLAG_I2P)
 			break;
-		fallthrough;
+		/* fall through */
 	default:
 		format->format.field = V4L2_FIELD_ALTERNATE;
 		break;
@@ -749,20 +746,8 @@ static int adv7180_set_pad_format(struct v4l2_subdev *sd,
 	return ret;
 }
 
-static int adv7180_init_cfg(struct v4l2_subdev *sd,
-			    struct v4l2_subdev_pad_config *cfg)
-{
-	struct v4l2_subdev_format fmt = {
-		.which = cfg ? V4L2_SUBDEV_FORMAT_TRY
-			: V4L2_SUBDEV_FORMAT_ACTIVE,
-	};
-
-	return adv7180_set_pad_format(sd, cfg, &fmt);
-}
-
-static int adv7180_get_mbus_config(struct v4l2_subdev *sd,
-				   unsigned int pad,
-				   struct v4l2_mbus_config *cfg)
+static int adv7180_g_mbus_config(struct v4l2_subdev *sd,
+				 struct v4l2_mbus_config *cfg)
 {
 	struct adv7180_state *state = to_state(sd);
 
@@ -780,13 +765,6 @@ static int adv7180_get_mbus_config(struct v4l2_subdev *sd,
 				 V4L2_MBUS_DATA_ACTIVE_HIGH;
 		cfg->type = V4L2_MBUS_BT656;
 	}
-
-	return 0;
-}
-
-static int adv7180_get_skip_frames(struct v4l2_subdev *sd, u32 *frames)
-{
-	*frames = ADV7180_NUM_OF_SKIP_FRAMES;
 
 	return 0;
 }
@@ -853,6 +831,7 @@ static const struct v4l2_subdev_video_ops adv7180_video_ops = {
 	.querystd = adv7180_querystd,
 	.g_input_status = adv7180_g_input_status,
 	.s_routing = adv7180_s_routing,
+	.g_mbus_config = adv7180_g_mbus_config,
 	.g_pixelaspect = adv7180_g_pixelaspect,
 	.g_tvnorms = adv7180_g_tvnorms,
 	.s_stream = adv7180_s_stream,
@@ -865,22 +844,15 @@ static const struct v4l2_subdev_core_ops adv7180_core_ops = {
 };
 
 static const struct v4l2_subdev_pad_ops adv7180_pad_ops = {
-	.init_cfg = adv7180_init_cfg,
 	.enum_mbus_code = adv7180_enum_mbus_code,
 	.set_fmt = adv7180_set_pad_format,
 	.get_fmt = adv7180_get_pad_format,
-	.get_mbus_config = adv7180_get_mbus_config,
-};
-
-static const struct v4l2_subdev_sensor_ops adv7180_sensor_ops = {
-	.g_skip_frames = adv7180_get_skip_frames,
 };
 
 static const struct v4l2_subdev_ops adv7180_ops = {
 	.core = &adv7180_core_ops,
 	.video = &adv7180_video_ops,
 	.pad = &adv7180_pad_ops,
-	.sensor = &adv7180_sensor_ops,
 };
 
 static irqreturn_t adv7180_irq(int irq, void *devid)
@@ -1322,6 +1294,9 @@ static int adv7180_probe(struct i2c_client *client,
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
+	v4l_info(client, "chip found @ 0x%02x (%s)\n",
+		 client->addr, client->adapter->name);
+
 	state = devm_kzalloc(&client->dev, sizeof(*state), GFP_KERNEL);
 	if (state == NULL)
 		return -ENOMEM;
@@ -1339,17 +1314,17 @@ static int adv7180_probe(struct i2c_client *client,
 	}
 
 	if (state->chip_info->flags & ADV7180_FLAG_MIPI_CSI2) {
-		state->csi_client = i2c_new_dummy_device(client->adapter,
+		state->csi_client = i2c_new_dummy(client->adapter,
 				ADV7180_DEFAULT_CSI_I2C_ADDR);
-		if (IS_ERR(state->csi_client))
-			return PTR_ERR(state->csi_client);
+		if (!state->csi_client)
+			return -ENOMEM;
 	}
 
 	if (state->chip_info->flags & ADV7180_FLAG_I2P) {
-		state->vpp_client = i2c_new_dummy_device(client->adapter,
+		state->vpp_client = i2c_new_dummy(client->adapter,
 				ADV7180_DEFAULT_VPP_I2C_ADDR);
-		if (IS_ERR(state->vpp_client)) {
-			ret = PTR_ERR(state->vpp_client);
+		if (!state->vpp_client) {
+			ret = -ENOMEM;
 			goto err_unregister_csi_client;
 		}
 	}
@@ -1391,9 +1366,6 @@ static int adv7180_probe(struct i2c_client *client,
 	ret = v4l2_async_register_subdev(sd);
 	if (ret)
 		goto err_free_irq;
-
-	v4l_info(client, "chip found @ 0x%02x (%s)\n",
-		 client->addr, client->adapter->name);
 
 	return 0;
 

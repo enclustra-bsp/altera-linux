@@ -87,6 +87,9 @@
 
 #define OWL_I2C_MAX_RETRIES	50
 
+#define OWL_I2C_DEF_SPEED_HZ	100000
+#define OWL_I2C_MAX_SPEED_HZ	400000
+
 struct owl_i2c_dev {
 	struct i2c_adapter	adap;
 	struct i2c_msg		*msg;
@@ -165,9 +168,10 @@ static irqreturn_t owl_i2c_interrupt(int irq, void *_dev)
 {
 	struct owl_i2c_dev *i2c_dev = _dev;
 	struct i2c_msg *msg = i2c_dev->msg;
+	unsigned long flags;
 	unsigned int stat, fifostat;
 
-	spin_lock(&i2c_dev->lock);
+	spin_lock_irqsave(&i2c_dev->lock, flags);
 
 	i2c_dev->err = 0;
 
@@ -175,9 +179,6 @@ static irqreturn_t owl_i2c_interrupt(int irq, void *_dev)
 	fifostat = readl(i2c_dev->base + OWL_I2C_REG_FIFOSTAT);
 	if (fifostat & OWL_I2C_FIFOSTAT_RNB) {
 		i2c_dev->err = -ENXIO;
-		/* Clear NACK error bit by writing "1" */
-		owl_i2c_update_reg(i2c_dev->base + OWL_I2C_REG_FIFOSTAT,
-				   OWL_I2C_FIFOSTAT_RNB, true);
 		goto stop;
 	}
 
@@ -185,9 +186,6 @@ static irqreturn_t owl_i2c_interrupt(int irq, void *_dev)
 	stat = readl(i2c_dev->base + OWL_I2C_REG_STAT);
 	if (stat & OWL_I2C_STAT_BEB) {
 		i2c_dev->err = -EIO;
-		/* Clear BUS error bit by writing "1" */
-		owl_i2c_update_reg(i2c_dev->base + OWL_I2C_REG_STAT,
-				   OWL_I2C_STAT_BEB, true);
 		goto stop;
 	}
 
@@ -213,7 +211,7 @@ stop:
 			   OWL_I2C_STAT_IRQP, true);
 
 	complete_all(&i2c_dev->msg_complete);
-	spin_unlock(&i2c_dev->lock);
+	spin_unlock_irqrestore(&i2c_dev->lock, flags);
 
 	return IRQ_HANDLED;
 }
@@ -401,27 +399,31 @@ static int owl_i2c_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct owl_i2c_dev *i2c_dev;
+	struct resource *res;
 	int ret, irq;
 
 	i2c_dev = devm_kzalloc(dev, sizeof(*i2c_dev), GFP_KERNEL);
 	if (!i2c_dev)
 		return -ENOMEM;
 
-	i2c_dev->base = devm_platform_ioremap_resource(pdev, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	i2c_dev->base = devm_ioremap_resource(dev, res);
 	if (IS_ERR(i2c_dev->base))
 		return PTR_ERR(i2c_dev->base);
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0)
+	if (irq < 0) {
+		dev_err(dev, "failed to get IRQ number\n");
 		return irq;
+	}
 
 	if (of_property_read_u32(dev->of_node, "clock-frequency",
 				 &i2c_dev->bus_freq))
-		i2c_dev->bus_freq = I2C_MAX_STANDARD_MODE_FREQ;
+		i2c_dev->bus_freq = OWL_I2C_DEF_SPEED_HZ;
 
 	/* We support only frequencies of 100k and 400k for now */
-	if (i2c_dev->bus_freq != I2C_MAX_STANDARD_MODE_FREQ &&
-	    i2c_dev->bus_freq != I2C_MAX_FAST_MODE_FREQ) {
+	if (i2c_dev->bus_freq != OWL_I2C_DEF_SPEED_HZ &&
+	    i2c_dev->bus_freq != OWL_I2C_MAX_SPEED_HZ) {
 		dev_err(dev, "invalid clock-frequency %d\n", i2c_dev->bus_freq);
 		return -EINVAL;
 	}
@@ -473,7 +475,6 @@ disable_clk:
 }
 
 static const struct of_device_id owl_i2c_of_match[] = {
-	{ .compatible = "actions,s700-i2c" },
 	{ .compatible = "actions,s900-i2c" },
 	{ /* sentinel */ }
 };

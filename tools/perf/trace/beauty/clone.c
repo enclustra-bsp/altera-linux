@@ -10,14 +10,13 @@
 #include <sys/types.h>
 #include <uapi/linux/sched.h>
 
-static size_t clone__scnprintf_flags(unsigned long flags, char *bf, size_t size, bool show_prefix)
+static size_t clone__scnprintf_flags(unsigned long flags, char *bf, size_t size)
 {
-	const char *prefix = "CLONE_";
 	int printed = 0;
 
 #define	P_FLAG(n) \
 	if (flags & CLONE_##n) { \
-		printed += scnprintf(bf + printed, size - printed, "%s%s%s", printed ? "|" : "", show_prefix ? prefix : "", #n); \
+		printed += scnprintf(bf + printed, size - printed, "%s%s", printed ? "|" : "", #n); \
 		flags &= ~CLONE_##n; \
 	}
 
@@ -25,7 +24,6 @@ static size_t clone__scnprintf_flags(unsigned long flags, char *bf, size_t size,
 	P_FLAG(FS);
 	P_FLAG(FILES);
 	P_FLAG(SIGHAND);
-	P_FLAG(PIDFD);
 	P_FLAG(PTRACE);
 	P_FLAG(VFORK);
 	P_FLAG(PARENT);
@@ -45,8 +43,6 @@ static size_t clone__scnprintf_flags(unsigned long flags, char *bf, size_t size,
 	P_FLAG(NEWPID);
 	P_FLAG(NEWNET);
 	P_FLAG(IO);
-	P_FLAG(CLEAR_SIGHAND);
-	P_FLAG(INTO_CGROUP);
 #undef P_FLAG
 
 	if (flags)
@@ -74,5 +70,5 @@ size_t syscall_arg__scnprintf_clone_flags(char *bf, size_t size, struct syscall_
 	if (!(flags & CLONE_SETTLS))
 		arg->mask |= SCC_TLS;
 
-	return clone__scnprintf_flags(flags, bf, size, arg->show_string_prefix);
+	return clone__scnprintf_flags(flags, bf, size);
 }

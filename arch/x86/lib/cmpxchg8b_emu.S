@@ -1,4 +1,10 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+/*
+ *	This program is free software; you can redistribute it and/or
+ *	modify it under the terms of the GNU General Public License
+ *	as published by the Free Software Foundation; version 2
+ *	of the License.
+ *
+ */
 
 #include <linux/linkage.h>
 #include <asm/export.h>
@@ -13,7 +19,7 @@
  * %ebx : low 32 bits of new value
  * %ecx : high 32 bits of new value
  */
-SYM_FUNC_START(cmpxchg8b_emu)
+ENTRY(cmpxchg8b_emu)
 
 #
 # Emulate 'cmpxchg8b (%esi)' on UP except we don't
@@ -42,5 +48,5 @@ SYM_FUNC_START(cmpxchg8b_emu)
 	popfl
 	ret
 
-SYM_FUNC_END(cmpxchg8b_emu)
+ENDPROC(cmpxchg8b_emu)
 EXPORT_SYMBOL(cmpxchg8b_emu)

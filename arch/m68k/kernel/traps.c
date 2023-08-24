@@ -35,9 +35,10 @@
 #include <asm/fpu.h>
 #include <linux/uaccess.h>
 #include <asm/traps.h>
+#include <asm/pgalloc.h>
 #include <asm/machdep.h>
 #include <asm/siginfo.h>
-#include <asm/tlbflush.h>
+
 
 static const char *vec_names[] = {
 	[VEC_RESETSP]	= "RESET SP",
@@ -430,7 +431,7 @@ static inline void bus_error030 (struct frame *fp)
 			pr_err("BAD KERNEL BUSERR\n");
 
 			die_if_kernel("Oops", &fp->ptregs,0);
-			force_sig(SIGKILL);
+			force_sig(SIGKILL, current);
 			return;
 		}
 	} else {
@@ -462,7 +463,7 @@ static inline void bus_error030 (struct frame *fp)
 				 !(ssw & RW) ? "write" : "read", addr,
 				 fp->ptregs.pc);
 			die_if_kernel ("Oops", &fp->ptregs, buserr_type);
-			force_sig (SIGBUS);
+			force_sig (SIGBUS, current);
 			return;
 		}
 
@@ -492,7 +493,7 @@ static inline void bus_error030 (struct frame *fp)
 			do_page_fault (&fp->ptregs, addr, 0);
        } else {
 		pr_debug("protection fault on insn access (segv).\n");
-		force_sig (SIGSEGV);
+		force_sig (SIGSEGV, current);
        }
 }
 #else
@@ -570,7 +571,7 @@ static inline void bus_error030 (struct frame *fp)
 			       !(ssw & RW) ? "write" : "read", addr,
 			       fp->ptregs.pc);
 			die_if_kernel("Oops",&fp->ptregs,mmusr);
-			force_sig(SIGSEGV);
+			force_sig(SIGSEGV, current);
 			return;
 		} else {
 #if 0
@@ -597,7 +598,7 @@ static inline void bus_error030 (struct frame *fp)
 #endif
 			pr_debug("Unknown SIGSEGV - 1\n");
 			die_if_kernel("Oops",&fp->ptregs,mmusr);
-			force_sig(SIGSEGV);
+			force_sig(SIGSEGV, current);
 			return;
 		}
 
@@ -620,7 +621,7 @@ static inline void bus_error030 (struct frame *fp)
 	buserr:
 		pr_err("BAD KERNEL BUSERR\n");
 		die_if_kernel("Oops",&fp->ptregs,0);
-		force_sig(SIGKILL);
+		force_sig(SIGKILL, current);
 		return;
 	}
 
@@ -659,7 +660,7 @@ static inline void bus_error030 (struct frame *fp)
 			addr, fp->ptregs.pc);
 		pr_debug("Unknown SIGSEGV - 2\n");
 		die_if_kernel("Oops",&fp->ptregs,mmusr);
-		force_sig(SIGSEGV);
+		force_sig(SIGSEGV, current);
 		return;
 	}
 
@@ -803,20 +804,20 @@ asmlinkage void buserr_c(struct frame *fp)
 	default:
 	  die_if_kernel("bad frame format",&fp->ptregs,0);
 	  pr_debug("Unknown SIGSEGV - 4\n");
-	  force_sig(SIGSEGV);
+	  force_sig(SIGSEGV, current);
 	}
 }
 
 
 static int kstack_depth_to_print = 48;
 
-static void show_trace(unsigned long *stack, const char *loglvl)
+void show_trace(unsigned long *stack)
 {
 	unsigned long *endstack;
 	unsigned long addr;
 	int i;
 
-	printk("%sCall Trace:", loglvl);
+	pr_info("Call Trace:");
 	addr = (unsigned long)stack + THREAD_SIZE - 1;
 	endstack = (unsigned long *)(addr & -THREAD_SIZE);
 	i = 0;
@@ -845,6 +846,7 @@ static void show_trace(unsigned long *stack, const char *loglvl)
 void show_registers(struct pt_regs *regs)
 {
 	struct frame *fp = (struct frame *)regs;
+	mm_segment_t old_fs = get_fs();
 	u16 c, *cp;
 	unsigned long addr;
 	int i;
@@ -914,12 +916,13 @@ void show_registers(struct pt_regs *regs)
 	default:
 		pr_cont("\n");
 	}
-	show_stack(NULL, (unsigned long *)addr, KERN_INFO);
+	show_stack(NULL, (unsigned long *)addr);
 
 	pr_info("Code:");
+	set_fs(KERNEL_DS);
 	cp = (u16 *)regs->pc;
 	for (i = -8; i < 16; i++) {
-		if (get_kernel_nofault(c, cp + i) && i >= 0) {
+		if (get_user(c, cp + i) && i >= 0) {
 			pr_cont(" Bad PC value.");
 			break;
 		}
@@ -928,11 +931,11 @@ void show_registers(struct pt_regs *regs)
 		else
 			pr_cont(" <%04x>", c);
 	}
+	set_fs(old_fs);
 	pr_cont("\n");
 }
 
-void show_stack(struct task_struct *task, unsigned long *stack,
-		const char *loglvl)
+void show_stack(struct task_struct *task, unsigned long *stack)
 {
 	unsigned long *p;
 	unsigned long *endstack;
@@ -946,7 +949,7 @@ void show_stack(struct task_struct *task, unsigned long *stack,
 	}
 	endstack = (unsigned long *)(((unsigned long)stack + THREAD_SIZE - 1) & -THREAD_SIZE);
 
-	printk("%sStack from %08lx:", loglvl, (unsigned long)stack);
+	pr_info("Stack from %08lx:", (unsigned long)stack);
 	p = stack;
 	for (i = 0; i < kstack_depth_to_print; i++) {
 		if (p + 1 > endstack)
@@ -956,7 +959,7 @@ void show_stack(struct task_struct *task, unsigned long *stack,
 		pr_cont(" %08lx", *p++);
 	}
 	pr_cont("\n");
-	show_trace(stack, loglvl);
+	show_trace(stack);
 }
 
 /*
@@ -1124,7 +1127,7 @@ asmlinkage void trap_c(struct frame *fp)
 		addr = (void __user*) fp->un.fmtb.daddr;
 		break;
 	}
-	force_sig_fault(sig, si_code, addr);
+	force_sig_fault(sig, si_code, addr, current);
 }
 
 void die_if_kernel (char *str, struct pt_regs *fp, int nr)
@@ -1156,6 +1159,6 @@ asmlinkage void fpsp040_die(void)
 #ifdef CONFIG_M68KFPU_EMU
 asmlinkage void fpemu_signal(int signal, int code, void *addr)
 {
-	force_sig_fault(signal, code, addr);
+	force_sig_fault(signal, code, addr, current);
 }
 #endif

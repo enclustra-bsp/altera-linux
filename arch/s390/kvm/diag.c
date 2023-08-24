@@ -2,7 +2,7 @@
 /*
  * handling diagnose instructions
  *
- * Copyright IBM Corp. 2008, 2020
+ * Copyright IBM Corp. 2008, 2011
  *
  *    Author(s): Carsten Otte <cotte@de.ibm.com>
  *               Christian Borntraeger <borntraeger@de.ibm.com>
@@ -10,6 +10,7 @@
 
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
+#include <asm/pgalloc.h>
 #include <asm/gmap.h>
 #include <asm/virtio-ccw.h>
 #include "kvm-s390.h"
@@ -157,28 +158,14 @@ static int __diag_time_slice_end_directed(struct kvm_vcpu *vcpu)
 
 	tid = vcpu->run->s.regs.gprs[(vcpu->arch.sie_block->ipa & 0xf0) >> 4];
 	vcpu->stat.diagnose_9c++;
+	VCPU_EVENT(vcpu, 5, "diag time slice end directed to %d", tid);
 
-	/* yield to self */
 	if (tid == vcpu->vcpu_id)
-		goto no_yield;
+		return 0;
 
-	/* yield to invalid */
 	tcpu = kvm_get_vcpu_by_id(vcpu->kvm, tid);
-	if (!tcpu)
-		goto no_yield;
-
-	/* target already running */
-	if (READ_ONCE(tcpu->cpu) >= 0)
-		goto no_yield;
-
-	if (kvm_vcpu_yield_to(tcpu) <= 0)
-		goto no_yield;
-
-	VCPU_EVENT(vcpu, 5, "diag time slice end directed to %d: done", tid);
-	return 0;
-no_yield:
-	VCPU_EVENT(vcpu, 5, "diag time slice end directed to %d: ignored", tid);
-	vcpu->stat.diagnose_9c_ignored++;
+	if (tcpu)
+		kvm_vcpu_yield_to(tcpu);
 	return 0;
 }
 
@@ -200,10 +187,6 @@ static int __diag_ipl_functions(struct kvm_vcpu *vcpu)
 		return -EOPNOTSUPP;
 	}
 
-	/*
-	 * no need to check the return value of vcpu_stop as it can only have
-	 * an error for protvirt, but protvirt means user cpu state
-	 */
 	if (!kvm_s390_user_cpu_state_ctrl(vcpu->kvm))
 		kvm_s390_vcpu_stop(vcpu);
 	vcpu->run->s390_reset_flags |= KVM_S390_RESET_SUBSYSTEM;

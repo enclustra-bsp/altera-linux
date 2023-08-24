@@ -1,7 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) Sistina Software, Inc.  1997-2003 All rights reserved.
  * Copyright (C) 2004-2006 Red Hat, Inc.  All rights reserved.
+ *
+ * This copyrighted material is made available to anyone wishing to use,
+ * modify, copy, or redistribute it subject to the terms and conditions
+ * of the GNU General Public License version 2.
  */
 
 #include <linux/slab.h>
@@ -628,7 +631,7 @@ static int ea_alloc_blk(struct gfs2_inode *ip, struct buffer_head **bhp)
 	error = gfs2_alloc_blocks(ip, &block, &n, 0, NULL);
 	if (error)
 		return error;
-	gfs2_trans_remove_revoke(sdp, block, 1);
+	gfs2_trans_add_unrevoke(sdp, block, 1);
 	*bhp = gfs2_meta_new(ip->i_gl, block);
 	gfs2_trans_add_meta(ip->i_gl, *bhp);
 	gfs2_metatype_set(*bhp, GFS2_METATYPE_EA, GFS2_FORMAT_EA);
@@ -690,7 +693,7 @@ static int ea_write(struct gfs2_inode *ip, struct gfs2_ea_header *ea,
 			error = gfs2_alloc_blocks(ip, &block, &n, 0, NULL);
 			if (error)
 				return error;
-			gfs2_trans_remove_revoke(sdp, block, 1);
+			gfs2_trans_add_unrevoke(sdp, block, 1);
 			bh = gfs2_meta_new(ip->i_gl, block);
 			gfs2_trans_add_meta(ip->i_gl, bh);
 			gfs2_metatype_set(bh, GFS2_METATYPE_ED, GFS2_FORMAT_ED);
@@ -994,7 +997,7 @@ static int ea_set_block(struct gfs2_inode *ip, struct gfs2_ea_request *er,
 		error = gfs2_alloc_blocks(ip, &blk, &n, 0, NULL);
 		if (error)
 			return error;
-		gfs2_trans_remove_revoke(sdp, blk, 1);
+		gfs2_trans_add_unrevoke(sdp, blk, 1);
 		indbh = gfs2_meta_new(ip->i_gl, blk);
 		gfs2_trans_add_meta(ip->i_gl, indbh);
 		gfs2_metatype_set(indbh, GFS2_METATYPE_IN, GFS2_FORMAT_IN);
@@ -1222,7 +1225,7 @@ static int gfs2_xattr_set(const struct xattr_handler *handler,
 	struct gfs2_holder gh;
 	int ret;
 
-	ret = gfs2_qa_get(ip);
+	ret = gfs2_rsqa_alloc(ip);
 	if (ret)
 		return ret;
 
@@ -1231,19 +1234,15 @@ static int gfs2_xattr_set(const struct xattr_handler *handler,
 	if (!gfs2_glock_is_locked_by_me(ip->i_gl)) {
 		ret = gfs2_glock_nq_init(ip->i_gl, LM_ST_EXCLUSIVE, 0, &gh);
 		if (ret)
-			goto out;
+			return ret;
 	} else {
-		if (WARN_ON_ONCE(ip->i_gl->gl_state != LM_ST_EXCLUSIVE)) {
-			ret = -EIO;
-			goto out;
-		}
+		if (WARN_ON_ONCE(ip->i_gl->gl_state != LM_ST_EXCLUSIVE))
+			return -EIO;
 		gfs2_holder_mark_uninitialized(&gh);
 	}
 	ret = __gfs2_xattr_set(inode, name, value, size, flags, handler->flags);
 	if (gfs2_holder_initialized(&gh))
 		gfs2_glock_dq_uninit(&gh);
-out:
-	gfs2_qa_put(ip);
 	return ret;
 }
 

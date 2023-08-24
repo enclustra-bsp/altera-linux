@@ -5,14 +5,10 @@
  *          Fabien Dessenne <fabien.dessenne@st.com>
  *          for STMicroelectronics.
  */
-
-#include <linux/dma-mapping.h>
 #include <linux/seq_file.h>
 
 #include <drm/drm_atomic.h>
-#include <drm/drm_device.h>
 #include <drm/drm_fb_cma_helper.h>
-#include <drm/drm_fourcc.h>
 #include <drm/drm_gem_cma_helper.h>
 
 #include "sti_compositor.h"
@@ -103,7 +99,7 @@ struct sti_gdp_node_list {
 	dma_addr_t btm_field_paddr;
 };
 
-/*
+/**
  * STI GDP structure
  *
  * @sti_plane:          sti_plane structure
@@ -343,10 +339,9 @@ static int gdp_debugfs_init(struct sti_gdp *gdp, struct drm_minor *minor)
 	for (i = 0; i < nb_files; i++)
 		gdp_debugfs_files[i].data = gdp;
 
-	drm_debugfs_create_files(gdp_debugfs_files,
-				 nb_files,
-				 minor->debugfs_root, minor);
-	return 0;
+	return drm_debugfs_create_files(gdp_debugfs_files,
+					nb_files,
+					minor->debugfs_root, minor);
 }
 
 static int sti_gdp_fourcc2format(int fourcc)
@@ -522,7 +517,7 @@ static void sti_gdp_init(struct sti_gdp *gdp)
 	/* Allocate all the nodes within a single memory page */
 	size = sizeof(struct sti_gdp_node) *
 	    GDP_NODE_PER_FIELD * GDP_NODE_NB_BANK;
-	base = dma_alloc_wc(gdp->dev, size, &dma_addr, GFP_KERNEL);
+	base = dma_alloc_wc(gdp->dev, size, &dma_addr, GFP_KERNEL | GFP_DMA);
 
 	if (!base) {
 		DRM_ERROR("Failed to allocate memory for GDP node\n");
@@ -888,6 +883,7 @@ static void sti_gdp_destroy(struct drm_plane *drm_plane)
 {
 	DRM_DEBUG_DRIVER("\n");
 
+	drm_plane_helper_disable(drm_plane, NULL);
 	drm_plane_cleanup(drm_plane);
 }
 

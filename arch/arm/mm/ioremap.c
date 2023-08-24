@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/arch/arm/mm/ioremap.c
  *
@@ -27,7 +26,6 @@
 #include <linux/vmalloc.h>
 #include <linux/io.h>
 #include <linux/sizes.h>
-#include <linux/memblock.h>
 
 #include <asm/cp15.h>
 #include <asm/cputype.h>
@@ -142,8 +140,14 @@ void __check_vmalloc_seq(struct mm_struct *mm)
 static void unmap_area_sections(unsigned long virt, unsigned long size)
 {
 	unsigned long addr = virt, end = virt + (size & ~(SZ_1M - 1));
-	pmd_t *pmdp = pmd_off_k(addr);
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmdp;
 
+	flush_cache_vunmap(addr, end);
+	pgd = pgd_offset_k(addr);
+	pud = pud_offset(pgd, addr);
+	pmdp = pmd_offset(pud, addr);
 	do {
 		pmd_t pmd = *pmdp;
 
@@ -184,7 +188,9 @@ remap_area_sections(unsigned long virt, unsigned long pfn,
 		    size_t size, const struct mem_type *type)
 {
 	unsigned long addr = virt, end = virt + size;
-	pmd_t *pmd = pmd_off_k(addr);
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
 
 	/*
 	 * Remove and free any PTE-based mapping, and
@@ -192,6 +198,9 @@ remap_area_sections(unsigned long virt, unsigned long pfn,
 	 */
 	unmap_area_sections(virt, size);
 
+	pgd = pgd_offset_k(addr);
+	pud = pud_offset(pgd, addr);
+	pmd = pmd_offset(pud, addr);
 	do {
 		pmd[0] = __pmd(__pfn_to_phys(pfn) | type->prot_sect);
 		pfn += SZ_1M >> PAGE_SHIFT;
@@ -211,13 +220,19 @@ remap_area_supersections(unsigned long virt, unsigned long pfn,
 			 size_t size, const struct mem_type *type)
 {
 	unsigned long addr = virt, end = virt + size;
-	pmd_t *pmd = pmd_off_k(addr);
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
 
 	/*
 	 * Remove and free any PTE-based mapping, and
 	 * sync the current kernel mapping.
 	 */
 	unmap_area_sections(virt, size);
+
+	pgd = pgd_offset_k(virt);
+	pud = pud_offset(pgd, addr);
+	pmd = pmd_offset(pud, addr);
 	do {
 		unsigned long super_pmd_val, i;
 
@@ -285,8 +300,7 @@ static void __iomem * __arm_ioremap_pfn_caller(unsigned long pfn,
 	 * Don't allow RAM to be mapped with mismatched attributes - this
 	 * causes problems with ARMv6+
 	 */
-	if (WARN_ON(memblock_is_map_memory(PFN_PHYS(pfn)) &&
-		    mtype != MT_MEMORY_RW))
+	if (WARN_ON(pfn_valid(pfn) && mtype != MT_MEMORY_RW))
 		return NULL;
 
 	area = get_vm_area_caller(size, VM_IOREMAP, caller);
@@ -367,11 +381,15 @@ void __iomem *ioremap(resource_size_t res_cookie, size_t size)
 EXPORT_SYMBOL(ioremap);
 
 void __iomem *ioremap_cache(resource_size_t res_cookie, size_t size)
+	__alias(ioremap_cached);
+
+void __iomem *ioremap_cached(resource_size_t res_cookie, size_t size)
 {
 	return arch_ioremap_caller(res_cookie, size, MT_DEVICE_CACHED,
 				   __builtin_return_address(0));
 }
 EXPORT_SYMBOL(ioremap_cache);
+EXPORT_SYMBOL(ioremap_cached);
 
 void __iomem *ioremap_wc(resource_size_t res_cookie, size_t size)
 {

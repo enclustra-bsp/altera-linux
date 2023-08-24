@@ -1,7 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2016 Imagination Technologies
  * Author: Paul Burton <paul.burton@mips.com>
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
  */
 
 #include <generated/utsrelease.h>
@@ -280,16 +284,6 @@ static int img_ascii_lcd_display(struct img_ascii_lcd_ctx *ctx,
 	if (msg[count - 1] == '\n')
 		count--;
 
-	if (!count) {
-		/* clear the LCD */
-		devm_kfree(&ctx->pdev->dev, ctx->message);
-		ctx->message = NULL;
-		ctx->message_len = 0;
-		memset(ctx->curr, ' ', ctx->cfg->num_chars);
-		ctx->cfg->update(ctx);
-		return 0;
-	}
-
 	new_msg = devm_kmalloc(&ctx->pdev->dev, count + 1, GFP_KERNEL);
 	if (!new_msg)
 		return -ENOMEM;
@@ -366,6 +360,7 @@ static int img_ascii_lcd_probe(struct platform_device *pdev)
 	const struct of_device_id *match;
 	const struct img_ascii_lcd_config *cfg;
 	struct img_ascii_lcd_ctx *ctx;
+	struct resource *res;
 	int err;
 
 	match = of_match_device(img_ascii_lcd_matches, &pdev->dev);
@@ -387,7 +382,8 @@ static int img_ascii_lcd_probe(struct platform_device *pdev)
 					 &ctx->offset))
 			return -EINVAL;
 	} else {
-		ctx->base = devm_platform_ioremap_resource(pdev, 0);
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		ctx->base = devm_ioremap_resource(&pdev->dev, res);
 		if (IS_ERR(ctx->base))
 			return PTR_ERR(ctx->base);
 	}

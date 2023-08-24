@@ -169,20 +169,19 @@ static void cmdpkt_beacontimerinterrupt_819xusb(struct net_device *dev)
 {
 	struct r8192_priv *priv = ieee80211_priv(dev);
 	u16 tx_rate;
+		/* 87B have to S/W beacon for DTM encryption_cmn. */
+		if (priv->ieee80211->current_network.mode == IEEE_A ||
+		    priv->ieee80211->current_network.mode == IEEE_N_5G ||
+		    (priv->ieee80211->current_network.mode == IEEE_N_24G &&
+		     (!priv->ieee80211->pHTInfo->bCurSuppCCK))) {
+			tx_rate = 60;
+			DMESG("send beacon frame  tx rate is 6Mbpm\n");
+		} else {
+			tx_rate = 10;
+			DMESG("send beacon frame  tx rate is 1Mbpm\n");
+		}
 
-	/* 87B have to S/W beacon for DTM encryption_cmn. */
-	if (priv->ieee80211->current_network.mode == IEEE_A ||
-	    priv->ieee80211->current_network.mode == IEEE_N_5G ||
-	    (priv->ieee80211->current_network.mode == IEEE_N_24G &&
-	     (!priv->ieee80211->pHTInfo->bCurSuppCCK))) {
-		tx_rate = 60;
-		DMESG("send beacon frame  tx rate is 6Mbpm\n");
-	} else {
-		tx_rate = 10;
-		DMESG("send beacon frame  tx rate is 1Mbpm\n");
-	}
-
-	rtl819xusb_beacon_tx(dev, tx_rate); /* HW Beacon */
+		rtl819xusb_beacon_tx(dev, tx_rate); /* HW Beacon */
 }
 
 /*-----------------------------------------------------------------------------
@@ -244,7 +243,7 @@ static void cmpk_handle_interrupt_status(struct net_device *dev, u8 *pmsg)
 			cmdpkt_beacontimerinterrupt_819xusb(dev);
 	}
 
-	/* Other information in interrupt status we need? */
+	/* Other informations in interrupt status we need? */
 
 	DMESG("<---- cmpk_handle_interrupt_status()\n");
 }
@@ -335,6 +334,7 @@ static void cmpk_count_tx_status(struct net_device *dev,
 
 	priv->stats.txretrycount	+= pstx_status->txretry;
 	priv->stats.txfeedbackretry	+= pstx_status->txretry;
+
 
 	priv->stats.txmulticast		+= pstx_status->txmcok;
 	priv->stats.txbroadcast		+= pstx_status->txbcok;
@@ -430,7 +430,7 @@ static void cmpk_handle_tx_rate_history(struct net_device *dev, u8 *pmsg)
 
 	ptxrate = (cmpk_tx_rahis_t *)pmsg;
 
-	if (!ptxrate)
+	if (ptxrate == NULL)
 		return;
 
 	for (i = 0; i < 16; i++) {
@@ -479,7 +479,7 @@ u32 cmpk_message_handle_rx(struct net_device *dev,
 	/* 0. Check inpt arguments. It is a command queue message or
 	 * pointer is null.
 	 */
-	if (!pstats)
+	if (pstats == NULL)
 		return 0;	/* This is not a command packet. */
 
 	/* 1. Read received command packet message length from RFD. */

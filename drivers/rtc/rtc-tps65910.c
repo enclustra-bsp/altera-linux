@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * rtc-tps65910.c -- TPS65910 Real Time Clock interface
  *
@@ -8,6 +7,11 @@
  * Based on original TI driver rtc-twl.c
  *   Copyright (C) 2007 MontaVista Software, Inc
  *   Author: Alexandre Rusev <source@mvista.com>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version
+ * 2 of the License, or (at your option) any later version.
  */
 
 #include <linux/kernel.h>
@@ -143,7 +147,7 @@ static int tps65910_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	struct tps65910 *tps = dev_get_drvdata(dev->parent);
 	int ret;
 
-	ret = regmap_bulk_read(tps->regmap, TPS65910_ALARM_SECONDS, alarm_data,
+	ret = regmap_bulk_read(tps->regmap, TPS65910_SECONDS, alarm_data,
 		NUM_TIME_REGS);
 	if (ret < 0) {
 		dev_err(dev, "rtc_read_alarm error %d\n", ret);
@@ -361,13 +365,6 @@ static const struct rtc_class_ops tps65910_rtc_ops = {
 	.set_offset	= tps65910_set_offset,
 };
 
-static const struct rtc_class_ops tps65910_rtc_ops_noirq = {
-	.read_time	= tps65910_rtc_read_time,
-	.set_time	= tps65910_rtc_set_time,
-	.read_offset	= tps65910_read_offset,
-	.set_offset	= tps65910_set_offset,
-};
-
 static int tps65910_rtc_probe(struct platform_device *pdev)
 {
 	struct tps65910 *tps65910 = NULL;
@@ -421,20 +418,24 @@ static int tps65910_rtc_probe(struct platform_device *pdev)
 	ret = devm_request_threaded_irq(&pdev->dev, irq, NULL,
 		tps65910_rtc_interrupt, IRQF_TRIGGER_LOW,
 		dev_name(&pdev->dev), &pdev->dev);
-	if (ret < 0)
-		irq = -1;
-
+	if (ret < 0) {
+		dev_err(&pdev->dev, "IRQ is not free.\n");
+		return ret;
+	}
 	tps_rtc->irq = irq;
-	if (irq != -1) {
-		device_set_wakeup_capable(&pdev->dev, 1);
-		tps_rtc->rtc->ops = &tps65910_rtc_ops;
-	} else
-		tps_rtc->rtc->ops = &tps65910_rtc_ops_noirq;
+	device_set_wakeup_capable(&pdev->dev, 1);
 
+	tps_rtc->rtc->ops = &tps65910_rtc_ops;
 	tps_rtc->rtc->range_min = RTC_TIMESTAMP_BEGIN_2000;
 	tps_rtc->rtc->range_max = RTC_TIMESTAMP_END_2099;
 
-	return rtc_register_device(tps_rtc->rtc);
+	ret = rtc_register_device(tps_rtc->rtc);
+	if (ret) {
+		dev_err(&pdev->dev, "RTC device register: err %d\n", ret);
+		return ret;
+	}
+
+	return 0;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -469,6 +470,6 @@ static struct platform_driver tps65910_rtc_driver = {
 };
 
 module_platform_driver(tps65910_rtc_driver);
-MODULE_ALIAS("platform:tps65910-rtc");
+MODULE_ALIAS("platform:rtc-tps65910");
 MODULE_AUTHOR("Venu Byravarasu <vbyravarasu@nvidia.com>");
 MODULE_LICENSE("GPL");

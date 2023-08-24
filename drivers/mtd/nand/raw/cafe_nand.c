@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Driver for One Laptop Per Child ‘CAFÉ’ controller, aka Marvell 88ALP01
  *
@@ -546,6 +545,11 @@ static int cafe_nand_write_page_lowlevel(struct nand_chip *chip,
 	return nand_prog_page_end_op(chip);
 }
 
+static int cafe_nand_block_bad(struct nand_chip *chip, loff_t ofs)
+{
+	return 0;
+}
+
 /* F_2[X]/(X**6+X+1)  */
 static unsigned short gf64_mul(u8 a, u8 b)
 {
@@ -629,8 +633,7 @@ static int cafe_nand_attach_chip(struct nand_chip *chip)
 		goto out_free_dma;
 	}
 
-	cafe->nand.ecc.engine_type = NAND_ECC_ENGINE_TYPE_ON_HOST;
-	cafe->nand.ecc.placement = NAND_ECC_PLACEMENT_INTERLEAVED;
+	cafe->nand.ecc.mode = NAND_ECC_HW_SYNDROME;
 	cafe->nand.ecc.size = mtd->writesize;
 	cafe->nand.ecc.bytes = 14;
 	cafe->nand.ecc.strength = 4;
@@ -705,7 +708,7 @@ static int cafe_nand_probe(struct pci_dev *pdev,
 	cafe->nand.legacy.read_byte = cafe_read_byte;
 	cafe->nand.legacy.read_buf = cafe_read_buf;
 	cafe->nand.legacy.write_buf = cafe_write_buf;
-	cafe->nand.legacy.select_chip = cafe_select_chip;
+	cafe->nand.select_chip = cafe_select_chip;
 	cafe->nand.legacy.set_features = nand_get_set_features_notsupp;
 	cafe->nand.legacy.get_features = nand_get_set_features_notsupp;
 
@@ -714,8 +717,10 @@ static int cafe_nand_probe(struct pci_dev *pdev,
 	/* Enable the following for a flash based bad block table */
 	cafe->nand.bbt_options = NAND_BBT_USE_FLASH;
 
-	if (skipbbt)
-		cafe->nand.options |= NAND_SKIP_BBTSCAN | NAND_NO_BBM_QUIRK;
+	if (skipbbt) {
+		cafe->nand.options |= NAND_SKIP_BBTSCAN;
+		cafe->nand.legacy.block_bad = cafe_nand_block_bad;
+	}
 
 	if (numtimings && numtimings != 3) {
 		dev_warn(&cafe->pdev->dev, "%d timing register values ignored; precisely three are required\n", numtimings);
@@ -751,7 +756,7 @@ static int cafe_nand_probe(struct pci_dev *pdev,
 			  "CAFE NAND", mtd);
 	if (err) {
 		dev_warn(&pdev->dev, "Could not register IRQ %d\n", pdev->irq);
-		goto out_free_rs;
+		goto out_ior;
 	}
 
 	/* Disable master reset, enable NAND clock */
@@ -775,7 +780,7 @@ static int cafe_nand_probe(struct pci_dev *pdev,
 	cafe->usedma = 0;
 
 	/* Scan to find existence of the device */
-	cafe->nand.legacy.dummy_controller.ops = &cafe_nand_controller_ops;
+	cafe->nand.dummy_controller.ops = &cafe_nand_controller_ops;
 	err = nand_scan(&cafe->nand, 2);
 	if (err)
 		goto out_irq;
@@ -795,8 +800,6 @@ static int cafe_nand_probe(struct pci_dev *pdev,
 	/* Disable NAND IRQ in global IRQ mask register */
 	cafe_writel(cafe, ~1 & cafe_readl(cafe, GLOBAL_IRQ_MASK), GLOBAL_IRQ_MASK);
 	free_irq(pdev->irq, mtd);
- out_free_rs:
-	free_rs(cafe->rs);
  out_ior:
 	pci_iounmap(pdev, cafe->mmio);
  out_free_mtd:
@@ -810,14 +813,11 @@ static void cafe_nand_remove(struct pci_dev *pdev)
 	struct mtd_info *mtd = pci_get_drvdata(pdev);
 	struct nand_chip *chip = mtd_to_nand(mtd);
 	struct cafe_priv *cafe = nand_get_controller_data(chip);
-	int ret;
 
 	/* Disable NAND IRQ in global IRQ mask register */
 	cafe_writel(cafe, ~1 & cafe_readl(cafe, GLOBAL_IRQ_MASK), GLOBAL_IRQ_MASK);
 	free_irq(pdev->irq, mtd);
-	ret = mtd_device_unregister(mtd);
-	WARN_ON(ret);
-	nand_cleanup(chip);
+	nand_release(chip);
 	free_rs(cafe->rs);
 	pci_iounmap(pdev, cafe->mmio);
 	dma_free_coherent(&cafe->pdev->dev, 2112, cafe->dmabuf, cafe->dmaaddr);

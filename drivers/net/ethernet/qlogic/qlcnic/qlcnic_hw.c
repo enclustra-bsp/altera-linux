@@ -1,7 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * QLogic qlcnic NIC Driver
  * Copyright (c) 2009-2013 QLogic Corporation
+ *
+ * See LICENSE.qlcnic for copyright and licensing details.
  */
 
 #include <linux/slab.h>
@@ -1648,6 +1649,7 @@ int qlcnic_82xx_shutdown(struct pci_dev *pdev)
 {
 	struct qlcnic_adapter *adapter = pci_get_drvdata(pdev);
 	struct net_device *netdev = adapter->netdev;
+	int retval;
 
 	netif_device_detach(netdev);
 
@@ -1660,8 +1662,14 @@ int qlcnic_82xx_shutdown(struct pci_dev *pdev)
 
 	clear_bit(__QLCNIC_RESETTING, &adapter->state);
 
-	if (qlcnic_wol_supported(adapter))
-		device_wakeup_enable(&pdev->dev);
+	retval = pci_save_state(pdev);
+	if (retval)
+		return retval;
+
+	if (qlcnic_wol_supported(adapter)) {
+		pci_enable_wake(pdev, PCI_D3cold, 1);
+		pci_enable_wake(pdev, PCI_D3hot, 1);
+	}
 
 	return 0;
 }

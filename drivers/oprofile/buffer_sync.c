@@ -91,11 +91,11 @@ munmap_notify(struct notifier_block *self, unsigned long val, void *data)
 	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *mpnt;
 
-	mmap_read_lock(mm);
+	down_read(&mm->mmap_sem);
 
 	mpnt = find_vma(mm, addr);
 	if (mpnt && mpnt->vm_file && (mpnt->vm_flags & VM_EXEC)) {
-		mmap_read_unlock(mm);
+		up_read(&mm->mmap_sem);
 		/* To avoid latency problems, we only process the current CPU,
 		 * hoping that most samples for the task are on this CPU
 		 */
@@ -103,7 +103,7 @@ munmap_notify(struct notifier_block *self, unsigned long val, void *data)
 		return 0;
 	}
 
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 	return 0;
 }
 
@@ -116,7 +116,7 @@ module_load_notify(struct notifier_block *self, unsigned long val, void *data)
 {
 #ifdef CONFIG_MODULES
 	if (val != MODULE_STATE_COMING)
-		return NOTIFY_DONE;
+		return 0;
 
 	/* FIXME: should we process all CPU buffers ? */
 	mutex_lock(&buffer_mutex);
@@ -124,7 +124,7 @@ module_load_notify(struct notifier_block *self, unsigned long val, void *data)
 	add_event_entry(MODULE_LOADED_CODE);
 	mutex_unlock(&buffer_mutex);
 #endif
-	return NOTIFY_OK;
+	return 0;
 }
 
 
@@ -256,7 +256,7 @@ lookup_dcookie(struct mm_struct *mm, unsigned long addr, off_t *offset)
 	unsigned long cookie = NO_COOKIE;
 	struct vm_area_struct *vma;
 
-	mmap_read_lock(mm);
+	down_read(&mm->mmap_sem);
 	for (vma = find_vma(mm, addr); vma; vma = vma->vm_next) {
 
 		if (addr < vma->vm_start || addr >= vma->vm_end)
@@ -276,7 +276,7 @@ lookup_dcookie(struct mm_struct *mm, unsigned long addr, off_t *offset)
 
 	if (!vma)
 		cookie = INVALID_COOKIE;
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 
 	return cookie;
 }
@@ -486,7 +486,7 @@ typedef enum {
 
 /* Sync one of the CPU's buffers into the global event buffer.
  * Here we need to go through each batch of samples punctuated
- * by context switch notes, taking the task's mmap_lock and doing
+ * by context switch notes, taking the task's mmap_sem and doing
  * lookup in task->mm->mmap to convert EIP into dcookie/offset
  * value.
  */

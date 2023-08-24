@@ -31,61 +31,61 @@
 static struct iss_format_info formats[] = {
 	{ MEDIA_BUS_FMT_Y8_1X8, MEDIA_BUS_FMT_Y8_1X8,
 	  MEDIA_BUS_FMT_Y8_1X8, MEDIA_BUS_FMT_Y8_1X8,
-	  V4L2_PIX_FMT_GREY, 8, },
+	  V4L2_PIX_FMT_GREY, 8, "Greyscale 8 bpp", },
 	{ MEDIA_BUS_FMT_Y10_1X10, MEDIA_BUS_FMT_Y10_1X10,
 	  MEDIA_BUS_FMT_Y10_1X10, MEDIA_BUS_FMT_Y8_1X8,
-	  V4L2_PIX_FMT_Y10, 10, },
+	  V4L2_PIX_FMT_Y10, 10, "Greyscale 10 bpp", },
 	{ MEDIA_BUS_FMT_Y12_1X12, MEDIA_BUS_FMT_Y10_1X10,
 	  MEDIA_BUS_FMT_Y12_1X12, MEDIA_BUS_FMT_Y8_1X8,
-	  V4L2_PIX_FMT_Y12, 12, },
+	  V4L2_PIX_FMT_Y12, 12, "Greyscale 12 bpp", },
 	{ MEDIA_BUS_FMT_SBGGR8_1X8, MEDIA_BUS_FMT_SBGGR8_1X8,
 	  MEDIA_BUS_FMT_SBGGR8_1X8, MEDIA_BUS_FMT_SBGGR8_1X8,
-	  V4L2_PIX_FMT_SBGGR8, 8, },
+	  V4L2_PIX_FMT_SBGGR8, 8, "BGGR Bayer 8 bpp", },
 	{ MEDIA_BUS_FMT_SGBRG8_1X8, MEDIA_BUS_FMT_SGBRG8_1X8,
 	  MEDIA_BUS_FMT_SGBRG8_1X8, MEDIA_BUS_FMT_SGBRG8_1X8,
-	  V4L2_PIX_FMT_SGBRG8, 8, },
+	  V4L2_PIX_FMT_SGBRG8, 8, "GBRG Bayer 8 bpp", },
 	{ MEDIA_BUS_FMT_SGRBG8_1X8, MEDIA_BUS_FMT_SGRBG8_1X8,
 	  MEDIA_BUS_FMT_SGRBG8_1X8, MEDIA_BUS_FMT_SGRBG8_1X8,
-	  V4L2_PIX_FMT_SGRBG8, 8, },
+	  V4L2_PIX_FMT_SGRBG8, 8, "GRBG Bayer 8 bpp", },
 	{ MEDIA_BUS_FMT_SRGGB8_1X8, MEDIA_BUS_FMT_SRGGB8_1X8,
 	  MEDIA_BUS_FMT_SRGGB8_1X8, MEDIA_BUS_FMT_SRGGB8_1X8,
-	  V4L2_PIX_FMT_SRGGB8, 8, },
+	  V4L2_PIX_FMT_SRGGB8, 8, "RGGB Bayer 8 bpp", },
 	{ MEDIA_BUS_FMT_SGRBG10_DPCM8_1X8, MEDIA_BUS_FMT_SGRBG10_DPCM8_1X8,
 	  MEDIA_BUS_FMT_SGRBG10_1X10, 0,
-	  V4L2_PIX_FMT_SGRBG10DPCM8, 8, },
+	  V4L2_PIX_FMT_SGRBG10DPCM8, 8, "GRBG Bayer 10 bpp DPCM8",  },
 	{ MEDIA_BUS_FMT_SBGGR10_1X10, MEDIA_BUS_FMT_SBGGR10_1X10,
 	  MEDIA_BUS_FMT_SBGGR10_1X10, MEDIA_BUS_FMT_SBGGR8_1X8,
-	  V4L2_PIX_FMT_SBGGR10, 10, },
+	  V4L2_PIX_FMT_SBGGR10, 10, "BGGR Bayer 10 bpp", },
 	{ MEDIA_BUS_FMT_SGBRG10_1X10, MEDIA_BUS_FMT_SGBRG10_1X10,
 	  MEDIA_BUS_FMT_SGBRG10_1X10, MEDIA_BUS_FMT_SGBRG8_1X8,
-	  V4L2_PIX_FMT_SGBRG10, 10, },
+	  V4L2_PIX_FMT_SGBRG10, 10, "GBRG Bayer 10 bpp", },
 	{ MEDIA_BUS_FMT_SGRBG10_1X10, MEDIA_BUS_FMT_SGRBG10_1X10,
 	  MEDIA_BUS_FMT_SGRBG10_1X10, MEDIA_BUS_FMT_SGRBG8_1X8,
-	  V4L2_PIX_FMT_SGRBG10, 10, },
+	  V4L2_PIX_FMT_SGRBG10, 10, "GRBG Bayer 10 bpp", },
 	{ MEDIA_BUS_FMT_SRGGB10_1X10, MEDIA_BUS_FMT_SRGGB10_1X10,
 	  MEDIA_BUS_FMT_SRGGB10_1X10, MEDIA_BUS_FMT_SRGGB8_1X8,
-	  V4L2_PIX_FMT_SRGGB10, 10, },
+	  V4L2_PIX_FMT_SRGGB10, 10, "RGGB Bayer 10 bpp", },
 	{ MEDIA_BUS_FMT_SBGGR12_1X12, MEDIA_BUS_FMT_SBGGR10_1X10,
 	  MEDIA_BUS_FMT_SBGGR12_1X12, MEDIA_BUS_FMT_SBGGR8_1X8,
-	  V4L2_PIX_FMT_SBGGR12, 12, },
+	  V4L2_PIX_FMT_SBGGR12, 12, "BGGR Bayer 12 bpp", },
 	{ MEDIA_BUS_FMT_SGBRG12_1X12, MEDIA_BUS_FMT_SGBRG10_1X10,
 	  MEDIA_BUS_FMT_SGBRG12_1X12, MEDIA_BUS_FMT_SGBRG8_1X8,
-	  V4L2_PIX_FMT_SGBRG12, 12, },
+	  V4L2_PIX_FMT_SGBRG12, 12, "GBRG Bayer 12 bpp", },
 	{ MEDIA_BUS_FMT_SGRBG12_1X12, MEDIA_BUS_FMT_SGRBG10_1X10,
 	  MEDIA_BUS_FMT_SGRBG12_1X12, MEDIA_BUS_FMT_SGRBG8_1X8,
-	  V4L2_PIX_FMT_SGRBG12, 12, },
+	  V4L2_PIX_FMT_SGRBG12, 12, "GRBG Bayer 12 bpp", },
 	{ MEDIA_BUS_FMT_SRGGB12_1X12, MEDIA_BUS_FMT_SRGGB10_1X10,
 	  MEDIA_BUS_FMT_SRGGB12_1X12, MEDIA_BUS_FMT_SRGGB8_1X8,
-	  V4L2_PIX_FMT_SRGGB12, 12, },
+	  V4L2_PIX_FMT_SRGGB12, 12, "RGGB Bayer 12 bpp", },
 	{ MEDIA_BUS_FMT_UYVY8_1X16, MEDIA_BUS_FMT_UYVY8_1X16,
 	  MEDIA_BUS_FMT_UYVY8_1X16, 0,
-	  V4L2_PIX_FMT_UYVY, 16, },
+	  V4L2_PIX_FMT_UYVY, 16, "YUV 4:2:2 (UYVY)", },
 	{ MEDIA_BUS_FMT_YUYV8_1X16, MEDIA_BUS_FMT_YUYV8_1X16,
 	  MEDIA_BUS_FMT_YUYV8_1X16, 0,
-	  V4L2_PIX_FMT_YUYV, 16, },
+	  V4L2_PIX_FMT_YUYV, 16, "YUV 4:2:2 (YUYV)", },
 	{ MEDIA_BUS_FMT_YUYV8_1_5X8, MEDIA_BUS_FMT_YUYV8_1_5X8,
 	  MEDIA_BUS_FMT_YUYV8_1_5X8, 0,
-	  V4L2_PIX_FMT_NV12, 8, },
+	  V4L2_PIX_FMT_NV12, 8, "YUV 4:2:0 (NV12)", },
 };
 
 const struct iss_format_info *
@@ -533,6 +533,12 @@ iss_video_querycap(struct file *file, void *fh, struct v4l2_capability *cap)
 	strscpy(cap->driver, ISS_VIDEO_DRIVER_NAME, sizeof(cap->driver));
 	strscpy(cap->card, video->video.name, sizeof(cap->card));
 	strscpy(cap->bus_info, "media", sizeof(cap->bus_info));
+
+	if (video->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
+	else
+		cap->device_caps = V4L2_CAP_VIDEO_OUTPUT | V4L2_CAP_STREAMING;
+
 	cap->capabilities = V4L2_CAP_DEVICE_CAPS | V4L2_CAP_STREAMING
 			  | V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_OUTPUT;
 
@@ -563,6 +569,8 @@ iss_video_enum_format(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 
 		if (index == 0) {
 			f->pixelformat = info->pixelformat;
+			strscpy(f->description, info->description,
+				sizeof(f->description));
 			return 0;
 		}
 
@@ -671,7 +679,7 @@ iss_video_get_selection(struct file *file, void *fh, struct v4l2_selection *sel)
 		return -EINVAL;
 	}
 	subdev = iss_video_remote_subdev(video, &pad);
-	if (!subdev)
+	if (subdev == NULL)
 		return -EINVAL;
 
 	/*
@@ -726,7 +734,7 @@ iss_video_set_selection(struct file *file, void *fh, struct v4l2_selection *sel)
 		return -EINVAL;
 	}
 	subdev = iss_video_remote_subdev(video, &pad);
-	if (!subdev)
+	if (subdev == NULL)
 		return -EINVAL;
 
 	sdsel.pad = pad;
@@ -1111,7 +1119,7 @@ static int iss_video_open(struct file *file)
 		goto done;
 	}
 
-	ret = v4l2_pipeline_pm_get(&video->video.entity);
+	ret = v4l2_pipeline_pm_use(&video->video.entity, 1);
 	if (ret < 0) {
 		omap4iss_put(video->iss);
 		goto done;
@@ -1160,7 +1168,7 @@ static int iss_video_release(struct file *file)
 	/* Disable streaming and free the buffers queue resources. */
 	iss_video_streamoff(file, vfh, video->type);
 
-	v4l2_pipeline_pm_put(&video->video.entity);
+	v4l2_pipeline_pm_use(&video->video.entity, 0);
 
 	/* Release the videobuf2 queue */
 	vb2_queue_release(&handle->queue);
@@ -1242,7 +1250,7 @@ int omap4iss_video_init(struct iss_video *video, const char *name)
 	video->video.fops = &iss_video_fops;
 	snprintf(video->video.name, sizeof(video->video.name),
 		 "OMAP4 ISS %s %s", name, direction);
-	video->video.vfl_type = VFL_TYPE_VIDEO;
+	video->video.vfl_type = VFL_TYPE_GRABBER;
 	video->video.release = video_device_release_empty;
 	video->video.ioctl_ops = &iss_video_ioctl_ops;
 	video->pipe.stream_state = ISS_PIPELINE_STREAM_STOPPED;
@@ -1264,13 +1272,8 @@ int omap4iss_video_register(struct iss_video *video, struct v4l2_device *vdev)
 	int ret;
 
 	video->video.v4l2_dev = vdev;
-	if (video->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
-		video->video.device_caps = V4L2_CAP_VIDEO_CAPTURE;
-	else
-		video->video.device_caps = V4L2_CAP_VIDEO_OUTPUT;
-	video->video.device_caps |= V4L2_CAP_STREAMING;
 
-	ret = video_register_device(&video->video, VFL_TYPE_VIDEO, -1);
+	ret = video_register_device(&video->video, VFL_TYPE_GRABBER, -1);
 	if (ret < 0)
 		dev_err(video->iss->dev,
 			"could not register video device (%d)\n", ret);

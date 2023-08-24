@@ -39,6 +39,7 @@
 #include <asm/irq.h>
 #include <asm/mpc8260.h>
 #include <asm/page.h>
+#include <asm/pgtable.h>
 #include <asm/cpm2.h>
 #include <asm/rheap.h>
 #include <asm/fs_pd.h>

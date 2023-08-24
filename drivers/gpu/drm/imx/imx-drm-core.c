@@ -1,30 +1,34 @@
-// SPDX-License-Identifier: GPL-2.0+
 /*
  * Freescale i.MX drm driver
  *
  * Copyright (C) 2011 Sascha Hauer, Pengutronix
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
  */
-
 #include <linux/component.h>
 #include <linux/device.h>
 #include <linux/dma-buf.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
-
-#include <video/imx-ipu-v3.h>
-
+#include <drm/drmP.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
-#include <drm/drm_drv.h>
-#include <drm/drm_fb_cma_helper.h>
 #include <drm/drm_fb_helper.h>
+#include <drm/drm_crtc_helper.h>
 #include <drm/drm_gem_cma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
-#include <drm/drm_managed.h>
-#include <drm/drm_of.h>
+#include <drm/drm_fb_cma_helper.h>
 #include <drm/drm_plane_helper.h>
-#include <drm/drm_probe_helper.h>
-#include <drm/drm_vblank.h>
+#include <drm/drm_of.h>
+#include <video/imx-ipu-v3.h>
 
 #include "imx-drm.h"
 #include "ipuv3-plane.h"
@@ -43,12 +47,22 @@ void imx_drm_connector_destroy(struct drm_connector *connector)
 }
 EXPORT_SYMBOL_GPL(imx_drm_connector_destroy);
 
+void imx_drm_encoder_destroy(struct drm_encoder *encoder)
+{
+	drm_encoder_cleanup(encoder);
+}
+EXPORT_SYMBOL_GPL(imx_drm_encoder_destroy);
+
 static int imx_drm_atomic_check(struct drm_device *dev,
 				struct drm_atomic_state *state)
 {
 	int ret;
 
-	ret = drm_atomic_helper_check(dev, state);
+	ret = drm_atomic_helper_check_modeset(dev, state);
+	if (ret)
+		return ret;
+
+	ret = drm_atomic_helper_check_planes(dev, state);
 	if (ret)
 		return ret;
 
@@ -134,8 +148,8 @@ int imx_drm_encoder_parse_of(struct drm_device *drm,
 
 	encoder->possible_crtcs = crtc_mask;
 
-	/* FIXME: cloning support not clear, disable it all for now */
-	encoder->possible_clones = 0;
+	/* FIXME: this is the mask of outputs which can clone this output. */
+	encoder->possible_clones = ~0;
 
 	return 0;
 }
@@ -146,8 +160,21 @@ static const struct drm_ioctl_desc imx_drm_ioctls[] = {
 };
 
 static struct drm_driver imx_drm_driver = {
-	.driver_features	= DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC,
-	DRM_GEM_CMA_DRIVER_OPS,
+	.driver_features	= DRIVER_MODESET | DRIVER_GEM | DRIVER_PRIME |
+				  DRIVER_ATOMIC,
+	.gem_free_object_unlocked = drm_gem_cma_free_object,
+	.gem_vm_ops		= &drm_gem_cma_vm_ops,
+	.dumb_create		= drm_gem_cma_dumb_create,
+
+	.prime_handle_to_fd	= drm_gem_prime_handle_to_fd,
+	.prime_fd_to_handle	= drm_gem_prime_fd_to_handle,
+	.gem_prime_import	= drm_gem_prime_import,
+	.gem_prime_export	= drm_gem_prime_export,
+	.gem_prime_get_sg_table	= drm_gem_cma_prime_get_sg_table,
+	.gem_prime_import_sg_table = drm_gem_cma_prime_import_sg_table,
+	.gem_prime_vmap		= drm_gem_cma_prime_vmap,
+	.gem_prime_vunmap	= drm_gem_cma_prime_vunmap,
+	.gem_prime_mmap		= drm_gem_cma_prime_mmap,
 	.ioctls			= imx_drm_ioctls,
 	.num_ioctls		= ARRAY_SIZE(imx_drm_ioctls),
 	.fops			= &imx_drm_driver_fops,
@@ -171,7 +198,7 @@ static int compare_of(struct device *dev, void *data)
 	}
 
 	/* Special case for LDB, one device for two channels */
-	if (of_node_name_eq(np, "lvds-channel")) {
+	if (of_node_cmp(np->name, "lvds-channel") == 0) {
 		np = of_get_parent(np);
 		of_node_put(np);
 	}
@@ -211,11 +238,8 @@ static int imx_drm_bind(struct device *dev)
 	drm->mode_config.funcs = &imx_drm_mode_config_funcs;
 	drm->mode_config.helper_private = &imx_drm_mode_config_helpers;
 	drm->mode_config.allow_fb_modifiers = true;
-	drm->mode_config.normalize_zpos = true;
 
-	ret = drmm_mode_config_init(drm);
-	if (ret)
-		goto err_kms;
+	drm_mode_config_init(drm);
 
 	ret = drm_vblank_init(drm, MAX_CRTC);
 	if (ret)
@@ -254,6 +278,7 @@ err_poll_fini:
 	drm_kms_helper_poll_fini(drm);
 	component_unbind_all(drm->dev, drm);
 err_kms:
+	drm_mode_config_cleanup(drm);
 	drm_dev_put(drm);
 
 	return ret;
@@ -267,11 +292,12 @@ static void imx_drm_unbind(struct device *dev)
 
 	drm_kms_helper_poll_fini(drm);
 
+	drm_mode_config_cleanup(drm);
+
 	component_unbind_all(drm->dev, drm);
+	dev_set_drvdata(dev, NULL);
 
 	drm_dev_put(drm);
-
-	dev_set_drvdata(dev, NULL);
 }
 
 static const struct component_master_ops imx_drm_ops = {

@@ -17,6 +17,7 @@
 #include <linux/module.h>
 
 #include <asm/hwrpb.h>
+#include <asm/pgalloc.h>
 #include <asm/sections.h>
 
 pg_data_t node_data[MAX_NUMNODES];
@@ -143,8 +144,8 @@ setup_memory_node(int nid, void *kernel_end)
 	if (!nid && (node_max_pfn < end_kernel_pfn || node_min_pfn > start_kernel_pfn))
 		panic("kernel loaded out of ram");
 
-	memblock_add_node(PFN_PHYS(node_min_pfn),
-			  (node_max_pfn - node_min_pfn) << PAGE_SHIFT, nid);
+	memblock_add(PFN_PHYS(node_min_pfn),
+		     (node_max_pfn - node_min_pfn) << PAGE_SHIFT);
 
 	/* Zone start phys-addr must be 2^(MAX_ORDER-1) aligned.
 	   Note that we round this down, not up - node memory
@@ -201,7 +202,8 @@ setup_memory(void *kernel_end)
 
 void __init paging_init(void)
 {
-	unsigned long   max_zone_pfn[MAX_NR_ZONES] = {0, };
+	unsigned int    nid;
+	unsigned long   zones_size[MAX_NR_ZONES] = {0, };
 	unsigned long	dma_local_pfn;
 
 	/*
@@ -213,10 +215,19 @@ void __init paging_init(void)
 	 */
 	dma_local_pfn = virt_to_phys((char *)MAX_DMA_ADDRESS) >> PAGE_SHIFT;
 
-	max_zone_pfn[ZONE_DMA] = dma_local_pfn;
-	max_zone_pfn[ZONE_NORMAL] = max_pfn;
+	for_each_online_node(nid) {
+		unsigned long start_pfn = NODE_DATA(nid)->node_start_pfn;
+		unsigned long end_pfn = start_pfn + NODE_DATA(nid)->node_present_pages;
 
-	free_area_init(max_zone_pfn);
+		if (dma_local_pfn >= end_pfn - start_pfn)
+			zones_size[ZONE_DMA] = end_pfn - start_pfn;
+		else {
+			zones_size[ZONE_DMA] = dma_local_pfn;
+			zones_size[ZONE_NORMAL] = (end_pfn - start_pfn) - dma_local_pfn;
+		}
+		node_set_state(nid, N_NORMAL_MEMORY);
+		free_area_init_node(nid, zones_size, start_pfn, NULL);
+	}
 
 	/* Initialize the kernel's ZERO_PGE. */
 	memset((void *)ZERO_PGE, 0, PAGE_SIZE);

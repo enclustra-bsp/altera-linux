@@ -1,12 +1,15 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * AMD Secure Processor driver
  *
- * Copyright (C) 2017-2018 Advanced Micro Devices, Inc.
+ * Copyright (C) 2017 Advanced Micro Devices, Inc.
  *
  * Author: Tom Lendacky <thomas.lendacky@amd.com>
  * Author: Gary R Hook <gary.hook@amd.com>
  * Author: Brijesh Singh <brijesh.singh@amd.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/module.h>
@@ -211,12 +214,13 @@ void sp_destroy(struct sp_device *sp)
 	sp_del_device(sp);
 }
 
-int sp_suspend(struct sp_device *sp)
+#ifdef CONFIG_PM
+int sp_suspend(struct sp_device *sp, pm_message_t state)
 {
 	int ret;
 
 	if (sp->dev_vdata->ccp_vdata) {
-		ret = ccp_dev_suspend(sp);
+		ret = ccp_dev_suspend(sp, state);
 		if (ret)
 			return ret;
 	}
@@ -236,6 +240,7 @@ int sp_resume(struct sp_device *sp)
 
 	return 0;
 }
+#endif
 
 struct sp_device *sp_get_psp_master_device(void)
 {

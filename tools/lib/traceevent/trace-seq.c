@@ -100,8 +100,7 @@ static void expand_buffer(struct trace_seq *s)
  * @fmt: printf format string
  *
  * It returns 0 if the trace oversizes the buffer's free
- * space, the number of characters printed, or a negative
- * value in case of an error.
+ * space, 1 otherwise.
  *
  * The tracer may use either sequence operations or its own
  * copy to user routines. To simplify formating of a trace
@@ -130,10 +129,9 @@ trace_seq_printf(struct trace_seq *s, const char *fmt, ...)
 		goto try_again;
 	}
 
-	if (ret > 0)
-		s->len += ret;
+	s->len += ret;
 
-	return ret;
+	return 1;
 }
 
 /**
@@ -141,10 +139,6 @@ trace_seq_printf(struct trace_seq *s, const char *fmt, ...)
  * @s: trace sequence descriptor
  * @fmt: printf format string
  *
- * It returns 0 if the trace oversizes the buffer's free
- * space, the number of characters printed, or a negative
- * value in case of an error.
- * *
  * The tracer may use either sequence operations or its own
  * copy to user routines. To simplify formating of a trace
  * trace_seq_printf is used to store strings into a special
@@ -169,10 +163,9 @@ trace_seq_vprintf(struct trace_seq *s, const char *fmt, va_list args)
 		goto try_again;
 	}
 
-	if (ret > 0)
-		s->len += ret;
+	s->len += ret;
 
-	return ret;
+	return len;
 }
 
 /**

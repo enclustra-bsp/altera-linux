@@ -1,8 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * 74xx MMIO GPIO driver
  *
  *  Copyright (C) 2014 Alexander Shiyan <shc_work@mail.ru>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  */
 
 #include <linux/err.h>
@@ -77,10 +81,7 @@ static int mmio_74xx_get_direction(struct gpio_chip *gc, unsigned offset)
 {
 	struct mmio_74xx_gpio_priv *priv = gpiochip_get_data(gc);
 
-	if (priv->flags & MMIO_74XX_DIR_OUT)
-		return GPIO_LINE_DIRECTION_OUT;
-
-	return  GPIO_LINE_DIRECTION_IN;
+	return !(priv->flags & MMIO_74XX_DIR_OUT);
 }
 
 static int mmio_74xx_dir_in(struct gpio_chip *gc, unsigned int gpio)
@@ -105,6 +106,7 @@ static int mmio_74xx_dir_out(struct gpio_chip *gc, unsigned int gpio, int val)
 static int mmio_74xx_gpio_probe(struct platform_device *pdev)
 {
 	struct mmio_74xx_gpio_priv *priv;
+	struct resource *res;
 	void __iomem *dat;
 	int err;
 
@@ -114,7 +116,8 @@ static int mmio_74xx_gpio_probe(struct platform_device *pdev)
 
 	priv->flags = (uintptr_t)of_device_get_match_data(&pdev->dev);
 
-	dat = devm_platform_ioremap_resource(pdev, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	dat = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(dat))
 		return PTR_ERR(dat);
 

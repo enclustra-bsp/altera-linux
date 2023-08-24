@@ -1,6 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Hibernation support for x86-64
+ *
+ * Distribute under GPLv2
  *
  * Copyright (c) 2007 Rafael J. Wysocki <rjw@sisk.pl>
  * Copyright (c) 2002 Pavel Machek <pavel@ucw.cz>
@@ -12,7 +13,6 @@
 #include <linux/suspend.h>
 #include <linux/scatterlist.h>
 #include <linux/kdebug.h>
-#include <linux/pgtable.h>
 
 #include <crypto/hash.h>
 
@@ -20,6 +20,7 @@
 #include <asm/init.h>
 #include <asm/proto.h>
 #include <asm/page.h>
+#include <asm/pgtable.h>
 #include <asm/mtrr.h>
 #include <asm/sections.h>
 #include <asm/suspend.h>

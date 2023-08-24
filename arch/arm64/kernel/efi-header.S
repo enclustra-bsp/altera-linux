@@ -1,7 +1,10 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2013 - 2017 Linaro, Ltd.
  * Copyright (C) 2013, 2014 Red Hat, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/pe.h>
@@ -27,17 +30,17 @@ optional_header:
 	.long	__initdata_begin - efi_header_end	// SizeOfCode
 	.long	__pecoff_data_size			// SizeOfInitializedData
 	.long	0					// SizeOfUninitializedData
-	.long	__efistub_efi_pe_entry - _head		// AddressOfEntryPoint
+	.long	__efistub_entry - _head			// AddressOfEntryPoint
 	.long	efi_header_end - _head			// BaseOfCode
 
 extra_header_fields:
 	.quad	0					// ImageBase
-	.long	SEGMENT_ALIGN				// SectionAlignment
+	.long	SZ_4K					// SectionAlignment
 	.long	PECOFF_FILE_ALIGNMENT			// FileAlignment
 	.short	0					// MajorOperatingSystemVersion
 	.short	0					// MinorOperatingSystemVersion
-	.short	LINUX_EFISTUB_MAJOR_VERSION		// MajorImageVersion
-	.short	LINUX_EFISTUB_MINOR_VERSION		// MinorImageVersion
+	.short	0					// MajorImageVersion
+	.short	0					// MinorImageVersion
 	.short	0					// MajorSubsystemVersion
 	.short	0					// MinorSubsystemVersion
 	.long	0					// Win32VersionValue
@@ -147,6 +150,6 @@ efi_debug_entry:
 	 * correctly at this alignment, we must ensure that .text is
 	 * placed at a 4k boundary in the Image to begin with.
 	 */
-	.balign	SEGMENT_ALIGN
+	.align 12
 efi_header_end:
 	.endm

@@ -13,7 +13,8 @@
 
 #define MAX_RECVBUF_SZ (10240)
 
-struct phy_stat {
+struct phy_stat
+{
 	unsigned int phydw0;
 
 	unsigned int phydw1;

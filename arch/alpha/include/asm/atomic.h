@@ -16,14 +16,15 @@
 
 /*
  * To ensure dependency ordering is preserved for the _relaxed and
- * _release atomics, an smp_mb() is unconditionally inserted into the
- * _relaxed variants, which are used to build the barriered versions.
- * Avoid redundant back-to-back fences in the _acquire and _fence
- * versions.
+ * _release atomics, an smp_read_barrier_depends() is unconditionally
+ * inserted into the _relaxed variants, which are used to build the
+ * barriered versions. Avoid redundant back-to-back fences in the
+ * _acquire and _fence versions.
  */
 #define __atomic_acquire_fence()
 #define __atomic_post_full_fence()
 
+#define ATOMIC_INIT(i)		{ (i) }
 #define ATOMIC64_INIT(i)	{ (i) }
 
 #define atomic_read(v)		READ_ONCE((v)->counter)
@@ -69,7 +70,7 @@ static inline int atomic_##op##_return_relaxed(int i, atomic_t *v)	\
 	".previous"							\
 	:"=&r" (temp), "=m" (v->counter), "=&r" (result)		\
 	:"Ir" (i), "m" (v->counter) : "memory");			\
-	smp_mb();							\
+	smp_read_barrier_depends();					\
 	return result;							\
 }
 
@@ -87,14 +88,14 @@ static inline int atomic_fetch_##op##_relaxed(int i, atomic_t *v)	\
 	".previous"							\
 	:"=&r" (temp), "=m" (v->counter), "=&r" (result)		\
 	:"Ir" (i), "m" (v->counter) : "memory");			\
-	smp_mb();							\
+	smp_read_barrier_depends();					\
 	return result;							\
 }
 
 #define ATOMIC64_OP(op, asm_op)						\
-static __inline__ void atomic64_##op(s64 i, atomic64_t * v)		\
+static __inline__ void atomic64_##op(long i, atomic64_t * v)		\
 {									\
-	s64 temp;							\
+	unsigned long temp;						\
 	__asm__ __volatile__(						\
 	"1:	ldq_l %0,%1\n"						\
 	"	" #asm_op " %0,%2,%0\n"					\
@@ -108,9 +109,9 @@ static __inline__ void atomic64_##op(s64 i, atomic64_t * v)		\
 }									\
 
 #define ATOMIC64_OP_RETURN(op, asm_op)					\
-static __inline__ s64 atomic64_##op##_return_relaxed(s64 i, atomic64_t * v)	\
+static __inline__ long atomic64_##op##_return_relaxed(long i, atomic64_t * v)	\
 {									\
-	s64 temp, result;						\
+	long temp, result;						\
 	__asm__ __volatile__(						\
 	"1:	ldq_l %0,%1\n"						\
 	"	" #asm_op " %0,%3,%2\n"					\
@@ -122,14 +123,14 @@ static __inline__ s64 atomic64_##op##_return_relaxed(s64 i, atomic64_t * v)	\
 	".previous"							\
 	:"=&r" (temp), "=m" (v->counter), "=&r" (result)		\
 	:"Ir" (i), "m" (v->counter) : "memory");			\
-	smp_mb();							\
+	smp_read_barrier_depends();					\
 	return result;							\
 }
 
 #define ATOMIC64_FETCH_OP(op, asm_op)					\
-static __inline__ s64 atomic64_fetch_##op##_relaxed(s64 i, atomic64_t * v)	\
+static __inline__ long atomic64_fetch_##op##_relaxed(long i, atomic64_t * v)	\
 {									\
-	s64 temp, result;						\
+	long temp, result;						\
 	__asm__ __volatile__(						\
 	"1:	ldq_l %2,%1\n"						\
 	"	" #asm_op " %2,%3,%0\n"					\
@@ -140,7 +141,7 @@ static __inline__ s64 atomic64_fetch_##op##_relaxed(s64 i, atomic64_t * v)	\
 	".previous"							\
 	:"=&r" (temp), "=m" (v->counter), "=&r" (result)		\
 	:"Ir" (i), "m" (v->counter) : "memory");			\
-	smp_mb();							\
+	smp_read_barrier_depends();					\
 	return result;							\
 }
 
@@ -245,9 +246,9 @@ static __inline__ int atomic_fetch_add_unless(atomic_t *v, int a, int u)
  * Atomically adds @a to @v, so long as it was not @u.
  * Returns the old value of @v.
  */
-static __inline__ s64 atomic64_fetch_add_unless(atomic64_t *v, s64 a, s64 u)
+static __inline__ long atomic64_fetch_add_unless(atomic64_t *v, long a, long u)
 {
-	s64 c, new, old;
+	long c, new, old;
 	smp_mb();
 	__asm__ __volatile__(
 	"1:	ldq_l	%[old],%[mem]\n"
@@ -275,9 +276,9 @@ static __inline__ s64 atomic64_fetch_add_unless(atomic64_t *v, s64 a, s64 u)
  * The function returns the old value of *v minus 1, even if
  * the atomic variable, v, was not decremented.
  */
-static inline s64 atomic64_dec_if_positive(atomic64_t *v)
+static inline long atomic64_dec_if_positive(atomic64_t *v)
 {
-	s64 old, tmp;
+	long old, tmp;
 	smp_mb();
 	__asm__ __volatile__(
 	"1:	ldq_l	%[old],%[mem]\n"

@@ -100,11 +100,13 @@ static void bnx2x_vf_igu_ack_sb(struct bnx2x *bp, struct bnx2x_virtf *vf,
 	DP(NETIF_MSG_HW, "write 0x%08x to IGU(via GRC) addr 0x%x\n",
 	   cmd_data.sb_id_and_flags, igu_addr_data);
 	REG_WR(bp, igu_addr_data, cmd_data.sb_id_and_flags);
+	mmiowb();
 	barrier();
 
 	DP(NETIF_MSG_HW, "write 0x%08x to IGU(via GRC) addr 0x%x\n",
 	   ctl, igu_addr_ctl);
 	REG_WR(bp, igu_addr_ctl, ctl);
+	mmiowb();
 	barrier();
 }
 
@@ -329,6 +331,27 @@ bnx2x_vf_set_igu_info(struct bnx2x *bp, u8 igu_sb_id, u8 abs_vfid)
 		++vf->sb_count;
 	}
 	BP_VFDB(bp)->vf_sbs_pool++;
+}
+
+static inline void bnx2x_vf_vlan_credit(struct bnx2x *bp,
+					struct bnx2x_vlan_mac_obj *obj,
+					atomic_t *counter)
+{
+	struct list_head *pos;
+	int read_lock;
+	int cnt = 0;
+
+	read_lock = bnx2x_vlan_mac_h_read_lock(bp, obj);
+	if (read_lock)
+		DP(BNX2X_MSG_SP, "Failed to take vlan mac read head; continuing anyway\n");
+
+	list_for_each(pos, &obj->head)
+		cnt++;
+
+	if (!read_lock)
+		bnx2x_vlan_mac_h_read_unlock(bp, obj);
+
+	atomic_set(counter, cnt);
 }
 
 static int bnx2x_vf_vlan_mac_clear(struct bnx2x *bp, struct bnx2x_virtf *vf,
@@ -758,18 +781,9 @@ static void bnx2x_vf_igu_reset(struct bnx2x *bp, struct bnx2x_virtf *vf)
 
 void bnx2x_vf_enable_access(struct bnx2x *bp, u8 abs_vfid)
 {
-	u16 abs_fid;
-
-	abs_fid = FW_VF_HANDLE(abs_vfid);
-
 	/* set the VF-PF association in the FW */
-	storm_memset_vf_to_pf(bp, abs_fid, BP_FUNC(bp));
-	storm_memset_func_en(bp, abs_fid, 1);
-
-	/* Invalidate fp_hsi version for vfs */
-	if (bp->fw_cap & FW_CAP_INVALIDATE_VF_FP_HSI)
-		REG_WR8(bp, BAR_XSTRORM_INTMEM +
-			    XSTORM_ETH_FUNCTION_INFO_FP_HSI_VALID_E2_OFFSET(abs_fid), 0);
+	storm_memset_vf_to_pf(bp, FW_VF_HANDLE(abs_vfid), BP_FUNC(bp));
+	storm_memset_func_en(bp, FW_VF_HANDLE(abs_vfid), 1);
 
 	/* clear vf errors*/
 	bnx2x_vf_semi_clear_err(bp, abs_vfid);
@@ -1233,10 +1247,8 @@ int bnx2x_iov_init_one(struct bnx2x *bp, int int_mode_param,
 		goto failed;
 
 	/* SR-IOV capability was enabled but there are no VFs*/
-	if (iov->total == 0) {
-		err = 0;
+	if (iov->total == 0)
 		goto failed;
-	}
 
 	iov->nr_virtfn = min_t(u16, iov->total, num_vfs_param);
 
@@ -1820,7 +1832,7 @@ get_vf:
 		DP(BNX2X_MSG_IOV, "got VF [%d:%d] RSS update ramrod\n",
 		   vf->abs_vfid, qidx);
 		bnx2x_vf_handle_rss_update_eqe(bp, vf);
-		fallthrough;
+		/* fall through */
 	case EVENT_RING_OPCODE_VF_FLR:
 		/* Do nothing for now */
 		return 0;
@@ -2218,7 +2230,7 @@ int bnx2x_vf_free(struct bnx2x *bp, struct bnx2x_virtf *vf)
 		rc = bnx2x_vf_close(bp, vf);
 		if (rc)
 			goto op_err;
-		fallthrough;	/* to release resources */
+		/* Fallthrough to release resources */
 	case VF_ACQUIRED:
 		DP(BNX2X_MSG_IOV, "about to free resources\n");
 		bnx2x_vf_free_resc(bp, vf);
@@ -2387,21 +2399,15 @@ static int bnx2x_set_pf_tx_switching(struct bnx2x *bp, bool enable)
 	/* send the ramrod on all the queues of the PF */
 	for_each_eth_queue(bp, i) {
 		struct bnx2x_fastpath *fp = &bp->fp[i];
-		int tx_idx;
 
 		/* Set the appropriate Queue object */
 		q_params.q_obj = &bnx2x_sp_obj(bp, fp).q_obj;
 
-		for (tx_idx = FIRST_TX_COS_INDEX;
-		     tx_idx < fp->max_cos; tx_idx++) {
-			q_params.params.update.cid_index = tx_idx;
-
-			/* Update the Queue state */
-			rc = bnx2x_queue_state_change(bp, &q_params);
-			if (rc) {
-				BNX2X_ERR("Failed to configure Tx switching\n");
-				return rc;
-			}
+		/* Update the Queue state */
+		rc = bnx2x_queue_state_change(bp, &q_params);
+		if (rc) {
+			BNX2X_ERR("Failed to configure Tx switching\n");
+			return rc;
 		}
 	}
 

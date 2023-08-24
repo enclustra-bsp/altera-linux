@@ -1,7 +1,33 @@
-// SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
 /* QLogic qed NIC Driver
  * Copyright (c) 2015-2017  QLogic Corporation
- * Copyright (c) 2019-2020 Marvell International Ltd.
+ *
+ * This software is available to you under a choice of one of two
+ * licenses.  You may choose to be licensed under the terms of the GNU
+ * General Public License (GPL) Version 2, available from the file
+ * COPYING in the main directory of this source tree, or the
+ * OpenIB.org BSD license below:
+ *
+ *     Redistribution and use in source and binary forms, with or
+ *     without modification, are permitted provided that the following
+ *     conditions are met:
+ *
+ *      - Redistributions of source code must retain the above
+ *        copyright notice, this list of conditions and the following
+ *        disclaimer.
+ *
+ *      - Redistributions in binary form must reproduce the above
+ *        copyright notice, this list of conditions and the following
+ *        disclaimer in the documentation and /or other materials
+ *        provided with the distribution.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+ * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 
 #include <linux/types.h>
@@ -300,14 +326,13 @@ int qed_sp_pf_start(struct qed_hwfn *p_hwfn,
 		    struct qed_tunnel_info *p_tunn,
 		    bool allow_npar_tx_switch)
 {
-	struct outer_tag_config_struct *outer_tag_config;
 	struct pf_start_ramrod_data *p_ramrod = NULL;
 	u16 sb = qed_int_get_sp_sb_id(p_hwfn);
 	u8 sb_index = p_hwfn->p_eq->eq_sb_index;
 	struct qed_spq_entry *p_ent = NULL;
 	struct qed_sp_init_data init_data;
+	int rc = -EINVAL;
 	u8 page_cnt, i;
-	int rc;
 
 	/* update initial eq producer */
 	qed_eq_prod_update(p_hwfn,
@@ -337,40 +362,39 @@ int qed_sp_pf_start(struct qed_hwfn *p_hwfn,
 	else
 		p_ramrod->mf_mode = MF_NPAR;
 
-	outer_tag_config = &p_ramrod->outer_tag_config;
-	outer_tag_config->outer_tag.tci = cpu_to_le16(p_hwfn->hw_info.ovlan);
-
+	p_ramrod->outer_tag_config.outer_tag.tci =
+				cpu_to_le16(p_hwfn->hw_info.ovlan);
 	if (test_bit(QED_MF_8021Q_TAGGING, &p_hwfn->cdev->mf_bits)) {
-		outer_tag_config->outer_tag.tpid = cpu_to_le16(ETH_P_8021Q);
+		p_ramrod->outer_tag_config.outer_tag.tpid = ETH_P_8021Q;
 	} else if (test_bit(QED_MF_8021AD_TAGGING, &p_hwfn->cdev->mf_bits)) {
-		outer_tag_config->outer_tag.tpid = cpu_to_le16(ETH_P_8021AD);
-		outer_tag_config->enable_stag_pri_change = 1;
+		p_ramrod->outer_tag_config.outer_tag.tpid = ETH_P_8021AD;
+		p_ramrod->outer_tag_config.enable_stag_pri_change = 1;
 	}
 
-	outer_tag_config->pri_map_valid = 1;
+	p_ramrod->outer_tag_config.pri_map_valid = 1;
 	for (i = 0; i < QED_MAX_PFC_PRIORITIES; i++)
-		outer_tag_config->inner_to_outer_pri_map[i] = i;
+		p_ramrod->outer_tag_config.inner_to_outer_pri_map[i] = i;
 
 	/* enable_stag_pri_change should be set if port is in BD mode or,
 	 * UFP with Host Control mode.
 	 */
 	if (test_bit(QED_MF_UFP_SPECIFIC, &p_hwfn->cdev->mf_bits)) {
 		if (p_hwfn->ufp_info.pri_type == QED_UFP_PRI_OS)
-			outer_tag_config->enable_stag_pri_change = 1;
+			p_ramrod->outer_tag_config.enable_stag_pri_change = 1;
 		else
-			outer_tag_config->enable_stag_pri_change = 0;
+			p_ramrod->outer_tag_config.enable_stag_pri_change = 0;
 
-		outer_tag_config->outer_tag.tci |=
+		p_ramrod->outer_tag_config.outer_tag.tci |=
 		    cpu_to_le16(((u16)p_hwfn->ufp_info.tc << 13));
 	}
 
 	/* Place EQ address in RAMROD */
 	DMA_REGPAIR_LE(p_ramrod->event_ring_pbl_addr,
-		       qed_chain_get_pbl_phys(&p_hwfn->p_eq->chain));
+		       p_hwfn->p_eq->chain.pbl_sp.p_phys_table);
 	page_cnt = (u8)qed_chain_get_page_cnt(&p_hwfn->p_eq->chain);
 	p_ramrod->event_ring_num_pages = page_cnt;
 	DMA_REGPAIR_LE(p_ramrod->consolid_q_pbl_addr,
-		       qed_chain_get_pbl_phys(&p_hwfn->p_consq->chain));
+		       p_hwfn->p_consq->chain.pbl_sp.p_phys_table);
 
 	qed_tunn_set_pf_start_params(p_hwfn, p_tunn, &p_ramrod->tunnel_config);
 
@@ -408,7 +432,7 @@ int qed_sp_pf_start(struct qed_hwfn *p_hwfn,
 
 	DP_VERBOSE(p_hwfn, QED_MSG_SPQ,
 		   "Setting event_ring_sb [id %04x index %02x], outer_tag.tci [%d]\n",
-		   sb, sb_index, outer_tag_config->outer_tag.tci);
+		   sb, sb_index, p_ramrod->outer_tag_config.outer_tag.tci);
 
 	rc = qed_spq_post(p_hwfn, p_ent, NULL);
 
@@ -423,7 +447,7 @@ int qed_sp_pf_update(struct qed_hwfn *p_hwfn)
 {
 	struct qed_spq_entry *p_ent = NULL;
 	struct qed_sp_init_data init_data;
-	int rc;
+	int rc = -EINVAL;
 
 	/* Get SPQ entry */
 	memset(&init_data, 0, sizeof(init_data));
@@ -447,7 +471,7 @@ int qed_sp_pf_update_ufp(struct qed_hwfn *p_hwfn)
 {
 	struct qed_spq_entry *p_ent = NULL;
 	struct qed_sp_init_data init_data;
-	int rc;
+	int rc = -EOPNOTSUPP;
 
 	if (p_hwfn->ufp_info.pri_type == QED_UFP_PRI_UNKNOWN) {
 		DP_INFO(p_hwfn, "Invalid priority type %d\n",
@@ -485,7 +509,7 @@ int qed_sp_pf_update_tunn_cfg(struct qed_hwfn *p_hwfn,
 {
 	struct qed_spq_entry *p_ent = NULL;
 	struct qed_sp_init_data init_data;
-	int rc;
+	int rc = -EINVAL;
 
 	if (IS_VF(p_hwfn->cdev))
 		return qed_vf_pf_tunnel_param_update(p_hwfn, p_tunn);
@@ -522,7 +546,7 @@ int qed_sp_pf_stop(struct qed_hwfn *p_hwfn)
 {
 	struct qed_spq_entry *p_ent = NULL;
 	struct qed_sp_init_data init_data;
-	int rc;
+	int rc = -EINVAL;
 
 	/* Get SPQ entry */
 	memset(&init_data, 0, sizeof(init_data));
@@ -564,7 +588,7 @@ int qed_sp_pf_update_stag(struct qed_hwfn *p_hwfn)
 {
 	struct qed_spq_entry *p_ent = NULL;
 	struct qed_sp_init_data init_data;
-	int rc;
+	int rc = -EINVAL;
 
 	/* Get SPQ entry */
 	memset(&init_data, 0, sizeof(init_data));
@@ -580,9 +604,6 @@ int qed_sp_pf_update_stag(struct qed_hwfn *p_hwfn)
 
 	p_ent->ramrod.pf_update.update_mf_vlan_flag = true;
 	p_ent->ramrod.pf_update.mf_vlan = cpu_to_le16(p_hwfn->hw_info.ovlan);
-	if (test_bit(QED_MF_UFP_SPECIFIC, &p_hwfn->cdev->mf_bits))
-		p_ent->ramrod.pf_update.mf_vlan |=
-			cpu_to_le16(((u16)p_hwfn->ufp_info.tc << 13));
 
 	return qed_spq_post(p_hwfn, p_ent, NULL);
 }

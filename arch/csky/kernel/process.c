@@ -16,12 +16,6 @@
 
 struct cpuinfo_csky cpu_data[NR_CPUS];
 
-#ifdef CONFIG_STACKPROTECTOR
-#include <linux/stackprotector.h>
-unsigned long __stack_chk_guard __read_mostly;
-EXPORT_SYMBOL(__stack_chk_guard);
-#endif
-
 asmlinkage void ret_from_fork(void);
 asmlinkage void ret_from_kernel_thread(void);
 
@@ -30,11 +24,20 @@ asmlinkage void ret_from_kernel_thread(void);
  */
 void flush_thread(void){}
 
+/*
+ * Return saved PC from a blocked thread
+ */
+unsigned long thread_saved_pc(struct task_struct *tsk)
+{
+	struct switch_stack *sw = (struct switch_stack *)tsk->thread.ksp;
+
+	return sw->r15;
+}
+
 int copy_thread(unsigned long clone_flags,
 		unsigned long usp,
 		unsigned long kthread_arg,
-		struct task_struct *p,
-		unsigned long tls)
+		struct task_struct *p)
 {
 	struct switch_stack *childstack;
 	struct pt_regs *childregs = task_pt_regs(p);
@@ -46,13 +49,13 @@ int copy_thread(unsigned long clone_flags,
 	childstack = ((struct switch_stack *) childregs) - 1;
 	memset(childstack, 0, sizeof(struct switch_stack));
 
-	/* setup thread.sp for switch_to !!! */
-	p->thread.sp = (unsigned long)childstack;
+	/* setup ksp for switch_to !!! */
+	p->thread.ksp = (unsigned long)childstack;
 
 	if (unlikely(p->flags & PF_KTHREAD)) {
 		memset(childregs, 0, sizeof(struct pt_regs));
 		childstack->r15 = (unsigned long) ret_from_kernel_thread;
-		childstack->r10 = kthread_arg;
+		childstack->r8 = kthread_arg;
 		childstack->r9 = usp;
 		childregs->sr = mfcr("psr");
 	} else {
@@ -61,7 +64,7 @@ int copy_thread(unsigned long clone_flags,
 			childregs->usp = usp;
 		if (clone_flags & CLONE_SETTLS)
 			task_thread_info(p)->tp_value = childregs->tls
-						      = tls;
+						      = childregs->regs[0];
 
 		childregs->a0 = 0;
 		childstack->r15 = (unsigned long) ret_from_fork;
@@ -88,6 +91,32 @@ int dump_task_regs(struct task_struct *tsk, elf_gregset_t *pr_regs)
 	return 1;
 }
 
+unsigned long get_wchan(struct task_struct *p)
+{
+	unsigned long esp, pc;
+	unsigned long stack_page;
+	int count = 0;
+
+	if (!p || p == current || p->state == TASK_RUNNING)
+		return 0;
+
+	stack_page = (unsigned long)p;
+	esp = p->thread.esp0;
+	do {
+		if (esp < stack_page+sizeof(struct task_struct) ||
+		    esp >= 8184+stack_page)
+			return 0;
+		/*FIXME: There's may be error here!*/
+		pc = ((unsigned long *)esp)[1];
+		/* FIXME: This depends on the order of these functions. */
+		if (!in_sched_functions(pc))
+			return pc;
+		esp = *(unsigned long *) esp;
+	} while (count++ < 16);
+	return 0;
+}
+EXPORT_SYMBOL(get_wchan);
+
 #ifndef CONFIG_CPU_PM_NONE
 void arch_cpu_idle(void)
 {
@@ -102,6 +131,6 @@ void arch_cpu_idle(void)
 #ifdef CONFIG_CPU_PM_STOP
 	asm volatile("stop\n");
 #endif
-	raw_local_irq_enable();
+	local_irq_enable();
 }
 #endif

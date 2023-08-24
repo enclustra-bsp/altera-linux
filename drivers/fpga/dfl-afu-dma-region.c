@@ -12,15 +12,69 @@
 #include <linux/dma-mapping.h>
 #include <linux/sched/signal.h>
 #include <linux/uaccess.h>
-#include <linux/mm.h>
 
 #include "dfl-afu.h"
+
+static void put_all_pages(struct page **pages, int npages)
+{
+	int i;
+
+	for (i = 0; i < npages; i++)
+		if (pages[i])
+			put_page(pages[i]);
+}
 
 void afu_dma_region_init(struct dfl_feature_platform_data *pdata)
 {
 	struct dfl_afu *afu = dfl_fpga_pdata_get_private(pdata);
 
 	afu->dma_regions = RB_ROOT;
+}
+
+/**
+ * afu_dma_adjust_locked_vm - adjust locked memory
+ * @dev: port device
+ * @npages: number of pages
+ * @incr: increase or decrease locked memory
+ *
+ * Increase or decrease the locked memory size with npages input.
+ *
+ * Return 0 on success.
+ * Return -ENOMEM if locked memory size is over the limit and no CAP_IPC_LOCK.
+ */
+static int afu_dma_adjust_locked_vm(struct device *dev, long npages, bool incr)
+{
+	unsigned long locked, lock_limit;
+	int ret = 0;
+
+	/* the task is exiting. */
+	if (!current->mm)
+		return 0;
+
+	down_write(&current->mm->mmap_sem);
+
+	if (incr) {
+		locked = current->mm->locked_vm + npages;
+		lock_limit = rlimit(RLIMIT_MEMLOCK) >> PAGE_SHIFT;
+
+		if (locked > lock_limit && !capable(CAP_IPC_LOCK))
+			ret = -ENOMEM;
+		else
+			current->mm->locked_vm += npages;
+	} else {
+		if (WARN_ON_ONCE(npages > current->mm->locked_vm))
+			npages = current->mm->locked_vm;
+		current->mm->locked_vm -= npages;
+	}
+
+	dev_dbg(dev, "[%d] RLIMIT_MEMLOCK %c%ld %ld/%ld%s\n", current->pid,
+		incr ? '+' : '-', npages << PAGE_SHIFT,
+		current->mm->locked_vm << PAGE_SHIFT, rlimit(RLIMIT_MEMLOCK),
+		ret ? "- exceeded" : "");
+
+	up_write(&current->mm->mmap_sem);
+
+	return ret;
 }
 
 /**
@@ -38,7 +92,7 @@ static int afu_dma_pin_pages(struct dfl_feature_platform_data *pdata,
 	struct device *dev = &pdata->dev->dev;
 	int ret, pinned;
 
-	ret = account_locked_vm(current->mm, npages, true);
+	ret = afu_dma_adjust_locked_vm(dev, npages, true);
 	if (ret)
 		return ret;
 
@@ -48,26 +102,26 @@ static int afu_dma_pin_pages(struct dfl_feature_platform_data *pdata,
 		goto unlock_vm;
 	}
 
-	pinned = pin_user_pages_fast(region->user_addr, npages, FOLL_WRITE,
+	pinned = get_user_pages_fast(region->user_addr, npages, 1,
 				     region->pages);
 	if (pinned < 0) {
 		ret = pinned;
-		goto free_pages;
+		goto put_pages;
 	} else if (pinned != npages) {
 		ret = -EFAULT;
-		goto unpin_pages;
+		goto free_pages;
 	}
 
 	dev_dbg(dev, "%d pages pinned\n", pinned);
 
 	return 0;
 
-unpin_pages:
-	unpin_user_pages(region->pages, pinned);
+put_pages:
+	put_all_pages(region->pages, pinned);
 free_pages:
 	kfree(region->pages);
 unlock_vm:
-	account_locked_vm(current->mm, npages, false);
+	afu_dma_adjust_locked_vm(dev, npages, false);
 	return ret;
 }
 
@@ -85,9 +139,9 @@ static void afu_dma_unpin_pages(struct dfl_feature_platform_data *pdata,
 	long npages = region->length >> PAGE_SHIFT;
 	struct device *dev = &pdata->dev->dev;
 
-	unpin_user_pages(region->pages, npages);
+	put_all_pages(region->pages, npages);
 	kfree(region->pages);
-	account_locked_vm(current->mm, npages, false);
+	afu_dma_adjust_locked_vm(dev, npages, false);
 
 	dev_dbg(dev, "%ld pages unpinned\n", npages);
 }
@@ -315,6 +369,10 @@ int afu_dma_map_region(struct dfl_feature_platform_data *pdata,
 	if (user_addr + length < user_addr)
 		return -EINVAL;
 
+	if (!access_ok(VERIFY_WRITE, (void __user *)(unsigned long)user_addr,
+		       length))
+		return -EINVAL;
+
 	region = kzalloc(sizeof(*region), GFP_KERNEL);
 	if (!region)
 		return -ENOMEM;
@@ -341,7 +399,7 @@ int afu_dma_map_region(struct dfl_feature_platform_data *pdata,
 				    region->pages[0], 0,
 				    region->length,
 				    DMA_BIDIRECTIONAL);
-	if (dma_mapping_error(dfl_fpga_pdata_to_parent(pdata), region->iova)) {
+	if (dma_mapping_error(&pdata->dev->dev, region->iova)) {
 		dev_err(&pdata->dev->dev, "failed to map for dma\n");
 		ret = -EFAULT;
 		goto unpin_pages;

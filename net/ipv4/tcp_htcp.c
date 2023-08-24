@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * H-TCP congestion control. The algorithm is detailed in:
  * R.N.Shorten, D.J.Leith:
  *   "H-TCP: TCP for high-speed and long-distance networks"
  *   Proc. PFLDnet, Argonne, 2004.
- * https://www.hamilton.ie/net/htcp3.pdf
+ * http://www.hamilton.ie/net/htcp3.pdf
  */
 
 #include <linux/mm.h>

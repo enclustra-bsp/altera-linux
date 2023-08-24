@@ -191,24 +191,25 @@ static inline void jcopy(u8 *dest, const u8 *src, u32 n)
 	switch (n) {
 	case 7:
 		*dest++ = *src++;
-		fallthrough;
+		/* fall through */
 	case 6:
 		*dest++ = *src++;
-		fallthrough;
+		/* fall through */
 	case 5:
 		*dest++ = *src++;
-		fallthrough;
+		/* fall through */
 	case 4:
 		*dest++ = *src++;
-		fallthrough;
+		/* fall through */
 	case 3:
 		*dest++ = *src++;
-		fallthrough;
+		/* fall through */
 	case 2:
 		*dest++ = *src++;
-		fallthrough;
+		/* fall through */
 	case 1:
 		*dest++ = *src++;
+		/* fall through */
 	}
 }
 

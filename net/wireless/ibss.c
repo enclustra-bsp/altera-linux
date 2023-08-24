@@ -104,19 +104,13 @@ int __cfg80211_join_ibss(struct cfg80211_registered_device *rdev,
 		* use the mandatory rate set for 11b or
 		* 11a for maximum compatibility.
 		*/
-		struct ieee80211_supported_band *sband;
-		enum nl80211_band band;
-		u32 flag;
+		struct ieee80211_supported_band *sband =
+			rdev->wiphy.bands[params->chandef.chan->band];
 		int j;
+		u32 flag = params->chandef.chan->band == NL80211_BAND_5GHZ ?
+			IEEE80211_RATE_MANDATORY_A :
+			IEEE80211_RATE_MANDATORY_B;
 
-		band = params->chandef.chan->band;
-		if (band == NL80211_BAND_5GHZ ||
-		    band == NL80211_BAND_6GHZ)
-			flag = IEEE80211_RATE_MANDATORY_A;
-		else
-			flag = IEEE80211_RATE_MANDATORY_B;
-
-		sband = rdev->wiphy.bands[band];
 		for (j = 0; j < sband->n_bitrates; j++) {
 			if (sband->bitrates[j].flags & flag)
 				params->basic_rates |= BIT(j);
@@ -127,7 +121,7 @@ int __cfg80211_join_ibss(struct cfg80211_registered_device *rdev,
 		return -EINVAL;
 
 	if (WARN_ON(wdev->connect_keys))
-		kfree_sensitive(wdev->connect_keys);
+		kzfree(wdev->connect_keys);
 	wdev->connect_keys = connkeys;
 
 	wdev->ibss_fixed = params->channel_fixed;
@@ -161,7 +155,7 @@ static void __cfg80211_clear_ibss(struct net_device *dev, bool nowext)
 
 	ASSERT_WDEV_LOCK(wdev);
 
-	kfree_sensitive(wdev->connect_keys);
+	kzfree(wdev->connect_keys);
 	wdev->connect_keys = NULL;
 
 	rdev_set_qos_map(rdev, dev, NULL);

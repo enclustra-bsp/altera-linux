@@ -18,6 +18,7 @@
 #include <linux/kernel.h>
 #include <linux/ptrace.h>
 
+#include <asm/pgtable.h>
 
 void die(const char *str, struct pt_regs *fp, unsigned long err);
 

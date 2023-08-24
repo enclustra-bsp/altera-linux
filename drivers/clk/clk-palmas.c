@@ -115,7 +115,7 @@ static int palmas_clks_is_prepared(struct clk_hw *hw)
 	return !!(val & cinfo->clk_desc->enable_mask);
 }
 
-static const struct clk_ops palmas_clks_ops = {
+static struct clk_ops palmas_clks_ops = {
 	.prepare	= palmas_clks_prepare,
 	.unprepare	= palmas_clks_unprepare,
 	.is_prepared	= palmas_clks_is_prepared,

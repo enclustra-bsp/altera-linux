@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /* Copyright (c) 2018 Quantenna Communications, Inc. All rights reserved. */
 
-#include <linux/module.h>
 #include <linux/printk.h>
 #include <linux/pci.h>
 #include <linux/spinlock.h>
@@ -16,36 +15,13 @@
 #include "shm_ipc.h"
 #include "core.h"
 #include "debug.h"
-#include "util.h"
-#include "qtn_hw_ids.h"
+
+#undef pr_fmt
+#define pr_fmt(fmt)	"qtnf_pcie: %s: " fmt, __func__
 
 #define QTN_SYSCTL_BAR	0
 #define QTN_SHMEM_BAR	2
 #define QTN_DMA_BAR	3
-
-#define QTN_PCIE_MAX_FW_BUFSZ		(1 * 1024 * 1024)
-
-static bool use_msi = true;
-module_param(use_msi, bool, 0644);
-MODULE_PARM_DESC(use_msi, "set 0 to use legacy interrupt");
-
-static unsigned int tx_bd_size_param;
-module_param(tx_bd_size_param, uint, 0644);
-MODULE_PARM_DESC(tx_bd_size_param, "Tx descriptors queue size");
-
-static unsigned int rx_bd_size_param;
-module_param(rx_bd_size_param, uint, 0644);
-MODULE_PARM_DESC(rx_bd_size_param, "Rx descriptors queue size");
-
-static u8 flashboot = 1;
-module_param(flashboot, byte, 0644);
-MODULE_PARM_DESC(flashboot, "set to 0 to use FW binary file on FS");
-
-static unsigned int fw_blksize_param = QTN_PCIE_MAX_FW_BUFSZ;
-module_param(fw_blksize_param, uint, 0644);
-MODULE_PARM_DESC(fw_blksize_param, "firmware loading block size in bytes");
-
-#define DRV_NAME	"qtnfmac_pcie"
 
 int qtnf_pcie_control_tx(struct qtnf_bus *bus, struct sk_buff *skb)
 {
@@ -56,7 +32,7 @@ int qtnf_pcie_control_tx(struct qtnf_bus *bus, struct sk_buff *skb)
 
 	if (ret == -ETIMEDOUT) {
 		pr_err("EP firmware is dead\n");
-		bus->fw_state = QTNF_FW_STATE_DEAD;
+		bus->fw_state = QTNF_FW_STATE_EP_DEAD;
 	}
 
 	return ret;
@@ -82,7 +58,7 @@ int qtnf_pcie_alloc_skb_array(struct qtnf_pcie_bus_priv *priv)
 	return 0;
 }
 
-static void qtnf_pcie_bringup_fw_async(struct qtnf_bus *bus)
+void qtnf_pcie_bringup_fw_async(struct qtnf_bus *bus)
 {
 	struct qtnf_pcie_bus_priv *priv = get_bus_priv(bus);
 	struct pci_dev *pdev = priv->pdev;
@@ -96,7 +72,7 @@ static int qtnf_dbg_mps_show(struct seq_file *s, void *data)
 	struct qtnf_bus *bus = dev_get_drvdata(s->private);
 	struct qtnf_pcie_bus_priv *priv = get_bus_priv(bus);
 
-	seq_printf(s, "%d\n", pcie_get_mps(priv->pdev));
+	seq_printf(s, "%d\n", priv->mps);
 
 	return 0;
 }
@@ -128,30 +104,38 @@ static int qtnf_dbg_shm_stats(struct seq_file *s, void *data)
 	return 0;
 }
 
-int qtnf_pcie_fw_boot_done(struct qtnf_bus *bus)
+void qtnf_pcie_fw_boot_done(struct qtnf_bus *bus, bool boot_success,
+			    const char *drv_name)
 {
 	struct qtnf_pcie_bus_priv *priv = get_bus_priv(bus);
-	char card_id[64];
+	struct pci_dev *pdev = priv->pdev;
 	int ret;
 
-	bus->fw_state = QTNF_FW_STATE_BOOT_DONE;
-	ret = qtnf_core_attach(bus);
-	if (ret) {
-		pr_err("failed to attach core\n");
-	} else {
-		snprintf(card_id, sizeof(card_id), "%s:%s",
-			 DRV_NAME, pci_name(priv->pdev));
-		qtnf_debugfs_init(bus, card_id);
+	if (boot_success) {
+		bus->fw_state = QTNF_FW_STATE_FW_DNLD_DONE;
+
+		ret = qtnf_core_attach(bus);
+		if (ret) {
+			pr_err("failed to attach core\n");
+			boot_success = false;
+		}
+	}
+
+	if (boot_success) {
+		qtnf_debugfs_init(bus, drv_name);
 		qtnf_debugfs_add_entry(bus, "mps", qtnf_dbg_mps_show);
 		qtnf_debugfs_add_entry(bus, "msi_enabled", qtnf_dbg_msi_show);
 		qtnf_debugfs_add_entry(bus, "shm_stats", qtnf_dbg_shm_stats);
+	} else {
+		bus->fw_state = QTNF_FW_STATE_DETACHED;
 	}
 
-	return ret;
+	put_device(&pdev->dev);
 }
 
-static void qtnf_tune_pcie_mps(struct pci_dev *pdev)
+static void qtnf_tune_pcie_mps(struct qtnf_pcie_bus_priv *priv)
 {
+	struct pci_dev *pdev = priv->pdev;
 	struct pci_dev *parent;
 	int mps_p, mps_o, mps_m, mps;
 	int ret;
@@ -179,10 +163,12 @@ static void qtnf_tune_pcie_mps(struct pci_dev *pdev)
 	if (ret) {
 		pr_err("failed to set mps to %d, keep using current %d\n",
 		       mps, mps_o);
+		priv->mps = mps_o;
 		return;
 	}
 
 	pr_debug("set mps to %d (was %d, max %d)\n", mps, mps_o, mps_m);
+	priv->mps = mps;
 }
 
 static void qtnf_pcie_init_irq(struct qtnf_pcie_bus_priv *priv, bool use_msi)
@@ -208,20 +194,20 @@ static void qtnf_pcie_init_irq(struct qtnf_pcie_bus_priv *priv, bool use_msi)
 	}
 }
 
-static void __iomem *qtnf_map_bar(struct pci_dev *pdev, u8 index)
+static void __iomem *qtnf_map_bar(struct qtnf_pcie_bus_priv *priv, u8 index)
 {
 	void __iomem *vaddr;
 	dma_addr_t busaddr;
 	size_t len;
 	int ret;
 
-	ret = pcim_iomap_regions(pdev, 1 << index, "qtnfmac_pcie");
+	ret = pcim_iomap_regions(priv->pdev, 1 << index, "qtnfmac_pcie");
 	if (ret)
 		return IOMEM_ERR_PTR(ret);
 
-	busaddr = pci_resource_start(pdev, index);
-	len = pci_resource_len(pdev, index);
-	vaddr = pcim_iomap_table(pdev)[index];
+	busaddr = pci_resource_start(priv->pdev, index);
+	len = pci_resource_len(priv->pdev, index);
+	vaddr = pcim_iomap_table(priv->pdev)[index];
 	if (!vaddr)
 		return IOMEM_ERR_PTR(-ENOMEM);
 
@@ -229,6 +215,31 @@ static void __iomem *qtnf_map_bar(struct pci_dev *pdev, u8 index)
 		 index, vaddr, &busaddr, (int)len);
 
 	return vaddr;
+}
+
+static int qtnf_pcie_init_memory(struct qtnf_pcie_bus_priv *priv)
+{
+	int ret = -ENOMEM;
+
+	priv->sysctl_bar = qtnf_map_bar(priv, QTN_SYSCTL_BAR);
+	if (IS_ERR(priv->sysctl_bar)) {
+		pr_err("failed to map BAR%u\n", QTN_SYSCTL_BAR);
+		return ret;
+	}
+
+	priv->dmareg_bar = qtnf_map_bar(priv, QTN_DMA_BAR);
+	if (IS_ERR(priv->dmareg_bar)) {
+		pr_err("failed to map BAR%u\n", QTN_DMA_BAR);
+		return ret;
+	}
+
+	priv->epmem_bar = qtnf_map_bar(priv, QTN_SHMEM_BAR);
+	if (IS_ERR(priv->epmem_bar)) {
+		pr_err("failed to map BAR%u\n", QTN_SHMEM_BAR);
+		return ret;
+	}
+
+	return 0;
 }
 
 static void qtnf_pcie_control_rx_callback(void *arg, const u8 __iomem *buf,
@@ -271,82 +282,27 @@ void qtnf_pcie_init_shm_ipc(struct qtnf_pcie_bus_priv *priv,
 			  ipc_int, &rx_callback);
 }
 
-static int qtnf_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+int qtnf_pcie_probe(struct pci_dev *pdev, size_t priv_size,
+		    const struct qtnf_bus_ops *bus_ops, u64 dma_mask,
+		    bool use_msi)
 {
 	struct qtnf_pcie_bus_priv *pcie_priv;
 	struct qtnf_bus *bus;
-	void __iomem *sysctl_bar;
-	void __iomem *epmem_bar;
-	void __iomem *dmareg_bar;
-	unsigned int chipid;
 	int ret;
 
-	if (!pci_is_pcie(pdev)) {
-		pr_err("device %s is not PCI Express\n", pci_name(pdev));
-		return -EIO;
-	}
-
-	qtnf_tune_pcie_mps(pdev);
-
-	ret = pcim_enable_device(pdev);
-	if (ret) {
-		pr_err("failed to init PCI device %x\n", pdev->device);
-		return ret;
-	}
-
-	pci_set_master(pdev);
-
-	sysctl_bar = qtnf_map_bar(pdev, QTN_SYSCTL_BAR);
-	if (IS_ERR(sysctl_bar)) {
-		pr_err("failed to map BAR%u\n", QTN_SYSCTL_BAR);
-		return PTR_ERR(sysctl_bar);
-	}
-
-	dmareg_bar = qtnf_map_bar(pdev, QTN_DMA_BAR);
-	if (IS_ERR(dmareg_bar)) {
-		pr_err("failed to map BAR%u\n", QTN_DMA_BAR);
-		return PTR_ERR(dmareg_bar);
-	}
-
-	epmem_bar = qtnf_map_bar(pdev, QTN_SHMEM_BAR);
-	if (IS_ERR(epmem_bar)) {
-		pr_err("failed to map BAR%u\n", QTN_SHMEM_BAR);
-		return PTR_ERR(epmem_bar);
-	}
-
-	chipid = qtnf_chip_id_get(sysctl_bar);
-
-	pr_info("identified device: %s\n", qtnf_chipid_to_string(chipid));
-
-	switch (chipid) {
-	case QTN_CHIP_ID_PEARL:
-	case QTN_CHIP_ID_PEARL_B:
-	case QTN_CHIP_ID_PEARL_C:
-		bus = qtnf_pcie_pearl_alloc(pdev);
-		break;
-	case QTN_CHIP_ID_TOPAZ:
-		bus = qtnf_pcie_topaz_alloc(pdev);
-		break;
-	default:
-		pr_err("unsupported chip ID 0x%x\n", chipid);
-		return -ENOTSUPP;
-	}
-
+	bus = devm_kzalloc(&pdev->dev,
+			   sizeof(*bus) + priv_size, GFP_KERNEL);
 	if (!bus)
 		return -ENOMEM;
 
 	pcie_priv = get_bus_priv(bus);
+
 	pci_set_drvdata(pdev, bus);
+	bus->bus_ops = bus_ops;
 	bus->dev = &pdev->dev;
-	bus->fw_state = QTNF_FW_STATE_DETACHED;
+	bus->fw_state = QTNF_FW_STATE_RESET;
 	pcie_priv->pdev = pdev;
 	pcie_priv->tx_stopped = 0;
-	pcie_priv->flashboot = flashboot;
-
-	if (fw_blksize_param > QTN_PCIE_MAX_FW_BUFSZ)
-		pcie_priv->fw_blksize =  QTN_PCIE_MAX_FW_BUFSZ;
-	else
-		pcie_priv->fw_blksize = fw_blksize_param;
 
 	mutex_init(&bus->bus_lock);
 	spin_lock_init(&pcie_priv->tx_lock);
@@ -361,35 +317,53 @@ static int qtnf_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	pcie_priv->workqueue = create_singlethread_workqueue("QTNF_PCIE");
 	if (!pcie_priv->workqueue) {
 		pr_err("failed to alloc bus workqueue\n");
-		return -ENODEV;
-	}
-
-	ret = dma_set_mask_and_coherent(&pdev->dev,
-					pcie_priv->dma_mask_get_cb());
-	if (ret) {
-		pr_err("PCIE DMA coherent mask init failed 0x%llx\n",
-		       pcie_priv->dma_mask_get_cb());
-		goto error;
+		ret = -ENODEV;
+		goto err_init;
 	}
 
 	init_dummy_netdev(&bus->mux_dev);
+
+	if (!pci_is_pcie(pdev)) {
+		pr_err("device %s is not PCI Express\n", pci_name(pdev));
+		ret = -EIO;
+		goto err_base;
+	}
+
+	qtnf_tune_pcie_mps(pcie_priv);
+
+	ret = pcim_enable_device(pdev);
+	if (ret) {
+		pr_err("failed to init PCI device %x\n", pdev->device);
+		goto err_base;
+	} else {
+		pr_debug("successful init of PCI device %x\n", pdev->device);
+	}
+
+	ret = dma_set_mask_and_coherent(&pdev->dev, dma_mask);
+	if (ret) {
+		pr_err("PCIE DMA coherent mask init failed\n");
+		goto err_base;
+	}
+
+	pci_set_master(pdev);
 	qtnf_pcie_init_irq(pcie_priv, use_msi);
-	pcie_priv->sysctl_bar = sysctl_bar;
-	pcie_priv->dmareg_bar = dmareg_bar;
-	pcie_priv->epmem_bar = epmem_bar;
+
+	ret = qtnf_pcie_init_memory(pcie_priv);
+	if (ret < 0) {
+		pr_err("PCIE memory init failed\n");
+		goto err_base;
+	}
+
 	pci_save_state(pdev);
 
-	ret = pcie_priv->probe_cb(bus, tx_bd_size_param, rx_bd_size_param);
-	if (ret)
-		goto error;
-
-	qtnf_pcie_bringup_fw_async(bus);
 	return 0;
 
-error:
+err_base:
 	flush_workqueue(pcie_priv->workqueue);
 	destroy_workqueue(pcie_priv->workqueue);
+err_init:
 	pci_set_drvdata(pdev, NULL);
+
 	return ret;
 }
 
@@ -399,20 +373,12 @@ static void qtnf_pcie_free_shm_ipc(struct qtnf_pcie_bus_priv *priv)
 	qtnf_shm_ipc_free(&priv->shm_ipc_ep_out);
 }
 
-static void qtnf_pcie_remove(struct pci_dev *dev)
+void qtnf_pcie_remove(struct qtnf_bus *bus, struct qtnf_pcie_bus_priv *priv)
 {
-	struct qtnf_pcie_bus_priv *priv;
-	struct qtnf_bus *bus;
-
-	bus = pci_get_drvdata(dev);
-	if (!bus)
-		return;
-
-	priv = get_bus_priv(bus);
-
 	cancel_work_sync(&bus->fw_work);
 
-	if (qtnf_fw_is_attached(bus))
+	if (bus->fw_state == QTNF_FW_STATE_ACTIVE ||
+	    bus->fw_state == QTNF_FW_STATE_EP_DEAD)
 		qtnf_core_detach(bus);
 
 	netif_napi_del(&bus->mux_napi);
@@ -422,77 +388,5 @@ static void qtnf_pcie_remove(struct pci_dev *dev)
 
 	qtnf_pcie_free_shm_ipc(priv);
 	qtnf_debugfs_remove(bus);
-	priv->remove_cb(bus);
 	pci_set_drvdata(priv->pdev, NULL);
 }
-
-#ifdef CONFIG_PM_SLEEP
-static int qtnf_pcie_suspend(struct device *dev)
-{
-	struct qtnf_pcie_bus_priv *priv;
-	struct qtnf_bus *bus;
-
-	bus = dev_get_drvdata(dev);
-	if (!bus)
-		return -EFAULT;
-
-	priv = get_bus_priv(bus);
-	return priv->suspend_cb(bus);
-}
-
-static int qtnf_pcie_resume(struct device *dev)
-{
-	struct qtnf_pcie_bus_priv *priv;
-	struct qtnf_bus *bus;
-
-	bus = dev_get_drvdata(dev);
-	if (!bus)
-		return -EFAULT;
-
-	priv = get_bus_priv(bus);
-	return priv->resume_cb(bus);
-}
-
-/* Power Management Hooks */
-static SIMPLE_DEV_PM_OPS(qtnf_pcie_pm_ops, qtnf_pcie_suspend,
-			 qtnf_pcie_resume);
-#endif
-
-static const struct pci_device_id qtnf_pcie_devid_table[] = {
-	{
-		PCIE_VENDOR_ID_QUANTENNA, PCIE_DEVICE_ID_QSR,
-		PCI_ANY_ID, PCI_ANY_ID, 0, 0,
-	},
-	{ },
-};
-
-MODULE_DEVICE_TABLE(pci, qtnf_pcie_devid_table);
-
-static struct pci_driver qtnf_pcie_drv_data = {
-	.name = DRV_NAME,
-	.id_table = qtnf_pcie_devid_table,
-	.probe = qtnf_pcie_probe,
-	.remove = qtnf_pcie_remove,
-#ifdef CONFIG_PM_SLEEP
-	.driver = {
-		.pm = &qtnf_pcie_pm_ops,
-	},
-#endif
-};
-
-static int __init qtnf_pcie_register(void)
-{
-	return pci_register_driver(&qtnf_pcie_drv_data);
-}
-
-static void __exit qtnf_pcie_exit(void)
-{
-	pci_unregister_driver(&qtnf_pcie_drv_data);
-}
-
-module_init(qtnf_pcie_register);
-module_exit(qtnf_pcie_exit);
-
-MODULE_AUTHOR("Quantenna Communications");
-MODULE_DESCRIPTION("Quantenna PCIe bus driver for 802.11 wireless LAN.");
-MODULE_LICENSE("GPL");

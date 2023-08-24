@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * AppArmor security module
  *
@@ -6,6 +5,11 @@
  *
  * Copyright (C) 1998-2008 Novell/SUSE
  * Copyright 2009-2017 Canonical Ltd.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation, version 2 of the
+ * License.
  *
  * AppArmor policy namespaces, allow for different sets of policies
  * to be loaded for tasks within the namespace.
@@ -121,9 +125,9 @@ static struct aa_ns *alloc_ns(const char *prefix, const char *name)
 	return ns;
 
 fail_unconfined:
-	kfree_sensitive(ns->base.hname);
+	kzfree(ns->base.hname);
 fail_ns:
-	kfree_sensitive(ns);
+	kzfree(ns);
 	return NULL;
 }
 
@@ -145,7 +149,7 @@ void aa_free_ns(struct aa_ns *ns)
 
 	ns->unconfined->ns = NULL;
 	aa_free_profile(ns->unconfined);
-	kfree_sensitive(ns);
+	kzfree(ns);
 }
 
 /**

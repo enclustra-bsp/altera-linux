@@ -244,11 +244,6 @@ static const struct watchdog_ops armada_37xx_wdt_ops = {
 	.get_timeleft = armada_37xx_wdt_get_timeleft,
 };
 
-static void armada_clk_disable_unprepare(void *data)
-{
-	clk_disable_unprepare(data);
-}
-
 static int armada_37xx_wdt_probe(struct platform_device *pdev)
 {
 	struct armada_37xx_watchdog *dev;
@@ -283,14 +278,12 @@ static int armada_37xx_wdt_probe(struct platform_device *pdev)
 	ret = clk_prepare_enable(dev->clk);
 	if (ret)
 		return ret;
-	ret = devm_add_action_or_reset(&pdev->dev,
-				       armada_clk_disable_unprepare, dev->clk);
-	if (ret)
-		return ret;
 
 	dev->clk_rate = clk_get_rate(dev->clk);
-	if (!dev->clk_rate)
-		return -EINVAL;
+	if (!dev->clk_rate) {
+		ret = -EINVAL;
+		goto disable_clk;
+	}
 
 	/*
 	 * Since the timeout in seconds is given as 32 bit unsigned int, and
@@ -314,15 +307,35 @@ static int armada_37xx_wdt_probe(struct platform_device *pdev)
 		set_bit(WDOG_HW_RUNNING, &dev->wdt.status);
 
 	watchdog_set_nowayout(&dev->wdt, nowayout);
-	watchdog_stop_on_reboot(&dev->wdt);
-	ret = devm_watchdog_register_device(&pdev->dev, &dev->wdt);
+	ret = watchdog_register_device(&dev->wdt);
 	if (ret)
-		return ret;
+		goto disable_clk;
 
 	dev_info(&pdev->dev, "Initial timeout %d sec%s\n",
 		 dev->wdt.timeout, nowayout ? ", nowayout" : "");
 
 	return 0;
+
+disable_clk:
+	clk_disable_unprepare(dev->clk);
+	return ret;
+}
+
+static int armada_37xx_wdt_remove(struct platform_device *pdev)
+{
+	struct watchdog_device *wdt = platform_get_drvdata(pdev);
+	struct armada_37xx_watchdog *dev = watchdog_get_drvdata(wdt);
+
+	watchdog_unregister_device(wdt);
+	clk_disable_unprepare(dev->clk);
+	return 0;
+}
+
+static void armada_37xx_wdt_shutdown(struct platform_device *pdev)
+{
+	struct watchdog_device *wdt = platform_get_drvdata(pdev);
+
+	armada_37xx_wdt_stop(wdt);
 }
 
 static int __maybe_unused armada_37xx_wdt_suspend(struct device *dev)
@@ -357,6 +370,8 @@ MODULE_DEVICE_TABLE(of, armada_37xx_wdt_match);
 
 static struct platform_driver armada_37xx_wdt_driver = {
 	.probe		= armada_37xx_wdt_probe,
+	.remove		= armada_37xx_wdt_remove,
+	.shutdown	= armada_37xx_wdt_shutdown,
 	.driver		= {
 		.name	= "armada_37xx_wdt",
 		.of_match_table = of_match_ptr(armada_37xx_wdt_match),

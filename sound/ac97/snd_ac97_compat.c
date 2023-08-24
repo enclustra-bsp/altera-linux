@@ -1,6 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  Copyright (C) 2016 Robert Jarzmik <robert.jarzmik@free.fr>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/list.h>
@@ -53,7 +56,7 @@ static unsigned short compat_ac97_read(struct snd_ac97 *ac97,
 	return actrl->ops->read(actrl, ac97->num, reg);
 }
 
-static const struct snd_ac97_bus_ops compat_snd_ac97_bus_ops = {
+static struct snd_ac97_bus_ops compat_snd_ac97_bus_ops = {
 	.reset = compat_ac97_reset,
 	.warm_reset = compat_ac97_warm_reset,
 	.write = compat_ac97_write,

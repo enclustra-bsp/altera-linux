@@ -61,9 +61,6 @@ struct save_area * __init save_area_alloc(bool is_boot_cpu)
 	struct save_area *sa;
 
 	sa = (void *) memblock_phys_alloc(sizeof(*sa), 8);
-	if (!sa)
-		panic("Failed to allocate save area\n");
-
 	if (is_boot_cpu)
 		list_add(&sa->list, &dump_save_areas);
 	else
@@ -141,7 +138,7 @@ int copy_oldmem_kernel(void *dst, void *src, size_t count)
 	while (count) {
 		from = __pa(src);
 		if (!OLDMEM_BASE && from < sclp.hsa_size) {
-			/* Copy from zfcp/nvme dump HSA area */
+			/* Copy from zfcpdump HSA area */
 			len = min(count, sclp.hsa_size - from);
 			rc = memcpy_hsa_kernel(dst, from, len);
 			if (rc)
@@ -184,7 +181,7 @@ static int copy_oldmem_user(void __user *dst, void *src, size_t count)
 	while (count) {
 		from = __pa(src);
 		if (!OLDMEM_BASE && from < sclp.hsa_size) {
-			/* Copy from zfcp/nvme dump HSA area */
+			/* Copy from zfcpdump HSA area */
 			len = min(count, sclp.hsa_size - from);
 			rc = memcpy_hsa_user(dst, from, len);
 			if (rc)
@@ -258,7 +255,7 @@ static int remap_oldmem_pfn_range_kdump(struct vm_area_struct *vma,
 }
 
 /*
- * Remap "oldmem" for zfcp/nvme dump
+ * Remap "oldmem" for zfcpdump
  *
  * We only map available memory above HSA size. Memory below HSA size
  * is read on demand using the copy_oldmem_page() function.
@@ -283,7 +280,7 @@ static int remap_oldmem_pfn_range_zfcpdump(struct vm_area_struct *vma,
 }
 
 /*
- * Remap "oldmem" for kdump or zfcp/nvme dump
+ * Remap "oldmem" for kdump or zfcpdump
  */
 int remap_oldmem_pfn_range(struct vm_area_struct *vma, unsigned long from,
 			   unsigned long pfn, unsigned long size, pgprot_t prot)
@@ -549,7 +546,8 @@ static int get_mem_chunk_cnt(void)
 	int cnt = 0;
 	u64 idx;
 
-	for_each_physmem_range(idx, &oldmem_type, NULL, NULL)
+	for_each_mem_range(idx, &memblock.physmem, &oldmem_type, NUMA_NO_NODE,
+			   MEMBLOCK_NONE, NULL, NULL, NULL)
 		cnt++;
 	return cnt;
 }
@@ -562,7 +560,8 @@ static void loads_init(Elf64_Phdr *phdr, u64 loads_offset)
 	phys_addr_t start, end;
 	u64 idx;
 
-	for_each_physmem_range(idx, &oldmem_type, &start, &end) {
+	for_each_mem_range(idx, &memblock.physmem, &oldmem_type, NUMA_NO_NODE,
+			   MEMBLOCK_NONE, &start, &end, NULL) {
 		phdr->p_filesz = end - start;
 		phdr->p_type = PT_LOAD;
 		phdr->p_offset = start;
@@ -632,11 +631,11 @@ int elfcorehdr_alloc(unsigned long long *addr, unsigned long long *size)
 	u32 alloc_size;
 	u64 hdr_off;
 
-	/* If we are not in kdump or zfcp/nvme dump mode return */
-	if (!OLDMEM_BASE && !is_ipl_type_dump())
+	/* If we are not in kdump or zfcpdump mode return */
+	if (!OLDMEM_BASE && ipl_info.type != IPL_TYPE_FCP_DUMP)
 		return 0;
-	/* If we cannot get HSA size for zfcp/nvme dump return error */
-	if (is_ipl_type_dump() && !sclp.hsa_size)
+	/* If we cannot get HSA size for zfcpdump return error */
+	if (ipl_info.type == IPL_TYPE_FCP_DUMP && !sclp.hsa_size)
 		return -ENODEV;
 
 	/* For kdump, exclude previous crashkernel memory */

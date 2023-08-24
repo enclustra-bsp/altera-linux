@@ -1,8 +1,20 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  Copyright (C) 2002 Intersil Americas Inc.
  *  Copyright (C) 2003 Herbert Valerio Riedel <hvr@gnu.org>
  *  Copyright (C) 2003 Luis R. Rodriguez <mcgrof@ruslug.rutgers.edu>
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, see <http://www.gnu.org/licenses/>.
+ *
  */
 
 #include <linux/hardirq.h>
@@ -636,10 +648,10 @@ islpci_alloc_memory(islpci_private *priv)
 	 */
 
 	/* perform the allocation */
-	priv->driver_mem_address = dma_alloc_coherent(&priv->pdev->dev,
-						      HOST_MEM_BLOCK,
-						      &priv->device_host_address,
-						      GFP_KERNEL);
+	priv->driver_mem_address = pci_alloc_consistent(priv->pdev,
+							HOST_MEM_BLOCK,
+							&priv->
+							device_host_address);
 
 	if (!priv->driver_mem_address) {
 		/* error allocating the block of PCI memory */
@@ -692,9 +704,11 @@ islpci_alloc_memory(islpci_private *priv)
 
 		/* map the allocated skb data area to pci */
 		priv->pci_map_rx_address[counter] =
-		    dma_map_single(&priv->pdev->dev, (void *)skb->data,
-				   MAX_FRAGMENT_SIZE_RX + 2, DMA_FROM_DEVICE);
-		if (dma_mapping_error(&priv->pdev->dev, priv->pci_map_rx_address[counter])) {
+		    pci_map_single(priv->pdev, (void *) skb->data,
+				   MAX_FRAGMENT_SIZE_RX + 2,
+				   PCI_DMA_FROMDEVICE);
+		if (pci_dma_mapping_error(priv->pdev,
+					  priv->pci_map_rx_address[counter])) {
 			priv->pci_map_rx_address[counter] = 0;
 			/* error mapping the buffer to device
 			   accessible memory address */
@@ -725,9 +739,9 @@ islpci_free_memory(islpci_private *priv)
 
 	/* free consistent DMA area... */
 	if (priv->driver_mem_address)
-		dma_free_coherent(&priv->pdev->dev, HOST_MEM_BLOCK,
-				  priv->driver_mem_address,
-				  priv->device_host_address);
+		pci_free_consistent(priv->pdev, HOST_MEM_BLOCK,
+				    priv->driver_mem_address,
+				    priv->device_host_address);
 
 	/* clear some dangling pointers */
 	priv->driver_mem_address = NULL;
@@ -739,8 +753,8 @@ islpci_free_memory(islpci_private *priv)
         for (counter = 0; counter < ISL38XX_CB_MGMT_QSIZE; counter++) {
 		struct islpci_membuf *buf = &priv->mgmt_rx[counter];
 		if (buf->pci_addr)
-			dma_unmap_single(&priv->pdev->dev, buf->pci_addr,
-					 buf->size, DMA_FROM_DEVICE);
+			pci_unmap_single(priv->pdev, buf->pci_addr,
+					 buf->size, PCI_DMA_FROMDEVICE);
 		buf->pci_addr = 0;
 		kfree(buf->mem);
 		buf->size = 0;
@@ -750,10 +764,10 @@ islpci_free_memory(islpci_private *priv)
 	/* clean up data rx buffers */
 	for (counter = 0; counter < ISL38XX_CB_RX_QSIZE; counter++) {
 		if (priv->pci_map_rx_address[counter])
-			dma_unmap_single(&priv->pdev->dev,
+			pci_unmap_single(priv->pdev,
 					 priv->pci_map_rx_address[counter],
 					 MAX_FRAGMENT_SIZE_RX + 2,
-					 DMA_FROM_DEVICE);
+					 PCI_DMA_FROMDEVICE);
 		priv->pci_map_rx_address[counter] = 0;
 
 		if (priv->data_low_rx[counter])
@@ -918,7 +932,6 @@ islpci_set_state(islpci_private *priv, islpci_state_t new_state)
 	switch (new_state) {
 	case PRV_STATE_OFF:
 		priv->state_off++;
-		fallthrough;
 	default:
 		priv->state = new_state;
 		break;

@@ -393,9 +393,6 @@ alloc_pci_controller(void)
 	struct pci_controller *hose;
 
 	hose = memblock_alloc(sizeof(*hose), SMP_CACHE_BYTES);
-	if (!hose)
-		panic("%s: Failed to allocate %zu bytes\n", __func__,
-		      sizeof(*hose));
 
 	*hose_tail = hose;
 	hose_tail = &hose->next;
@@ -406,13 +403,7 @@ alloc_pci_controller(void)
 struct resource * __init
 alloc_resource(void)
 {
-	void *ptr = memblock_alloc(sizeof(struct resource), SMP_CACHE_BYTES);
-
-	if (!ptr)
-		panic("%s: Failed to allocate %zu bytes\n", __func__,
-		      sizeof(struct resource));
-
-	return ptr;
+	return memblock_alloc(sizeof(struct resource), SMP_CACHE_BYTES);
 }
 
 

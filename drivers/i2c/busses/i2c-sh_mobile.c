@@ -2,7 +2,8 @@
 /*
  * SuperH Mobile I2C Controller
  *
- * Copyright (C) 2014-19 Wolfram Sang <wsa@sang-engineering.com>
+ * Copyright (C) 2014 Wolfram Sang <wsa@sang-engineering.com>
+ *
  * Copyright (C) 2008 Magnus Damm
  *
  * Portions of the code based on out-of-tree driver i2c-sh7343.c
@@ -129,7 +130,6 @@ struct sh_mobile_i2c_data {
 	int sr;
 	bool send_stop;
 	bool stop_after_dma;
-	bool atomic_xfer;
 
 	struct resource *res;
 	struct dma_chan *dma_tx;
@@ -145,6 +145,9 @@ struct sh_mobile_dt_config {
 };
 
 #define IIC_FLAG_HAS_ICIC67	(1 << 0)
+
+#define STANDARD_MODE		100000
+#define FAST_MODE		400000
 
 /* Register offsets */
 #define ICDR			0x00
@@ -268,11 +271,11 @@ static int sh_mobile_i2c_init(struct sh_mobile_i2c_data *pd)
 
 	i2c_clk_khz = clk_get_rate(pd->clk) / 1000 / pd->clks_per_count;
 
-	if (pd->bus_speed == I2C_MAX_STANDARD_MODE_FREQ) {
+	if (pd->bus_speed == STANDARD_MODE) {
 		tLOW	= 47;	/* tLOW = 4.7 us */
 		tHIGH	= 40;	/* tHD;STA = tHIGH = 4.0 us */
 		tf	= 3;	/* tf = 0.3 us */
-	} else if (pd->bus_speed == I2C_MAX_FAST_MODE_FREQ) {
+	} else if (pd->bus_speed == FAST_MODE) {
 		tLOW	= 13;	/* tLOW = 1.3 us */
 		tHIGH	= 6;	/* tHD;STA = tHIGH = 0.6 us */
 		tf	= 3;	/* tf = 0.3 us */
@@ -300,12 +303,13 @@ static int sh_mobile_i2c_v2_init(struct sh_mobile_i2c_data *pd)
 	return sh_mobile_i2c_check_timing(pd);
 }
 
-static unsigned char i2c_op(struct sh_mobile_i2c_data *pd, enum sh_mobile_i2c_op op)
+static unsigned char i2c_op(struct sh_mobile_i2c_data *pd,
+			    enum sh_mobile_i2c_op op, unsigned char data)
 {
 	unsigned char ret = 0;
 	unsigned long flags;
 
-	dev_dbg(pd->dev, "op %d\n", op);
+	dev_dbg(pd->dev, "op %d, data in 0x%02x\n", op, data);
 
 	spin_lock_irqsave(&pd->lock, flags);
 
@@ -313,12 +317,12 @@ static unsigned char i2c_op(struct sh_mobile_i2c_data *pd, enum sh_mobile_i2c_op
 	case OP_START: /* issue start and trigger DTE interrupt */
 		iic_wr(pd, ICCR, ICCR_ICE | ICCR_TRS | ICCR_BBSY);
 		break;
-	case OP_TX_FIRST: /* disable DTE interrupt and write client address */
+	case OP_TX_FIRST: /* disable DTE interrupt and write data */
 		iic_wr(pd, ICIC, ICIC_WAITE | ICIC_ALE | ICIC_TACKE);
-		iic_wr(pd, ICDR, i2c_8bit_addr_from_msg(pd->msg));
+		iic_wr(pd, ICDR, data);
 		break;
 	case OP_TX: /* write data */
-		iic_wr(pd, ICDR, pd->msg->buf[pd->pos]);
+		iic_wr(pd, ICDR, data);
 		break;
 	case OP_TX_STOP: /* issue a stop (or rep_start) */
 		iic_wr(pd, ICCR, pd->send_stop ? ICCR_ICE | ICCR_TRS
@@ -331,15 +335,13 @@ static unsigned char i2c_op(struct sh_mobile_i2c_data *pd, enum sh_mobile_i2c_op
 		ret = iic_rd(pd, ICDR);
 		break;
 	case OP_RX_STOP: /* enable DTE interrupt, issue stop */
-		if (!pd->atomic_xfer)
-			iic_wr(pd, ICIC,
-			       ICIC_DTEE | ICIC_WAITE | ICIC_ALE | ICIC_TACKE);
+		iic_wr(pd, ICIC,
+		       ICIC_DTEE | ICIC_WAITE | ICIC_ALE | ICIC_TACKE);
 		iic_wr(pd, ICCR, ICCR_ICE | ICCR_RACK);
 		break;
 	case OP_RX_STOP_DATA: /* enable DTE interrupt, read data, issue stop */
-		if (!pd->atomic_xfer)
-			iic_wr(pd, ICIC,
-			       ICIC_DTEE | ICIC_WAITE | ICIC_ALE | ICIC_TACKE);
+		iic_wr(pd, ICIC,
+		       ICIC_DTEE | ICIC_WAITE | ICIC_ALE | ICIC_TACKE);
 		ret = iic_rd(pd, ICDR);
 		iic_wr(pd, ICCR, ICCR_ICE | ICCR_RACK);
 		break;
@@ -351,17 +353,34 @@ static unsigned char i2c_op(struct sh_mobile_i2c_data *pd, enum sh_mobile_i2c_op
 	return ret;
 }
 
+static bool sh_mobile_i2c_is_first_byte(struct sh_mobile_i2c_data *pd)
+{
+	return pd->pos == -1;
+}
+
+static void sh_mobile_i2c_get_data(struct sh_mobile_i2c_data *pd,
+				   unsigned char *buf)
+{
+	switch (pd->pos) {
+	case -1:
+		*buf = i2c_8bit_addr_from_msg(pd->msg);
+		break;
+	default:
+		*buf = pd->msg->buf[pd->pos];
+	}
+}
+
 static int sh_mobile_i2c_isr_tx(struct sh_mobile_i2c_data *pd)
 {
+	unsigned char data;
+
 	if (pd->pos == pd->msg->len) {
-		i2c_op(pd, OP_TX_STOP);
+		i2c_op(pd, OP_TX_STOP, 0);
 		return 1;
 	}
 
-	if (pd->pos == -1)
-		i2c_op(pd, OP_TX_FIRST);
-	else
-		i2c_op(pd, OP_TX);
+	sh_mobile_i2c_get_data(pd, &data);
+	i2c_op(pd, sh_mobile_i2c_is_first_byte(pd) ? OP_TX_FIRST : OP_TX, data);
 
 	pd->pos++;
 	return 0;
@@ -369,32 +388,48 @@ static int sh_mobile_i2c_isr_tx(struct sh_mobile_i2c_data *pd)
 
 static int sh_mobile_i2c_isr_rx(struct sh_mobile_i2c_data *pd)
 {
+	unsigned char data;
 	int real_pos;
 
-	/* switch from TX (address) to RX (data) adds two interrupts */
-	real_pos = pd->pos - 2;
+	do {
+		if (pd->pos <= -1) {
+			sh_mobile_i2c_get_data(pd, &data);
 
-	if (pd->pos == -1) {
-		i2c_op(pd, OP_TX_FIRST);
-	} else if (pd->pos == 0) {
-		i2c_op(pd, OP_TX_TO_RX);
-	} else if (pd->pos == pd->msg->len) {
-		if (pd->stop_after_dma) {
-			/* Simulate PIO end condition after DMA transfer */
-			i2c_op(pd, OP_RX_STOP);
-			pd->pos++;
-			goto done;
+			if (sh_mobile_i2c_is_first_byte(pd))
+				i2c_op(pd, OP_TX_FIRST, data);
+			else
+				i2c_op(pd, OP_TX, data);
+			break;
 		}
 
-		if (real_pos < 0)
-			i2c_op(pd, OP_RX_STOP);
-		else
-			pd->msg->buf[real_pos] = i2c_op(pd, OP_RX_STOP_DATA);
-	} else if (real_pos >= 0) {
-		pd->msg->buf[real_pos] = i2c_op(pd, OP_RX);
-	}
+		if (pd->pos == 0) {
+			i2c_op(pd, OP_TX_TO_RX, 0);
+			break;
+		}
 
- done:
+		real_pos = pd->pos - 2;
+
+		if (pd->pos == pd->msg->len) {
+			if (pd->stop_after_dma) {
+				/* Simulate PIO end condition after DMA transfer */
+				i2c_op(pd, OP_RX_STOP, 0);
+				pd->pos++;
+				break;
+			}
+
+			if (real_pos < 0) {
+				i2c_op(pd, OP_RX_STOP, 0);
+				break;
+			}
+			data = i2c_op(pd, OP_RX_STOP_DATA, 0);
+		} else if (real_pos >= 0) {
+			data = i2c_op(pd, OP_RX, 0);
+		}
+
+		if (real_pos >= 0)
+			pd->msg->buf[real_pos] = data;
+	} while (0);
+
 	pd->pos++;
 	return pd->pos == (pd->msg->len + 2);
 }
@@ -432,8 +467,7 @@ static irqreturn_t sh_mobile_i2c_isr(int irq, void *dev_id)
 
 	if (wakeup) {
 		pd->sr |= SW_DONE;
-		if (!pd->atomic_xfer)
-			wake_up(&pd->wait);
+		wake_up(&pd->wait);
 	}
 
 	/* defeat write posting to avoid spurious WAIT interrupts */
@@ -484,7 +518,7 @@ static struct dma_chan *sh_mobile_i2c_request_dma_chan(struct device *dev,
 	char *chan_name = dir == DMA_MEM_TO_DEV ? "tx" : "rx";
 	int ret;
 
-	chan = dma_request_chan(dev, chan_name);
+	chan = dma_request_slave_channel_reason(dev, chan_name);
 	if (IS_ERR(chan)) {
 		dev_dbg(dev, "request_channel failed for %s (%ld)\n", chan_name,
 			PTR_ERR(chan));
@@ -585,9 +619,6 @@ static void start_ch(struct sh_mobile_i2c_data *pd, struct i2c_msg *usr_msg,
 	pd->pos = -1;
 	pd->sr = 0;
 
-	if (pd->atomic_xfer)
-		return;
-
 	pd->dma_buf = i2c_get_dma_safe_msg_buf(pd->msg, 8);
 	if (pd->dma_buf)
 		sh_mobile_i2c_xfer_dma(pd);
@@ -644,13 +675,15 @@ static int poll_busy(struct sh_mobile_i2c_data *pd)
 	return i ? 0 : -ETIMEDOUT;
 }
 
-static int sh_mobile_xfer(struct sh_mobile_i2c_data *pd,
-			 struct i2c_msg *msgs, int num)
+static int sh_mobile_i2c_xfer(struct i2c_adapter *adapter,
+			      struct i2c_msg *msgs,
+			      int num)
 {
+	struct sh_mobile_i2c_data *pd = i2c_get_adapdata(adapter);
 	struct i2c_msg	*msg;
 	int err = 0;
 	int i;
-	long time_left;
+	long timeout;
 
 	/* Wake up device and enable clock */
 	pm_runtime_get_sync(pd->dev);
@@ -665,37 +698,17 @@ static int sh_mobile_xfer(struct sh_mobile_i2c_data *pd,
 		start_ch(pd, msg, do_start);
 
 		if (do_start)
-			i2c_op(pd, OP_START);
+			i2c_op(pd, OP_START, 0);
 
-		if (pd->atomic_xfer) {
-			unsigned long j = jiffies + pd->adap.timeout;
+		/* The interrupt handler takes care of the rest... */
+		timeout = wait_event_timeout(pd->wait,
+				       pd->sr & (ICSR_TACK | SW_DONE),
+				       adapter->timeout);
 
-			time_left = time_before_eq(jiffies, j);
-			while (time_left &&
-			       !(pd->sr & (ICSR_TACK | SW_DONE))) {
-				unsigned char sr = iic_rd(pd, ICSR);
+		/* 'stop_after_dma' tells if DMA transfer was complete */
+		i2c_put_dma_safe_msg_buf(pd->dma_buf, pd->msg, pd->stop_after_dma);
 
-				if (sr & (ICSR_AL   | ICSR_TACK |
-					  ICSR_WAIT | ICSR_DTE)) {
-					sh_mobile_i2c_isr(0, pd);
-					udelay(150);
-				} else {
-					cpu_relax();
-				}
-				time_left = time_before_eq(jiffies, j);
-			}
-		} else {
-			/* The interrupt handler takes care of the rest... */
-			time_left = wait_event_timeout(pd->wait,
-					pd->sr & (ICSR_TACK | SW_DONE),
-					pd->adap.timeout);
-
-			/* 'stop_after_dma' tells if DMA xfer was complete */
-			i2c_put_dma_safe_msg_buf(pd->dma_buf, pd->msg,
-						 pd->stop_after_dma);
-		}
-
-		if (!time_left) {
+		if (!timeout) {
 			dev_err(pd->dev, "Transfer request timed out\n");
 			if (pd->dma_direction != DMA_NONE)
 				sh_mobile_i2c_cleanup_dma(pd);
@@ -721,35 +734,14 @@ static int sh_mobile_xfer(struct sh_mobile_i2c_data *pd,
 	return err ?: num;
 }
 
-static int sh_mobile_i2c_xfer(struct i2c_adapter *adapter,
-			      struct i2c_msg *msgs,
-			      int num)
-{
-	struct sh_mobile_i2c_data *pd = i2c_get_adapdata(adapter);
-
-	pd->atomic_xfer = false;
-	return sh_mobile_xfer(pd, msgs, num);
-}
-
-static int sh_mobile_i2c_xfer_atomic(struct i2c_adapter *adapter,
-				     struct i2c_msg *msgs,
-				     int num)
-{
-	struct sh_mobile_i2c_data *pd = i2c_get_adapdata(adapter);
-
-	pd->atomic_xfer = true;
-	return sh_mobile_xfer(pd, msgs, num);
-}
-
 static u32 sh_mobile_i2c_func(struct i2c_adapter *adapter)
 {
 	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL | I2C_FUNC_PROTOCOL_MANGLING;
 }
 
 static const struct i2c_algorithm sh_mobile_i2c_algorithm = {
-	.functionality = sh_mobile_i2c_func,
-	.master_xfer = sh_mobile_i2c_xfer,
-	.master_xfer_atomic = sh_mobile_i2c_xfer_atomic,
+	.functionality	= sh_mobile_i2c_func,
+	.master_xfer	= sh_mobile_i2c_xfer,
 };
 
 static const struct i2c_adapter_quirks sh_mobile_i2c_quirks = {
@@ -757,7 +749,8 @@ static const struct i2c_adapter_quirks sh_mobile_i2c_quirks = {
 };
 
 /*
- * r8a7740 has an errata regarding I2C I/O pad reset needing this workaround.
+ * r8a7740 chip has lasting errata on I2C I/O pad reset.
+ * this is work-around for it.
  */
 static int sh_mobile_i2c_r8a7740_workaround(struct sh_mobile_i2c_data *pd)
 {
@@ -807,17 +800,15 @@ static const struct sh_mobile_dt_config r8a7740_dt_config = {
 static const struct of_device_id sh_mobile_i2c_dt_ids[] = {
 	{ .compatible = "renesas,iic-r8a73a4", .data = &fast_clock_dt_config },
 	{ .compatible = "renesas,iic-r8a7740", .data = &r8a7740_dt_config },
-	{ .compatible = "renesas,iic-r8a774c0", .data = &v2_freq_calc_dt_config },
 	{ .compatible = "renesas,iic-r8a7790", .data = &v2_freq_calc_dt_config },
-	{ .compatible = "renesas,iic-r8a7791", .data = &v2_freq_calc_dt_config },
-	{ .compatible = "renesas,iic-r8a7792", .data = &v2_freq_calc_dt_config },
-	{ .compatible = "renesas,iic-r8a7793", .data = &v2_freq_calc_dt_config },
-	{ .compatible = "renesas,iic-r8a7794", .data = &v2_freq_calc_dt_config },
-	{ .compatible = "renesas,iic-r8a7795", .data = &v2_freq_calc_dt_config },
-	{ .compatible = "renesas,iic-r8a77990", .data = &v2_freq_calc_dt_config },
+	{ .compatible = "renesas,iic-r8a7791", .data = &fast_clock_dt_config },
+	{ .compatible = "renesas,iic-r8a7792", .data = &fast_clock_dt_config },
+	{ .compatible = "renesas,iic-r8a7793", .data = &fast_clock_dt_config },
+	{ .compatible = "renesas,iic-r8a7794", .data = &fast_clock_dt_config },
+	{ .compatible = "renesas,rcar-gen2-iic", .data = &fast_clock_dt_config },
+	{ .compatible = "renesas,iic-r8a7795", .data = &fast_clock_dt_config },
+	{ .compatible = "renesas,rcar-gen3-iic", .data = &fast_clock_dt_config },
 	{ .compatible = "renesas,iic-sh73a0", .data = &fast_clock_dt_config },
-	{ .compatible = "renesas,rcar-gen2-iic", .data = &v2_freq_calc_dt_config },
-	{ .compatible = "renesas,rcar-gen3-iic", .data = &v2_freq_calc_dt_config },
 	{ .compatible = "renesas,rmobile-iic", .data = &default_dt_config },
 	{},
 };
@@ -891,7 +882,7 @@ static int sh_mobile_i2c_probe(struct platform_device *dev)
 		return PTR_ERR(pd->reg);
 
 	ret = of_property_read_u32(dev->dev.of_node, "clock-frequency", &bus_speed);
-	pd->bus_speed = (ret || !bus_speed) ? I2C_MAX_STANDARD_MODE_FREQ : bus_speed;
+	pd->bus_speed = (ret || !bus_speed) ? STANDARD_MODE : bus_speed;
 	pd->clks_per_count = 1;
 
 	/* Newer variants come with two new bits in ICIC */
@@ -978,7 +969,6 @@ static void __exit sh_mobile_i2c_adap_exit(void)
 module_exit(sh_mobile_i2c_adap_exit);
 
 MODULE_DESCRIPTION("SuperH Mobile I2C Bus Controller driver");
-MODULE_AUTHOR("Magnus Damm");
-MODULE_AUTHOR("Wolfram Sang");
+MODULE_AUTHOR("Magnus Damm and Wolfram Sang");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:i2c-sh_mobile");

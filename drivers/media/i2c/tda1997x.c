@@ -908,7 +908,7 @@ tda1997x_configure_audout(struct v4l2_subdev *sd, u8 channel_assignment)
 {
 	struct tda1997x_state *state = to_state(sd);
 	struct tda1997x_platform_data *pdata = &state->pdata;
-	bool sp_used_by_fifo = true;
+	bool sp_used_by_fifo = 1;
 	u8 reg;
 
 	if (!pdata->audout_format)
@@ -936,7 +936,7 @@ tda1997x_configure_audout(struct v4l2_subdev *sd, u8 channel_assignment)
 		break;
 	case AUDCFG_TYPE_DST:
 		reg |= AUDCFG_TYPE_DST << AUDCFG_TYPE_SHIFT;
-		sp_used_by_fifo = false;
+		sp_used_by_fifo = 0;
 		break;
 	case AUDCFG_TYPE_HBR:
 		reg |= AUDCFG_TYPE_HBR << AUDCFG_TYPE_SHIFT;
@@ -944,7 +944,7 @@ tda1997x_configure_audout(struct v4l2_subdev *sd, u8 channel_assignment)
 			/* demuxed via AP0:AP3 */
 			reg |= AUDCFG_HBR_DEMUX << AUDCFG_HBR_SHIFT;
 			if (pdata->audout_format == AUDFMT_TYPE_SPDIF)
-				sp_used_by_fifo = false;
+				sp_used_by_fifo = 0;
 		} else {
 			/* straight via AP0 */
 			reg |= AUDCFG_HBR_STRAIGHT << AUDCFG_HBR_SHIFT;
@@ -1247,13 +1247,13 @@ tda1997x_parse_infoframe(struct tda1997x_state *state, u16 addr)
 {
 	struct v4l2_subdev *sd = &state->sd;
 	union hdmi_infoframe frame;
-	u8 buffer[40] = { 0 };
+	u8 buffer[40];
 	u8 reg;
 	int len, err;
 
 	/* read data */
 	len = io_readn(sd, addr, sizeof(buffer), buffer);
-	err = hdmi_infoframe_unpack(&frame, buffer, len);
+	err = hdmi_infoframe_unpack(&frame, buffer);
 	if (err) {
 		v4l_err(state->client,
 			"failed parsing %d byte infoframe: 0x%04x/0x%02x\n",
@@ -1695,15 +1695,14 @@ static int tda1997x_query_dv_timings(struct v4l2_subdev *sd,
 				     struct v4l2_dv_timings *timings)
 {
 	struct tda1997x_state *state = to_state(sd);
-	int ret;
 
 	v4l_dbg(1, debug, state->client, "%s\n", __func__);
 	memset(timings, 0, sizeof(struct v4l2_dv_timings));
 	mutex_lock(&state->lock);
-	ret = tda1997x_detect_std(state, timings);
+	tda1997x_detect_std(state, timings);
 	mutex_unlock(&state->lock);
 
-	return ret;
+	return 0;
 }
 
 static const struct v4l2_subdev_video_ops tda1997x_video_ops = {
@@ -1885,10 +1884,6 @@ static int tda1997x_set_edid(struct v4l2_subdev *sd, struct v4l2_edid *edid)
 	for (i = 0; i < 128; i++)
 		io_write(sd, REG_EDID_IN_BYTE128 + i, edid->edid[i+128]);
 
-	/* store state */
-	memcpy(state->edid.edid, edid->edid, 256);
-	state->edid.blocks = edid->blocks;
-
 	tda1997x_enable_edid(sd);
 
 	return 0;
@@ -1927,13 +1922,13 @@ static int tda1997x_log_infoframe(struct v4l2_subdev *sd, int addr)
 {
 	struct tda1997x_state *state = to_state(sd);
 	union hdmi_infoframe frame;
-	u8 buffer[40] = { 0 };
+	u8 buffer[40];
 	int len, err;
 
 	/* read data */
 	len = io_readn(sd, addr, sizeof(buffer), buffer);
 	v4l2_dbg(1, debug, sd, "infoframe: addr=%d len=%d\n", addr, len);
-	err = hdmi_infoframe_unpack(&frame, buffer, len);
+	err = hdmi_infoframe_unpack(&frame, buffer);
 	if (err) {
 		v4l_err(state->client,
 			"failed parsing %d byte infoframe: 0x%04x/0x%02x\n",
@@ -2234,7 +2229,6 @@ static int tda1997x_core_init(struct v4l2_subdev *sd)
 	/* get initial HDMI status */
 	state->hdmi_status = io_read(sd, REG_HDMI_FLAGS);
 
-	io_write(sd, REG_EDID_ENABLE, EDID_ENABLE_A_EN | EDID_ENABLE_B_EN);
 	return 0;
 }
 
@@ -2590,7 +2584,7 @@ static int tda1997x_probe(struct i2c_client *client,
 			case 36:
 				mbus_codes[i++] = MEDIA_BUS_FMT_RGB121212_1X36;
 				mbus_codes[i++] = MEDIA_BUS_FMT_YUV12_1X36;
-				fallthrough;
+				/* fall-through */
 			case 24:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY12_1X24;
 				break;
@@ -2619,10 +2613,10 @@ static int tda1997x_probe(struct i2c_client *client,
 				mbus_codes[i++] = MEDIA_BUS_FMT_RGB888_1X24;
 				mbus_codes[i++] = MEDIA_BUS_FMT_YUV8_1X24;
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY12_1X24;
-				fallthrough;
+				/* fall through */
 			case 20:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY10_1X20;
-				fallthrough;
+				/* fall through */
 			case 16:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY8_1X16;
 				break;
@@ -2635,10 +2629,10 @@ static int tda1997x_probe(struct i2c_client *client,
 			case 16:
 			case 12:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY12_2X12;
-				fallthrough;
+				/* fall through */
 			case 10:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY10_2X10;
-				fallthrough;
+				/* fall through */
 			case 8:
 				mbus_codes[i++] = MEDIA_BUS_FMT_UYVY8_2X8;
 				break;
@@ -2693,13 +2687,7 @@ static int tda1997x_probe(struct i2c_client *client,
 	}
 
 	ret = 0x34 + ((io_read(sd, REG_SLAVE_ADDR)>>4) & 0x03);
-	state->client_cec = devm_i2c_new_dummy_device(&client->dev,
-						      client->adapter, ret);
-	if (IS_ERR(state->client_cec)) {
-		ret = PTR_ERR(state->client_cec);
-		goto err_free_mutex;
-	}
-
+	state->client_cec = i2c_new_dummy(client->adapter, ret);
 	v4l_info(client, "CEC slave address 0x%02x\n", ret);
 
 	ret = tda1997x_core_init(sd);
@@ -2806,7 +2794,8 @@ static int tda1997x_remove(struct i2c_client *client)
 	media_entity_cleanup(&sd->entity);
 	v4l2_ctrl_handler_free(&state->hdl);
 	regulator_bulk_disable(TDA1997X_NUM_SUPPLIES, state->supplies);
-	cancel_delayed_work_sync(&state->delayed_work_enable_hpd);
+	i2c_unregister_device(state->client_cec);
+	cancel_delayed_work(&state->delayed_work_enable_hpd);
 	mutex_destroy(&state->page_lock);
 	mutex_destroy(&state->lock);
 

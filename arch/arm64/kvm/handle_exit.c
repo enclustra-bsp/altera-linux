@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2012,2013 - ARM Ltd
  * Author: Marc Zyngier <marc.zyngier@arm.com>
@@ -6,10 +5,24 @@
  * Derived from arch/arm/kvm/handle_exit.c:
  * Copyright (C) 2012 - Virtual Open Systems and Columbia University
  * Author: Christoffer Dall <c.dall@virtualopensystems.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
+
+#include <kvm/arm_psci.h>
 
 #include <asm/esr.h>
 #include <asm/exception.h>
@@ -20,12 +33,10 @@
 #include <asm/debug-monitors.h>
 #include <asm/traps.h>
 
-#include <kvm/arm_hypercalls.h>
-
 #define CREATE_TRACE_POINTS
-#include "trace_handle_exit.h"
+#include "trace.h"
 
-typedef int (*exit_handle_fn)(struct kvm_vcpu *);
+typedef int (*exit_handle_fn)(struct kvm_vcpu *, struct kvm_run *);
 
 static void kvm_handle_guest_serror(struct kvm_vcpu *vcpu, u32 esr)
 {
@@ -33,7 +44,7 @@ static void kvm_handle_guest_serror(struct kvm_vcpu *vcpu, u32 esr)
 		kvm_inject_vabt(vcpu);
 }
 
-static int handle_hvc(struct kvm_vcpu *vcpu)
+static int handle_hvc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	int ret;
 
@@ -50,7 +61,7 @@ static int handle_hvc(struct kvm_vcpu *vcpu)
 	return ret;
 }
 
-static int handle_smc(struct kvm_vcpu *vcpu)
+static int handle_smc(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	/*
 	 * "If an SMC instruction executed at Non-secure EL1 is
@@ -69,7 +80,7 @@ static int handle_smc(struct kvm_vcpu *vcpu)
  * Guest access to FP/ASIMD registers are routed to this handler only
  * when the system doesn't support FP/ASIMD.
  */
-static int handle_no_fpsimd(struct kvm_vcpu *vcpu)
+static int handle_no_fpsimd(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	kvm_inject_undefined(vcpu);
 	return 1;
@@ -87,9 +98,9 @@ static int handle_no_fpsimd(struct kvm_vcpu *vcpu)
  * world-switches and schedule other host processes until there is an
  * incoming IRQ or FIQ to the VM.
  */
-static int kvm_handle_wfx(struct kvm_vcpu *vcpu)
+static int kvm_handle_wfx(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	if (kvm_vcpu_get_esr(vcpu) & ESR_ELx_WFx_ISS_WFE) {
+	if (kvm_vcpu_get_hsr(vcpu) & ESR_ELx_WFx_ISS_WFE) {
 		trace_kvm_wfx_arm64(*vcpu_pc(vcpu), true);
 		vcpu->stat.wfe_exit_stat++;
 		kvm_vcpu_on_spin(vcpu, vcpu_mode_priv(vcpu));
@@ -109,34 +120,34 @@ static int kvm_handle_wfx(struct kvm_vcpu *vcpu)
  * kvm_handle_guest_debug - handle a debug exception instruction
  *
  * @vcpu:	the vcpu pointer
+ * @run:	access to the kvm_run structure for results
  *
  * We route all debug exceptions through the same handler. If both the
  * guest and host are using the same debug facilities it will be up to
  * userspace to re-inject the correct exception for guest delivery.
  *
- * @return: 0 (while setting vcpu->run->exit_reason), -1 for error
+ * @return: 0 (while setting run->exit_reason), -1 for error
  */
-static int kvm_handle_guest_debug(struct kvm_vcpu *vcpu)
+static int kvm_handle_guest_debug(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	struct kvm_run *run = vcpu->run;
-	u32 esr = kvm_vcpu_get_esr(vcpu);
+	u32 hsr = kvm_vcpu_get_hsr(vcpu);
 	int ret = 0;
 
 	run->exit_reason = KVM_EXIT_DEBUG;
-	run->debug.arch.hsr = esr;
+	run->debug.arch.hsr = hsr;
 
-	switch (ESR_ELx_EC(esr)) {
+	switch (ESR_ELx_EC(hsr)) {
 	case ESR_ELx_EC_WATCHPT_LOW:
 		run->debug.arch.far = vcpu->arch.fault.far_el2;
-		fallthrough;
+		/* fall through */
 	case ESR_ELx_EC_SOFTSTP_LOW:
 	case ESR_ELx_EC_BREAKPT_LOW:
 	case ESR_ELx_EC_BKPT32:
 	case ESR_ELx_EC_BRK64:
 		break;
 	default:
-		kvm_err("%s: un-handled case esr: %#08x\n",
-			__func__, (unsigned int) esr);
+		kvm_err("%s: un-handled case hsr: %#08x\n",
+			__func__, (unsigned int) hsr);
 		ret = -1;
 		break;
 	}
@@ -144,31 +155,20 @@ static int kvm_handle_guest_debug(struct kvm_vcpu *vcpu)
 	return ret;
 }
 
-static int kvm_handle_unknown_ec(struct kvm_vcpu *vcpu)
+static int kvm_handle_unknown_ec(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	u32 esr = kvm_vcpu_get_esr(vcpu);
+	u32 hsr = kvm_vcpu_get_hsr(vcpu);
 
-	kvm_pr_unimpl("Unknown exception class: esr: %#08x -- %s\n",
-		      esr, esr_get_class_string(esr));
+	kvm_pr_unimpl("Unknown exception class: hsr: %#08x -- %s\n",
+		      hsr, esr_get_class_string(hsr));
 
 	kvm_inject_undefined(vcpu);
 	return 1;
 }
 
-static int handle_sve(struct kvm_vcpu *vcpu)
+static int handle_sve(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	/* Until SVE is supported for guests: */
-	kvm_inject_undefined(vcpu);
-	return 1;
-}
-
-/*
- * Guest usage of a ptrauth instruction (which the guest EL1 did not turn into
- * a NOP). If we get here, it is that we didn't fixup ptrauth on exit, and all
- * that we can do is give the guest an UNDEF.
- */
-static int kvm_handle_ptrauth(struct kvm_vcpu *vcpu)
-{
 	kvm_inject_undefined(vcpu);
 	return 1;
 }
@@ -195,15 +195,14 @@ static exit_handle_fn arm_exit_handlers[] = {
 	[ESR_ELx_EC_BKPT32]	= kvm_handle_guest_debug,
 	[ESR_ELx_EC_BRK64]	= kvm_handle_guest_debug,
 	[ESR_ELx_EC_FP_ASIMD]	= handle_no_fpsimd,
-	[ESR_ELx_EC_PAC]	= kvm_handle_ptrauth,
 };
 
 static exit_handle_fn kvm_get_exit_handler(struct kvm_vcpu *vcpu)
 {
-	u32 esr = kvm_vcpu_get_esr(vcpu);
-	u8 esr_ec = ESR_ELx_EC(esr);
+	u32 hsr = kvm_vcpu_get_hsr(vcpu);
+	u8 hsr_ec = ESR_ELx_EC(hsr);
 
-	return arm_exit_handlers[esr_ec];
+	return arm_exit_handlers[hsr_ec];
 }
 
 /*
@@ -212,7 +211,7 @@ static exit_handle_fn kvm_get_exit_handler(struct kvm_vcpu *vcpu)
  * KVM_EXIT_DEBUG, otherwise userspace needs to complete its
  * emulation first.
  */
-static int handle_trap_exceptions(struct kvm_vcpu *vcpu)
+static int handle_trap_exceptions(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
 	int handled;
 
@@ -227,8 +226,15 @@ static int handle_trap_exceptions(struct kvm_vcpu *vcpu)
 		exit_handle_fn exit_handler;
 
 		exit_handler = kvm_get_exit_handler(vcpu);
-		handled = exit_handler(vcpu);
+		handled = exit_handler(vcpu, run);
 	}
+
+	/*
+	 * kvm_arm_handle_step_debug() sets the exit_reason on the kvm_run
+	 * structure if we need to return to userspace.
+	 */
+	if (handled > 0 && kvm_arm_handle_step_debug(vcpu, run))
+		handled = 0;
 
 	return handled;
 }
@@ -237,20 +243,19 @@ static int handle_trap_exceptions(struct kvm_vcpu *vcpu)
  * Return > 0 to return to guest, < 0 on error, 0 (and set exit_reason) on
  * proper exit to userspace.
  */
-int handle_exit(struct kvm_vcpu *vcpu, int exception_index)
+int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
+		       int exception_index)
 {
-	struct kvm_run *run = vcpu->run;
-
 	if (ARM_SERROR_PENDING(exception_index)) {
-		u8 esr_ec = ESR_ELx_EC(kvm_vcpu_get_esr(vcpu));
+		u8 hsr_ec = ESR_ELx_EC(kvm_vcpu_get_hsr(vcpu));
 
 		/*
 		 * HVC/SMC already have an adjusted PC, which we need
 		 * to correct in order to return to after having
 		 * injected the SError.
 		 */
-		if (esr_ec == ESR_ELx_EC_HVC32 || esr_ec == ESR_ELx_EC_HVC64 ||
-		    esr_ec == ESR_ELx_EC_SMC32 || esr_ec == ESR_ELx_EC_SMC64) {
+		if (hsr_ec == ESR_ELx_EC_HVC32 || hsr_ec == ESR_ELx_EC_HVC64 ||
+		    hsr_ec == ESR_ELx_EC_SMC32 || hsr_ec == ESR_ELx_EC_SMC64) {
 			u32 adj =  kvm_vcpu_trap_il_is32bit(vcpu) ? 4 : 2;
 			*vcpu_pc(vcpu) -= adj;
 		}
@@ -264,9 +269,14 @@ int handle_exit(struct kvm_vcpu *vcpu, int exception_index)
 	case ARM_EXCEPTION_IRQ:
 		return 1;
 	case ARM_EXCEPTION_EL1_SERROR:
-		return 1;
+		/* We may still need to return for single-step */
+		if (!(*vcpu_cpsr(vcpu) & DBG_SPSR_SS)
+			&& kvm_arm_handle_step_debug(vcpu, run))
+			return 0;
+		else
+			return 1;
 	case ARM_EXCEPTION_TRAP:
-		return handle_trap_exceptions(vcpu);
+		return handle_trap_exceptions(vcpu, run);
 	case ARM_EXCEPTION_HYP_GONE:
 		/*
 		 * EL2 has been reset to the hyp-stub. This happens when a guest
@@ -290,7 +300,8 @@ int handle_exit(struct kvm_vcpu *vcpu, int exception_index)
 }
 
 /* For exit types that need handling before we can be preempted */
-void handle_exit_early(struct kvm_vcpu *vcpu, int exception_index)
+void handle_exit_early(struct kvm_vcpu *vcpu, struct kvm_run *run,
+		       int exception_index)
 {
 	if (ARM_SERROR_PENDING(exception_index)) {
 		if (this_cpu_has_cap(ARM64_HAS_RAS_EXTN)) {
@@ -307,5 +318,5 @@ void handle_exit_early(struct kvm_vcpu *vcpu, int exception_index)
 	exception_index = ARM_EXCEPTION_CODE(exception_index);
 
 	if (exception_index == ARM_EXCEPTION_EL1_SERROR)
-		kvm_handle_guest_serror(vcpu, kvm_vcpu_get_esr(vcpu));
+		kvm_handle_guest_serror(vcpu, kvm_vcpu_get_hsr(vcpu));
 }

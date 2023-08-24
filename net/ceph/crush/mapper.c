@@ -298,7 +298,7 @@ static __u64 crush_ln(unsigned int xin)
  *
  * for reference, see:
  *
- * https://en.wikipedia.org/wiki/Exponential_distribution#Distribution_of_the_minimum_of_exponential_random_variables
+ * http://en.wikipedia.org/wiki/Exponential_distribution#Distribution_of_the_minimum_of_exponential_random_variables
  *
  */
 
@@ -987,7 +987,7 @@ int crush_do_rule(const struct crush_map *map,
 		case CRUSH_RULE_CHOOSELEAF_FIRSTN:
 		case CRUSH_RULE_CHOOSE_FIRSTN:
 			firstn = 1;
-			fallthrough;
+			/* fall through */
 		case CRUSH_RULE_CHOOSELEAF_INDEP:
 		case CRUSH_RULE_CHOOSE_INDEP:
 			if (wsize == 0)

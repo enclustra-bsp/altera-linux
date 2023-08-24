@@ -1,6 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright 2007, Michael Ellerman, IBM Corporation.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version
+ * 2 of the License, or (at your option) any later version.
  */
 
 
@@ -480,6 +484,10 @@ void axon_msi_debug_setup(struct device_node *dn, struct axon_msic *msic)
 
 	snprintf(name, sizeof(name), "msic_%d", of_node_to_nid(dn));
 
-	debugfs_create_file(name, 0600, powerpc_debugfs_root, msic, &fops_msic);
+	if (!debugfs_create_file(name, 0600, powerpc_debugfs_root,
+				 msic, &fops_msic)) {
+		pr_devel("axon_msi: debugfs_create_file failed!\n");
+		return;
+	}
 }
 #endif /* DEBUG */

@@ -40,7 +40,7 @@
 #include "en.h"
 #include "en_accel/ipsec.h"
 #include "en_accel/ipsec_rxtx.h"
-#include "en_accel/ipsec_fs.h"
+
 
 static struct mlx5e_ipsec_sa_entry *to_ipsec_sa_entry(struct xfrm_state *x)
 {
@@ -75,23 +75,18 @@ struct xfrm_state *mlx5e_ipsec_sadb_rx_lookup(struct mlx5e_ipsec *ipsec,
 	return ret;
 }
 
-static int  mlx5e_ipsec_sadb_rx_add(struct mlx5e_ipsec_sa_entry *sa_entry,
-				    unsigned int handle)
+static int mlx5e_ipsec_sadb_rx_add(struct mlx5e_ipsec_sa_entry *sa_entry)
 {
 	struct mlx5e_ipsec *ipsec = sa_entry->ipsec;
-	struct mlx5e_ipsec_sa_entry *_sa_entry;
 	unsigned long flags;
+	int ret;
 
-	rcu_read_lock();
-	hash_for_each_possible_rcu(ipsec->sadb_rx, _sa_entry, hlist, handle)
-		if (_sa_entry->handle == handle) {
-			rcu_read_unlock();
-			return  -EEXIST;
-		}
-	rcu_read_unlock();
+	ret = ida_simple_get(&ipsec->halloc, 1, 0, GFP_KERNEL);
+	if (ret < 0)
+		return ret;
 
 	spin_lock_irqsave(&ipsec->sadb_rx_lock, flags);
-	sa_entry->handle = handle;
+	sa_entry->handle = ret;
 	hash_add_rcu(ipsec->sadb_rx, &sa_entry->hlist, sa_entry->handle);
 	spin_unlock_irqrestore(&ipsec->sadb_rx_lock, flags);
 
@@ -108,10 +103,19 @@ static void mlx5e_ipsec_sadb_rx_del(struct mlx5e_ipsec_sa_entry *sa_entry)
 	spin_unlock_irqrestore(&ipsec->sadb_rx_lock, flags);
 }
 
+static void mlx5e_ipsec_sadb_rx_free(struct mlx5e_ipsec_sa_entry *sa_entry)
+{
+	struct mlx5e_ipsec *ipsec = sa_entry->ipsec;
+
+	/* xfrm already doing sync rcu between del and free callbacks */
+
+	ida_simple_remove(&ipsec->halloc, sa_entry->handle);
+}
+
 static bool mlx5e_ipsec_update_esn_state(struct mlx5e_ipsec_sa_entry *sa_entry)
 {
 	struct xfrm_replay_state_esn *replay_esn;
-	u32 seq_bottom = 0;
+	u32 seq_bottom;
 	u8 overlap;
 	u32 *esn;
 
@@ -121,9 +125,7 @@ static bool mlx5e_ipsec_update_esn_state(struct mlx5e_ipsec_sa_entry *sa_entry)
 	}
 
 	replay_esn = sa_entry->x->replay_esn;
-	if (replay_esn->seq >= replay_esn->replay_window)
-		seq_bottom = replay_esn->seq - replay_esn->replay_window + 1;
-
+	seq_bottom = replay_esn->seq - replay_esn->replay_window + 1;
 	overlap = sa_entry->esn_state.overlap;
 
 	sa_entry->esn_state.esn = xfrm_replay_seqhi(sa_entry->x,
@@ -197,19 +199,11 @@ mlx5e_ipsec_build_accel_xfrm_attrs(struct mlx5e_ipsec_sa_entry *sa_entry,
 	attrs->flags |= (x->props.mode == XFRM_MODE_TRANSPORT) ?
 			MLX5_ACCEL_ESP_FLAGS_TRANSPORT :
 			MLX5_ACCEL_ESP_FLAGS_TUNNEL;
-
-	/* spi */
-	attrs->spi = x->id.spi;
-
-	/* source , destination ips */
-	memcpy(&attrs->saddr, x->props.saddr.a6, sizeof(attrs->saddr));
-	memcpy(&attrs->daddr, x->id.daddr.a6, sizeof(attrs->daddr));
-	attrs->is_ipv6 = (x->props.family != AF_INET);
 }
 
 static inline int mlx5e_xfrm_validate_state(struct xfrm_state *x)
 {
-	struct net_device *netdev = x->xso.real_dev;
+	struct net_device *netdev = x->xso.dev;
 	struct mlx5e_priv *priv;
 
 	priv = netdev_priv(netdev);
@@ -284,34 +278,14 @@ static inline int mlx5e_xfrm_validate_state(struct xfrm_state *x)
 	return 0;
 }
 
-static int mlx5e_xfrm_fs_add_rule(struct mlx5e_priv *priv,
-				  struct mlx5e_ipsec_sa_entry *sa_entry)
-{
-	if (!mlx5_is_ipsec_device(priv->mdev))
-		return 0;
-
-	return mlx5e_accel_ipsec_fs_add_rule(priv, &sa_entry->xfrm->attrs,
-					     sa_entry->ipsec_obj_id,
-					     &sa_entry->ipsec_rule);
-}
-
-static void mlx5e_xfrm_fs_del_rule(struct mlx5e_priv *priv,
-				   struct mlx5e_ipsec_sa_entry *sa_entry)
-{
-	if (!mlx5_is_ipsec_device(priv->mdev))
-		return;
-
-	mlx5e_accel_ipsec_fs_del_rule(priv, &sa_entry->xfrm->attrs,
-				      &sa_entry->ipsec_rule);
-}
-
 static int mlx5e_xfrm_add_state(struct xfrm_state *x)
 {
 	struct mlx5e_ipsec_sa_entry *sa_entry = NULL;
-	struct net_device *netdev = x->xso.real_dev;
+	struct net_device *netdev = x->xso.dev;
 	struct mlx5_accel_esp_xfrm_attrs attrs;
 	struct mlx5e_priv *priv;
-	unsigned int sa_handle;
+	__be32 saddr[4] = {0}, daddr[4] = {0}, spi;
+	bool is_ipv6 = false;
 	int err;
 
 	priv = netdev_priv(netdev);
@@ -329,6 +303,20 @@ static int mlx5e_xfrm_add_state(struct xfrm_state *x)
 	sa_entry->x = x;
 	sa_entry->ipsec = priv->ipsec;
 
+	/* Add the SA to handle processed incoming packets before the add SA
+	 * completion was received
+	 */
+	if (x->xso.flags & XFRM_OFFLOAD_INBOUND) {
+		err = mlx5e_ipsec_sadb_rx_add(sa_entry);
+		if (err) {
+			netdev_info(netdev, "Failed adding to SADB_RX: %d\n", err);
+			goto err_entry;
+		}
+	} else {
+		sa_entry->set_iv_op = (x->props.flags & XFRM_STATE_ESN) ?
+				mlx5e_ipsec_set_iv_esn : mlx5e_ipsec_set_iv;
+	}
+
 	/* check esn */
 	mlx5e_ipsec_update_esn_state(sa_entry);
 
@@ -339,45 +327,41 @@ static int mlx5e_xfrm_add_state(struct xfrm_state *x)
 					   MLX5_ACCEL_XFRM_FLAG_REQUIRE_METADATA);
 	if (IS_ERR(sa_entry->xfrm)) {
 		err = PTR_ERR(sa_entry->xfrm);
-		goto err_sa_entry;
+		goto err_sadb_rx;
 	}
 
 	/* create hw context */
+	if (x->props.family == AF_INET) {
+		saddr[3] = x->props.saddr.a4;
+		daddr[3] = x->id.daddr.a4;
+	} else {
+		memcpy(saddr, x->props.saddr.a6, sizeof(saddr));
+		memcpy(daddr, x->id.daddr.a6, sizeof(daddr));
+		is_ipv6 = true;
+	}
+	spi = x->id.spi;
 	sa_entry->hw_context =
 			mlx5_accel_esp_create_hw_context(priv->mdev,
 							 sa_entry->xfrm,
-							 &sa_handle);
+							 saddr, daddr, spi,
+							 is_ipv6);
 	if (IS_ERR(sa_entry->hw_context)) {
 		err = PTR_ERR(sa_entry->hw_context);
 		goto err_xfrm;
 	}
 
-	sa_entry->ipsec_obj_id = sa_handle;
-	err = mlx5e_xfrm_fs_add_rule(priv, sa_entry);
-	if (err)
-		goto err_hw_ctx;
-
-	if (x->xso.flags & XFRM_OFFLOAD_INBOUND) {
-		err = mlx5e_ipsec_sadb_rx_add(sa_entry, sa_handle);
-		if (err)
-			goto err_add_rule;
-	} else {
-		sa_entry->set_iv_op = (x->props.flags & XFRM_STATE_ESN) ?
-				mlx5e_ipsec_set_iv_esn : mlx5e_ipsec_set_iv;
-	}
-
 	x->xso.offload_handle = (unsigned long)sa_entry;
 	goto out;
 
-err_add_rule:
-	mlx5e_xfrm_fs_del_rule(priv, sa_entry);
-err_hw_ctx:
-	mlx5_accel_esp_free_hw_context(priv->mdev, sa_entry->hw_context);
 err_xfrm:
 	mlx5_accel_esp_destroy_xfrm(sa_entry->xfrm);
-err_sa_entry:
+err_sadb_rx:
+	if (x->xso.flags & XFRM_OFFLOAD_INBOUND) {
+		mlx5e_ipsec_sadb_rx_del(sa_entry);
+		mlx5e_ipsec_sadb_rx_free(sa_entry);
+	}
+err_entry:
 	kfree(sa_entry);
-
 out:
 	return err;
 }
@@ -396,17 +380,18 @@ static void mlx5e_xfrm_del_state(struct xfrm_state *x)
 static void mlx5e_xfrm_free_state(struct xfrm_state *x)
 {
 	struct mlx5e_ipsec_sa_entry *sa_entry = to_ipsec_sa_entry(x);
-	struct mlx5e_priv *priv = netdev_priv(x->xso.dev);
 
 	if (!sa_entry)
 		return;
 
 	if (sa_entry->hw_context) {
 		flush_workqueue(sa_entry->ipsec->wq);
-		mlx5e_xfrm_fs_del_rule(priv, sa_entry);
-		mlx5_accel_esp_free_hw_context(sa_entry->xfrm->mdev, sa_entry->hw_context);
+		mlx5_accel_esp_free_hw_context(sa_entry->hw_context);
 		mlx5_accel_esp_destroy_xfrm(sa_entry->xfrm);
 	}
+
+	if (x->xso.flags & XFRM_OFFLOAD_INBOUND)
+		mlx5e_ipsec_sadb_rx_free(sa_entry);
 
 	kfree(sa_entry);
 }
@@ -437,8 +422,6 @@ int mlx5e_ipsec_init(struct mlx5e_priv *priv)
 		kfree(ipsec);
 		return -ENOMEM;
 	}
-
-	mlx5e_accel_ipsec_fs_init(priv);
 	netdev_dbg(priv->netdev, "IPSec attached to netdevice\n");
 	return 0;
 }
@@ -450,7 +433,7 @@ void mlx5e_ipsec_cleanup(struct mlx5e_priv *priv)
 	if (!ipsec)
 		return;
 
-	mlx5e_accel_ipsec_fs_cleanup(priv);
+	drain_workqueue(ipsec->wq);
 	destroy_workqueue(ipsec->wq);
 
 	ida_destroy(&ipsec->halloc);
@@ -532,6 +515,9 @@ void mlx5e_ipsec_build_netdev(struct mlx5e_priv *priv)
 	struct mlx5_core_dev *mdev = priv->mdev;
 	struct net_device *netdev = priv->netdev;
 
+	if (!priv->ipsec)
+		return;
+
 	if (!(mlx5_accel_ipsec_device_caps(mdev) & MLX5_ACCEL_IPSEC_CAP_ESP) ||
 	    !MLX5_CAP_ETH(mdev, swp)) {
 		mlx5_core_dbg(mdev, "mlx5e: ESP and SWP offload not supported\n");
@@ -556,9 +542,6 @@ void mlx5e_ipsec_build_netdev(struct mlx5e_priv *priv)
 		mlx5_core_dbg(mdev, "mlx5e: ESP LSO not supported\n");
 		return;
 	}
-
-	if (mlx5_is_ipsec_device(mdev))
-		netdev->gso_partial_features |= NETIF_F_GSO_ESP;
 
 	mlx5_core_dbg(mdev, "mlx5e: ESP GSO capability turned on\n");
 	netdev->features |= NETIF_F_GSO_ESP;

@@ -43,6 +43,6 @@ extern unsigned long calc_load_n(unsigned long load, unsigned long exp,
 #define LOAD_INT(x) ((x) >> FSHIFT)
 #define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
 
-extern void calc_global_load(void);
+extern void calc_global_load(unsigned long ticks);
 
 #endif /* _LINUX_SCHED_LOADAVG_H */

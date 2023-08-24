@@ -57,7 +57,6 @@
 
 	/* Will be filled by the bootloader */
 	memory@10000000 {
-		device_type = "memory";
 		reg = <0x10000000 0>;
 	};
 
@@ -107,7 +106,7 @@
 	};
 
 	panel: panel {
-		compatible = "innolux,n133hse-ea1";
+		compatible = "innolux,n133hse-ea1", "simple-panel";
 		backlight = <&backlight>;
 	};
 
@@ -455,7 +454,6 @@
 };
 
 &pwm1 {
-	#pwm-cells = <2>;
 	status = "okay";
 };
 

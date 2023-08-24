@@ -95,10 +95,22 @@ On-line docs
         [...]. This paper examines some common problems for
         submitting larger changes and some strategies to avoid problems.
 
+    * Title: **Overview of the Virtual File System**
+
+      :Author: Richard Gooch.
+      :URL: http://www.mjmwired.net/kernel/Documentation/filesystems/vfs.txt
+      :Date: 2007
+      :Keywords: VFS, File System, mounting filesystems, opening files,
+        dentries, dcache.
+      :Description: Brief introduction to the Linux Virtual File System.
+        What is it, how it works, operations taken when opening a file or
+        mounting a file system and description of important data
+        structures explaining the purpose of each of their entries.
+
     * Title: **Linux Device Drivers, Third Edition**
 
       :Author: Jonathan Corbet, Alessandro Rubini, Greg Kroah-Hartman
-      :URL: https://lwn.net/Kernel/LDD3/
+      :URL: http://lwn.net/Kernel/LDD3/
       :Date: 2005
       :Description: A 600-page book covering the (2.6.10) driver
         programming API and kernel hacking in general.  Available under the
@@ -129,7 +141,7 @@ On-line docs
     * Title: **Linux Kernel Module Programming Guide**
 
       :Author: Ori Pomerantz.
-      :URL: https://tldp.org/LDP/lkmpg/2.6/html/index.html
+      :URL: http://tldp.org/LDP/lkmpg/2.6/html/index.html
       :Date: 2001
       :Keywords: modules, GPL book, /proc, ioctls, system calls,
         interrupt handlers .
@@ -244,7 +256,7 @@ On-line docs
     * Title: **I/O Event Handling Under Linux**
 
       :Author: Richard Gooch.
-      :URL: https://web.mit.edu/~yandros/doc/io-events.html
+      :URL: http://web.mit.edu/~yandros/doc/io-events.html
       :Date: 1999
       :Keywords: IO, I/O, select(2), poll(2), FDs, aio_read(2), readiness
         event queues.
@@ -295,7 +307,7 @@ On-line docs
     * Title: **Design and Implementation of the Second Extended Filesystem**
 
       :Author: Rémy Card, Theodore Ts'o, Stephen Tweedie.
-      :URL: https://web.mit.edu/tytso/www/linux/ext2intro.html
+      :URL: http://web.mit.edu/tytso/www/linux/ext2intro.html
       :Date: 1998
       :Keywords: ext2, linux fs history, inode, directory, link, devices,
         VFS, physical structure, performance, benchmarks, ext2fs library,
@@ -313,7 +325,7 @@ On-line docs
       :URL: http://www.linuxjournal.com/article.php?sid=2391
       :Date: 1997
       :Keywords: RAID, MD driver.
-      :Description: Linux Journal Kernel Korner article.
+      :Description: Linux Journal Kernel Korner article. Here is its
       :Abstract: *A description of the implementation of the RAID-1,
         RAID-4 and RAID-5 personalities of the MD device driver in the
         Linux kernel, providing users with high performance and reliable,
@@ -322,7 +334,7 @@ On-line docs
     * Title: **Linux Kernel Hackers' Guide**
 
       :Author: Michael K. Johnson.
-      :URL: https://www.tldp.org/LDP/khg/HyperNews/get/khg.html
+      :URL: http://www.tldp.org/LDP/khg/HyperNews/get/khg.html
       :Date: 1997
       :Keywords: device drivers, files, VFS, kernel interface, character vs
         block devices, hardware interrupts, scsi, DMA, access to user memory,
@@ -338,7 +350,7 @@ On-line docs
       :Date: 1996
       :Keywords: device driver, module, loading/unloading modules,
         allocating resources.
-      :Description: Linux Journal Kernel Korner article.
+      :Description: Linux Journal Kernel Korner article. Here is its
       :Abstract: *This is the first of a series of four articles
         co-authored by Alessandro Rubini and Georg Zezchwitz which present
         a practical approach to writing Linux device drivers as kernel
@@ -354,7 +366,7 @@ On-line docs
       :Keywords: character driver, init_module, clean_up module,
         autodetection, mayor number, minor number, file operations,
         open(), close().
-      :Description: Linux Journal Kernel Korner article.
+      :Description: Linux Journal Kernel Korner article. Here is its
       :Abstract: *This article, the second of four, introduces part of
         the actual code to create custom module implementing a character
         device driver. It describes the code for module initialization and
@@ -367,7 +379,7 @@ On-line docs
       :Date: 1996
       :Keywords: read(), write(), select(), ioctl(), blocking/non
         blocking mode, interrupt handler.
-      :Description: Linux Journal Kernel Korner article.
+      :Description: Linux Journal Kernel Korner article. Here is its
       :Abstract: *This article, the third of four on writing character
         device drivers, introduces concepts of reading, writing, and using
         ioctl-calls*.
@@ -375,10 +387,10 @@ On-line docs
     * Title: **Dissecting Interrupts and Browsing DMA**
 
       :Author: Alessandro Rubini and Georg v. Zezschwitz.
-      :URL: https://www.linuxjournal.com/article.php?sid=1222
+      :URL: http://www.linuxjournal.com/article.php?sid=1222
       :Date: 1996
       :Keywords: interrupts, irqs, DMA, bottom halves, task queues.
-      :Description: Linux Journal Kernel Korner article.
+      :Description: Linux Journal Kernel Korner article. Here is its
       :Abstract: *This is the fourth in a series of articles about
         writing character device drivers as loadable kernel modules. This
         month, we further investigate the field of interrupt handling.
@@ -391,7 +403,7 @@ On-line docs
     * Title: **Device Drivers Concluded**
 
       :Author: Georg v. Zezschwitz.
-      :URL: https://www.linuxjournal.com/article.php?sid=1287
+      :URL: http://www.linuxjournal.com/article.php?sid=1287
       :Date: 1996
       :Keywords: address spaces, pages, pagination, page management,
         demand loading, swapping, memory protection, memory mapping, mmap,
@@ -405,7 +417,7 @@ On-line docs
     * Title: **Network Buffers And Memory Management**
 
       :Author: Alan Cox.
-      :URL: https://www.linuxjournal.com/article.php?sid=1312
+      :URL: http://www.linuxjournal.com/article.php?sid=1312
       :Date: 1996
       :Keywords: sk_buffs, network devices, protocol/link layer
         variables, network devices flags, transmit, receive,
@@ -418,7 +430,7 @@ On-line docs
     * Title: **Analysis of the Ext2fs structure**
 
       :Author: Louis-Dominique Dubeau.
-      :URL: https://teaching.csse.uwa.edu.au/units/CITS2002/fs-ext2/
+      :URL: http://teaching.csse.uwa.edu.au/units/CITS2002/fs-ext2/
       :Date: 1994
       :Keywords: ext2, filesystem, ext2fs.
       :Description: Description of ext2's blocks, directories, inodes,
@@ -480,7 +492,7 @@ Published books
       :ISBN: 0-596-00590-3
       :Notes: Further information in
         http://www.oreilly.com/catalog/linuxdrive3/
-        PDF format, URL: https://lwn.net/Kernel/LDD3/
+        PDF format, URL: http://lwn.net/Kernel/LDD3/
 
     * Title: **Linux Kernel Internals**
 
@@ -553,7 +565,7 @@ Miscellaneous
 
     * Name: **Cross-Referencing Linux**
 
-      :URL: https://elixir.bootlin.com/
+      :URL: http://lxr.free-electrons.com/
       :Keywords: Browsing source code.
       :Description: Another web-based Linux kernel source code browser.
         Lots of cross references to variables and functions. You can see
@@ -561,7 +573,7 @@ Miscellaneous
 
     * Name: **Linux Weekly News**
 
-      :URL: https://lwn.net
+      :URL: http://lwn.net
       :Keywords: latest kernel news.
       :Description: The title says it all. There's a fixed kernel section
         summarizing developers' work, bug fixes, new features and versions
@@ -570,7 +582,7 @@ Miscellaneous
     * Name: **The home page of Linux-MM**
 
       :Author: The Linux-MM team.
-      :URL: https://linux-mm.org/
+      :URL: http://linux-mm.org/
       :Keywords: memory management, Linux-MM, mm patches, TODO, docs,
         mailing list.
       :Description: Site devoted to Linux Memory Management development.
@@ -579,7 +591,7 @@ Miscellaneous
 
     * Name: **Kernel Newbies IRC Channel and Website**
 
-      :URL: https://www.kernelnewbies.org
+      :URL: http://www.kernelnewbies.org
       :Keywords: IRC, newbies, channel, asking doubts.
       :Description: #kernelnewbies on irc.oftc.net.
         #kernelnewbies is an IRC network dedicated to the 'newbie'
@@ -605,4 +617,4 @@ Miscellaneous
 Document last updated on Tue 2016-Sep-20
 
 This document is based on:
- https://www.dit.upm.es/~jmseyas/linux/kernel/hackers-docs.html
+ http://www.dit.upm.es/~jmseyas/linux/kernel/hackers-docs.html

@@ -1,15 +1,23 @@
-/* SPDX-License-Identifier: GPL-2.0 */
 /*
 * Copyright (c) 2016 MediaTek Inc.
 * Author: PC Chen <pc.chen@mediatek.com>
 *         Tiffany Lin <tiffany.lin@mediatek.com>
+*
+* This program is free software; you can redistribute it and/or modify
+* it under the terms of the GNU General Public License version 2 as
+* published by the Free Software Foundation.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
 */
 
 #ifndef _MTK_VCODEC_ENC_H_
 #define _MTK_VCODEC_ENC_H_
 
 #include <media/videobuf2-core.h>
-#include <media/v4l2-mem2mem.h>
+#include <media/videobuf2-v4l2.h>
 
 #define MTK_VENC_IRQ_STATUS_SPS	0x1
 #define MTK_VENC_IRQ_STATUS_PPS	0x2
@@ -23,15 +31,15 @@
 
 /**
  * struct mtk_video_enc_buf - Private data related to each VB2 buffer.
- * @m2m_buf:	M2M buffer
+ * @vb: Pointer to related VB2 buffer.
  * @list:	list that buffer link to
  * @param_change: Types of encode parameter change before encoding this
  *				buffer
  * @enc_params: Encode parameters changed before encode this buffer
  */
 struct mtk_video_enc_buf {
-	struct v4l2_m2m_buffer m2m_buf;
-
+	struct vb2_v4l2_buffer vb;
+	struct list_head list;
 	u32 param_change;
 	struct mtk_enc_params enc_params;
 };

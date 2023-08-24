@@ -22,7 +22,7 @@ static int iavf_send_pf_msg(struct iavf_adapter *adapter,
 			    enum virtchnl_ops op, u8 *msg, u16 len)
 {
 	struct iavf_hw *hw = &adapter->hw;
-	enum iavf_status err;
+	iavf_status err;
 
 	if (adapter->flags & IAVF_FLAG_PF_COMMS_FAILED)
 		return 0; /* nothing to see here, move along */
@@ -41,7 +41,7 @@ static int iavf_send_pf_msg(struct iavf_adapter *adapter,
  *
  * Send API version admin queue message to the PF. The reply is not checked
  * in this function. Returns 0 if the message was successfully
- * sent, or one of the IAVF_ADMIN_QUEUE_ERROR_ statuses if not.
+ * sent, or one of the I40E_ADMIN_QUEUE_ERROR_ statuses if not.
  **/
 int iavf_send_api_ver(struct iavf_adapter *adapter)
 {
@@ -60,16 +60,16 @@ int iavf_send_api_ver(struct iavf_adapter *adapter)
  *
  * Compare API versions with the PF. Must be called after admin queue is
  * initialized. Returns 0 if API versions match, -EIO if they do not,
- * IAVF_ERR_ADMIN_QUEUE_NO_WORK if the admin queue is empty, and any errors
+ * I40E_ERR_ADMIN_QUEUE_NO_WORK if the admin queue is empty, and any errors
  * from the firmware are propagated.
  **/
 int iavf_verify_api_ver(struct iavf_adapter *adapter)
 {
 	struct virtchnl_version_info *pf_vvi;
 	struct iavf_hw *hw = &adapter->hw;
-	struct iavf_arq_event_info event;
+	struct i40e_arq_event_info event;
 	enum virtchnl_ops op;
-	enum iavf_status err;
+	iavf_status err;
 
 	event.buf_len = IAVF_MAX_AQ_BUF_SIZE;
 	event.msg_buf = kzalloc(event.buf_len, GFP_KERNEL);
@@ -92,7 +92,7 @@ int iavf_verify_api_ver(struct iavf_adapter *adapter)
 	}
 
 
-	err = (enum iavf_status)le32_to_cpu(event.desc.cookie_low);
+	err = (iavf_status)le32_to_cpu(event.desc.cookie_low);
 	if (err)
 		goto out_alloc;
 
@@ -123,7 +123,7 @@ out:
  *
  * Send VF configuration request admin queue message to the PF. The reply
  * is not checked in this function. Returns 0 if the message was
- * successfully sent, or one of the IAVF_ADMIN_QUEUE_ERROR_ statuses if not.
+ * successfully sent, or one of the I40E_ADMIN_QUEUE_ERROR_ statuses if not.
  **/
 int iavf_send_vf_config_msg(struct iavf_adapter *adapter)
 {
@@ -139,8 +139,7 @@ int iavf_send_vf_config_msg(struct iavf_adapter *adapter)
 	       VIRTCHNL_VF_OFFLOAD_ENCAP |
 	       VIRTCHNL_VF_OFFLOAD_ENCAP_CSUM |
 	       VIRTCHNL_VF_OFFLOAD_REQ_QUEUES |
-	       VIRTCHNL_VF_OFFLOAD_ADQ |
-	       VIRTCHNL_VF_CAP_ADV_LINK_SPEED;
+	       VIRTCHNL_VF_OFFLOAD_ADQ;
 
 	adapter->current_op = VIRTCHNL_OP_GET_VF_RESOURCES;
 	adapter->aq_required &= ~IAVF_FLAG_AQ_GET_CONFIG;
@@ -190,9 +189,9 @@ static void iavf_validate_num_queues(struct iavf_adapter *adapter)
 int iavf_get_vf_config(struct iavf_adapter *adapter)
 {
 	struct iavf_hw *hw = &adapter->hw;
-	struct iavf_arq_event_info event;
+	struct i40e_arq_event_info event;
 	enum virtchnl_ops op;
-	enum iavf_status err;
+	iavf_status err;
 	u16 len;
 
 	len =  sizeof(struct virtchnl_vf_resource) +
@@ -217,7 +216,7 @@ int iavf_get_vf_config(struct iavf_adapter *adapter)
 			break;
 	}
 
-	err = (enum iavf_status)le32_to_cpu(event.desc.cookie_low);
+	err = (iavf_status)le32_to_cpu(event.desc.cookie_low);
 	memcpy(adapter->vf_res, event.msg_buf, min(event.msg_len, len));
 
 	/* some PFs send more queues than we should have so validate that
@@ -243,8 +242,7 @@ void iavf_configure_queues(struct iavf_adapter *adapter)
 	struct virtchnl_vsi_queue_config_info *vqci;
 	struct virtchnl_queue_pair_info *vqpi;
 	int pairs = adapter->num_active_queues;
-	int i, max_frame = IAVF_MAX_RXBUFFER;
-	size_t len;
+	int i, len, max_frame = IAVF_MAX_RXBUFFER;
 
 	if (adapter->current_op != VIRTCHNL_OP_UNKNOWN) {
 		/* bail because we already have a command pending */
@@ -253,7 +251,8 @@ void iavf_configure_queues(struct iavf_adapter *adapter)
 		return;
 	}
 	adapter->current_op = VIRTCHNL_OP_CONFIG_VSI_QUEUES;
-	len = struct_size(vqci, qpair, pairs);
+	len = sizeof(struct virtchnl_vsi_queue_config_info) +
+		       (sizeof(struct virtchnl_queue_pair_info) * pairs);
 	vqci = kzalloc(len, GFP_KERNEL);
 	if (!vqci)
 		return;
@@ -352,9 +351,8 @@ void iavf_map_queues(struct iavf_adapter *adapter)
 {
 	struct virtchnl_irq_map_info *vimi;
 	struct virtchnl_vector_map *vecmap;
+	int v_idx, q_vectors, len;
 	struct iavf_q_vector *q_vector;
-	int v_idx, q_vectors;
-	size_t len;
 
 	if (adapter->current_op != VIRTCHNL_OP_UNKNOWN) {
 		/* bail because we already have a command pending */
@@ -366,7 +364,9 @@ void iavf_map_queues(struct iavf_adapter *adapter)
 
 	q_vectors = adapter->num_msix_vectors - NONQ_VECS;
 
-	len = struct_size(vimi, vecmap, adapter->num_msix_vectors);
+	len = sizeof(struct virtchnl_irq_map_info) +
+	      (adapter->num_msix_vectors *
+		sizeof(struct virtchnl_vector_map));
 	vimi = kzalloc(len, GFP_KERNEL);
 	if (!vimi)
 		return;
@@ -398,6 +398,33 @@ void iavf_map_queues(struct iavf_adapter *adapter)
 }
 
 /**
+ * iavf_request_queues
+ * @adapter: adapter structure
+ * @num: number of requested queues
+ *
+ * We get a default number of queues from the PF.  This enables us to request a
+ * different number.  Returns 0 on success, negative on failure
+ **/
+int iavf_request_queues(struct iavf_adapter *adapter, int num)
+{
+	struct virtchnl_vf_res_request vfres;
+
+	if (adapter->current_op != VIRTCHNL_OP_UNKNOWN) {
+		/* bail because we already have a command pending */
+		dev_err(&adapter->pdev->dev, "Cannot request queues, command %d pending\n",
+			adapter->current_op);
+		return -EBUSY;
+	}
+
+	vfres.num_queue_pairs = num;
+
+	adapter->current_op = VIRTCHNL_OP_REQUEST_QUEUES;
+	adapter->flags |= IAVF_FLAG_REINIT_ITR_NEEDED;
+	return iavf_send_pf_msg(adapter, VIRTCHNL_OP_REQUEST_QUEUES,
+				(u8 *)&vfres, sizeof(vfres));
+}
+
+/**
  * iavf_add_ether_addrs
  * @adapter: adapter structure
  *
@@ -406,10 +433,9 @@ void iavf_map_queues(struct iavf_adapter *adapter)
 void iavf_add_ether_addrs(struct iavf_adapter *adapter)
 {
 	struct virtchnl_ether_addr_list *veal;
+	int len, i = 0, count = 0;
 	struct iavf_mac_filter *f;
-	int i = 0, count = 0;
 	bool more = false;
-	size_t len;
 
 	if (adapter->current_op != VIRTCHNL_OP_UNKNOWN) {
 		/* bail because we already have a command pending */
@@ -431,13 +457,15 @@ void iavf_add_ether_addrs(struct iavf_adapter *adapter)
 	}
 	adapter->current_op = VIRTCHNL_OP_ADD_ETH_ADDR;
 
-	len = struct_size(veal, list, count);
+	len = sizeof(struct virtchnl_ether_addr_list) +
+	      (count * sizeof(struct virtchnl_ether_addr));
 	if (len > IAVF_MAX_AQ_BUF_SIZE) {
 		dev_warn(&adapter->pdev->dev, "Too many add MAC changes in one request\n");
 		count = (IAVF_MAX_AQ_BUF_SIZE -
 			 sizeof(struct virtchnl_ether_addr_list)) /
 			sizeof(struct virtchnl_ether_addr);
-		len = struct_size(veal, list, count);
+		len = sizeof(struct virtchnl_ether_addr_list) +
+		      (count * sizeof(struct virtchnl_ether_addr));
 		more = true;
 	}
 
@@ -477,9 +505,8 @@ void iavf_del_ether_addrs(struct iavf_adapter *adapter)
 {
 	struct virtchnl_ether_addr_list *veal;
 	struct iavf_mac_filter *f, *ftmp;
-	int i = 0, count = 0;
+	int len, i = 0, count = 0;
 	bool more = false;
-	size_t len;
 
 	if (adapter->current_op != VIRTCHNL_OP_UNKNOWN) {
 		/* bail because we already have a command pending */
@@ -501,13 +528,15 @@ void iavf_del_ether_addrs(struct iavf_adapter *adapter)
 	}
 	adapter->current_op = VIRTCHNL_OP_DEL_ETH_ADDR;
 
-	len = struct_size(veal, list, count);
+	len = sizeof(struct virtchnl_ether_addr_list) +
+	      (count * sizeof(struct virtchnl_ether_addr));
 	if (len > IAVF_MAX_AQ_BUF_SIZE) {
 		dev_warn(&adapter->pdev->dev, "Too many delete MAC changes in one request\n");
 		count = (IAVF_MAX_AQ_BUF_SIZE -
 			 sizeof(struct virtchnl_ether_addr_list)) /
 			sizeof(struct virtchnl_ether_addr);
-		len = struct_size(veal, list, count);
+		len = sizeof(struct virtchnl_ether_addr_list) +
+		      (count * sizeof(struct virtchnl_ether_addr));
 		more = true;
 	}
 	veal = kzalloc(len, GFP_ATOMIC);
@@ -535,47 +564,6 @@ void iavf_del_ether_addrs(struct iavf_adapter *adapter)
 
 	iavf_send_pf_msg(adapter, VIRTCHNL_OP_DEL_ETH_ADDR, (u8 *)veal, len);
 	kfree(veal);
-}
-
-/**
- * iavf_mac_add_ok
- * @adapter: adapter structure
- *
- * Submit list of filters based on PF response.
- **/
-static void iavf_mac_add_ok(struct iavf_adapter *adapter)
-{
-	struct iavf_mac_filter *f, *ftmp;
-
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
-	list_for_each_entry_safe(f, ftmp, &adapter->mac_filter_list, list) {
-		f->is_new_mac = false;
-	}
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
-}
-
-/**
- * iavf_mac_add_reject
- * @adapter: adapter structure
- *
- * Remove filters from list based on PF response.
- **/
-static void iavf_mac_add_reject(struct iavf_adapter *adapter)
-{
-	struct net_device *netdev = adapter->netdev;
-	struct iavf_mac_filter *f, *ftmp;
-
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
-	list_for_each_entry_safe(f, ftmp, &adapter->mac_filter_list, list) {
-		if (f->remove && ether_addr_equal(f->macaddr, netdev->dev_addr))
-			f->remove = false;
-
-		if (f->is_new_mac) {
-			list_del(&f->list);
-			kfree(f);
-		}
-	}
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
 }
 
 /**
@@ -933,8 +921,6 @@ void iavf_disable_vlan_stripping(struct iavf_adapter *adapter)
 	iavf_send_pf_msg(adapter, VIRTCHNL_OP_DISABLE_VLAN_STRIPPING, NULL, 0);
 }
 
-#define IAVF_MAX_SPEED_STRLEN	13
-
 /**
  * iavf_print_link_message - print link up or down
  * @adapter: adapter structure
@@ -944,105 +930,37 @@ void iavf_disable_vlan_stripping(struct iavf_adapter *adapter)
 static void iavf_print_link_message(struct iavf_adapter *adapter)
 {
 	struct net_device *netdev = adapter->netdev;
-	int link_speed_mbps;
-	char *speed;
+	char *speed = "Unknown ";
 
 	if (!adapter->link_up) {
 		netdev_info(netdev, "NIC Link is Down\n");
 		return;
 	}
 
-	speed = kcalloc(1, IAVF_MAX_SPEED_STRLEN, GFP_KERNEL);
-	if (!speed)
-		return;
-
-	if (ADV_LINK_SUPPORT(adapter)) {
-		link_speed_mbps = adapter->link_speed_mbps;
-		goto print_link_msg;
-	}
-
 	switch (adapter->link_speed) {
-	case VIRTCHNL_LINK_SPEED_40GB:
-		link_speed_mbps = SPEED_40000;
+	case I40E_LINK_SPEED_40GB:
+		speed = "40 G";
 		break;
-	case VIRTCHNL_LINK_SPEED_25GB:
-		link_speed_mbps = SPEED_25000;
+	case I40E_LINK_SPEED_25GB:
+		speed = "25 G";
 		break;
-	case VIRTCHNL_LINK_SPEED_20GB:
-		link_speed_mbps = SPEED_20000;
+	case I40E_LINK_SPEED_20GB:
+		speed = "20 G";
 		break;
-	case VIRTCHNL_LINK_SPEED_10GB:
-		link_speed_mbps = SPEED_10000;
+	case I40E_LINK_SPEED_10GB:
+		speed = "10 G";
 		break;
-	case VIRTCHNL_LINK_SPEED_5GB:
-		link_speed_mbps = SPEED_5000;
+	case I40E_LINK_SPEED_1GB:
+		speed = "1000 M";
 		break;
-	case VIRTCHNL_LINK_SPEED_2_5GB:
-		link_speed_mbps = SPEED_2500;
-		break;
-	case VIRTCHNL_LINK_SPEED_1GB:
-		link_speed_mbps = SPEED_1000;
-		break;
-	case VIRTCHNL_LINK_SPEED_100MB:
-		link_speed_mbps = SPEED_100;
+	case I40E_LINK_SPEED_100MB:
+		speed = "100 M";
 		break;
 	default:
-		link_speed_mbps = SPEED_UNKNOWN;
 		break;
 	}
 
-print_link_msg:
-	if (link_speed_mbps > SPEED_1000) {
-		if (link_speed_mbps == SPEED_2500)
-			snprintf(speed, IAVF_MAX_SPEED_STRLEN, "2.5 Gbps");
-		else
-			/* convert to Gbps inline */
-			snprintf(speed, IAVF_MAX_SPEED_STRLEN, "%d %s",
-				 link_speed_mbps / 1000, "Gbps");
-	} else if (link_speed_mbps == SPEED_UNKNOWN) {
-		snprintf(speed, IAVF_MAX_SPEED_STRLEN, "%s", "Unknown Mbps");
-	} else {
-		snprintf(speed, IAVF_MAX_SPEED_STRLEN, "%u %s",
-			 link_speed_mbps, "Mbps");
-	}
-
-	netdev_info(netdev, "NIC Link is Up Speed is %s Full Duplex\n", speed);
-	kfree(speed);
-}
-
-/**
- * iavf_get_vpe_link_status
- * @adapter: adapter structure
- * @vpe: virtchnl_pf_event structure
- *
- * Helper function for determining the link status
- **/
-static bool
-iavf_get_vpe_link_status(struct iavf_adapter *adapter,
-			 struct virtchnl_pf_event *vpe)
-{
-	if (ADV_LINK_SUPPORT(adapter))
-		return vpe->event_data.link_event_adv.link_status;
-	else
-		return vpe->event_data.link_event.link_status;
-}
-
-/**
- * iavf_set_adapter_link_speed_from_vpe
- * @adapter: adapter structure for which we are setting the link speed
- * @vpe: virtchnl_pf_event structure that contains the link speed we are setting
- *
- * Helper function for setting iavf_adapter link speed
- **/
-static void
-iavf_set_adapter_link_speed_from_vpe(struct iavf_adapter *adapter,
-				     struct virtchnl_pf_event *vpe)
-{
-	if (ADV_LINK_SUPPORT(adapter))
-		adapter->link_speed_mbps =
-			vpe->event_data.link_event_adv.link_speed;
-	else
-		adapter->link_speed = vpe->event_data.link_event.link_speed;
+	netdev_info(netdev, "NIC Link is Up %sbps Full Duplex\n", speed);
 }
 
 /**
@@ -1055,7 +973,7 @@ iavf_set_adapter_link_speed_from_vpe(struct iavf_adapter *adapter,
 void iavf_enable_channels(struct iavf_adapter *adapter)
 {
 	struct virtchnl_tc_info *vti = NULL;
-	size_t len;
+	u16 len;
 	int i;
 
 	if (adapter->current_op != VIRTCHNL_OP_UNKNOWN) {
@@ -1065,7 +983,9 @@ void iavf_enable_channels(struct iavf_adapter *adapter)
 		return;
 	}
 
-	len = struct_size(vti, list, adapter->num_tc - 1);
+	len = (adapter->num_tc * sizeof(struct virtchnl_channel_info)) +
+	       sizeof(struct virtchnl_tc_info);
+
 	vti = kzalloc(len, GFP_KERNEL);
 	if (!vti)
 		return;
@@ -1264,19 +1184,20 @@ void iavf_request_reset(struct iavf_adapter *adapter)
  * This function handles the reply messages.
  **/
 void iavf_virtchnl_completion(struct iavf_adapter *adapter,
-			      enum virtchnl_ops v_opcode,
-			      enum iavf_status v_retval, u8 *msg, u16 msglen)
+			      enum virtchnl_ops v_opcode, iavf_status v_retval,
+			      u8 *msg, u16 msglen)
 {
 	struct net_device *netdev = adapter->netdev;
 
 	if (v_opcode == VIRTCHNL_OP_EVENT) {
 		struct virtchnl_pf_event *vpe =
 			(struct virtchnl_pf_event *)msg;
-		bool link_up = iavf_get_vpe_link_status(adapter, vpe);
+		bool link_up = vpe->event_data.link_event.link_status;
 
 		switch (vpe->event) {
 		case VIRTCHNL_EVENT_LINK_CHANGE:
-			iavf_set_adapter_link_speed_from_vpe(adapter, vpe);
+			adapter->link_speed =
+				vpe->event_data.link_event.link_speed;
 
 			/* we've already got the right link status, bail */
 			if (adapter->link_up == link_up)
@@ -1317,7 +1238,7 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 			if (!(adapter->flags & IAVF_FLAG_RESET_PENDING)) {
 				adapter->flags |= IAVF_FLAG_RESET_PENDING;
 				dev_info(&adapter->pdev->dev, "Scheduling reset task\n");
-				queue_work(iavf_wq, &adapter->reset_task);
+				schedule_work(&adapter->reset_task);
 			}
 			break;
 		default:
@@ -1336,9 +1257,6 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 		case VIRTCHNL_OP_ADD_ETH_ADDR:
 			dev_err(&adapter->pdev->dev, "Failed to add MAC filter, error %s\n",
 				iavf_stat_str(&adapter->hw, v_retval));
-			iavf_mac_add_reject(adapter);
-			/* restore administratively set MAC address */
-			ether_addr_copy(adapter->hw.mac.addr, netdev->dev_addr);
 			break;
 		case VIRTCHNL_OP_DEL_VLAN:
 			dev_err(&adapter->pdev->dev, "Failed to delete VLAN filter, error %s\n",
@@ -1406,12 +1324,6 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 		}
 	}
 	switch (v_opcode) {
-	case VIRTCHNL_OP_ADD_ETH_ADDR:
-		if (!v_retval)
-			iavf_mac_add_ok(adapter);
-		if (!ether_addr_equal(netdev->dev_addr, adapter->hw.mac.addr))
-			ether_addr_copy(netdev->dev_addr, adapter->hw.mac.addr);
-		break;
 	case VIRTCHNL_OP_GET_STATS: {
 		struct iavf_eth_stats *stats =
 			(struct iavf_eth_stats *)msg;
@@ -1445,9 +1357,6 @@ void iavf_virtchnl_completion(struct iavf_adapter *adapter,
 			ether_addr_copy(netdev->perm_addr,
 					adapter->hw.mac.addr);
 		}
-		spin_lock_bh(&adapter->mac_vlan_list_lock);
-		iavf_add_filter(adapter, adapter->hw.mac.addr);
-		spin_unlock_bh(&adapter->mac_vlan_list_lock);
 		iavf_process_config(adapter);
 		}
 		break;

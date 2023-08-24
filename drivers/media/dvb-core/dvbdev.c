@@ -241,7 +241,6 @@ static void dvb_media_device_free(struct dvb_device *dvbdev)
 
 	if (dvbdev->adapter->conn) {
 		media_device_unregister_entity(dvbdev->adapter->conn);
-		kfree(dvbdev->adapter->conn);
 		dvbdev->adapter->conn = NULL;
 		kfree(dvbdev->adapter->conn_pads);
 		dvbdev->adapter->conn_pads = NULL;
@@ -340,10 +339,8 @@ static int dvb_create_media_entity(struct dvb_device *dvbdev,
 	if (npads) {
 		dvbdev->pads = kcalloc(npads, sizeof(*dvbdev->pads),
 				       GFP_KERNEL);
-		if (!dvbdev->pads) {
-			kfree(dvbdev->entity);
+		if (!dvbdev->pads)
 			return -ENOMEM;
-		}
 	}
 
 	switch (type) {
@@ -479,7 +476,7 @@ int dvb_register_device(struct dvb_adapter *adap, struct dvb_device **pdvbdev,
 		return -ENOMEM;
 	}
 
-	dvbdevfops = kmemdup(template->fops, sizeof(*dvbdevfops), GFP_KERNEL);
+	dvbdevfops = kzalloc(sizeof(struct file_operations), GFP_KERNEL);
 
 	if (!dvbdevfops){
 		kfree (dvbdev);
@@ -495,6 +492,7 @@ int dvb_register_device(struct dvb_adapter *adap, struct dvb_device **pdvbdev,
 	dvbdev->fops = dvbdevfops;
 	init_waitqueue_head (&dvbdev->wait_queue);
 
+	memcpy(dvbdevfops, template->fops, sizeof(struct file_operations));
 	dvbdevfops->owner = adap->module;
 
 	list_add_tail (&dvbdev->list_head, &adap->device_list);
@@ -528,6 +526,7 @@ int dvb_register_device(struct dvb_adapter *adap, struct dvb_device **pdvbdev,
 		dvb_media_device_free(dvbdev);
 		kfree(dvbdevfops);
 		kfree(dvbdev);
+		up_write(&minor_rwsem);
 		mutex_unlock(&dvbdev_register_lock);
 		return ret;
 	}
@@ -708,10 +707,9 @@ int dvb_create_media_graph(struct dvb_adapter *adap,
 	}
 
 	if (ntuner && ndemod) {
-		/* NOTE: first found tuner source pad presumed correct */
-		pad_source = media_get_pad_index(tuner, false,
+		pad_source = media_get_pad_index(tuner, true,
 						 PAD_SIGNAL_ANALOG);
-		if (pad_source < 0)
+		if (pad_source)
 			return -EINVAL;
 		ret = media_create_pad_links(mdev,
 					     MEDIA_ENT_F_TUNER,
@@ -900,7 +898,7 @@ EXPORT_SYMBOL(dvb_unregister_adapter);
 
 /* if the miracle happens and "generic_usercopy()" is included into
    the kernel, then this can vanish. please don't make the mistake and
-   define this as video_usercopy(). this will introduce a dependency
+   define this as video_usercopy(). this will introduce a dependecy
    to the v4l "videodev.o" module, which is unnecessary for some
    cards (ie. the budget dvb-cards don't need the v4l module...) */
 int dvb_usercopy(struct file *file,
@@ -985,8 +983,8 @@ struct i2c_client *dvb_module_probe(const char *module_name,
 	board_info->addr = addr;
 	board_info->platform_data = platform_data;
 	request_module(module_name);
-	client = i2c_new_client_device(adap, board_info);
-	if (!i2c_client_has_driver(client)) {
+	client = i2c_new_device(adap, board_info);
+	if (client == NULL || client->dev.driver == NULL) {
 		kfree(board_info);
 		return NULL;
 	}

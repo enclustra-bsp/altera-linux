@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
     User DMA
 
@@ -6,6 +5,19 @@
     Copyright (C) 2004  Chris Kennedy <c@groovy.org>
     Copyright (C) 2005-2007  Hans Verkuil <hverkuil@xs4all.nl>
 
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #include "ivtv-driver.h"
@@ -92,7 +104,7 @@ int ivtv_udma_setup(struct ivtv *itv, unsigned long ivtv_dest_addr,
 {
 	struct ivtv_dma_page_info user_dma;
 	struct ivtv_user_dma *dma = &itv->udma;
-	int err;
+	int i, err;
 
 	IVTV_DEBUG_DMA("ivtv_udma_setup, dst: 0x%08x\n", (unsigned int)ivtv_dest_addr);
 
@@ -111,15 +123,16 @@ int ivtv_udma_setup(struct ivtv *itv, unsigned long ivtv_dest_addr,
 		return -EINVAL;
 	}
 
-	/* Pin user pages for DMA Xfer */
-	err = pin_user_pages_unlocked(user_dma.uaddr, user_dma.page_count,
+	/* Get user pages for DMA Xfer */
+	err = get_user_pages_unlocked(user_dma.uaddr, user_dma.page_count,
 			dma->map, FOLL_FORCE);
 
 	if (user_dma.page_count != err) {
 		IVTV_DEBUG_WARN("failed to map user pages, returned %d instead of %d\n",
 			   err, user_dma.page_count);
 		if (err >= 0) {
-			unpin_user_pages(dma->map, err);
+			for (i = 0; i < err; i++)
+				put_page(dma->map[i]);
 			return -EINVAL;
 		}
 		return err;
@@ -129,7 +142,9 @@ int ivtv_udma_setup(struct ivtv *itv, unsigned long ivtv_dest_addr,
 
 	/* Fill SG List with new values */
 	if (ivtv_udma_fill_sg_list(dma, &user_dma, 0) < 0) {
-		unpin_user_pages(dma->map, dma->page_count);
+		for (i = 0; i < dma->page_count; i++) {
+			put_page(dma->map[i]);
+		}
 		dma->page_count = 0;
 		return -ENOMEM;
 	}
@@ -150,6 +165,7 @@ int ivtv_udma_setup(struct ivtv *itv, unsigned long ivtv_dest_addr,
 void ivtv_udma_unmap(struct ivtv *itv)
 {
 	struct ivtv_user_dma *dma = &itv->udma;
+	int i;
 
 	IVTV_DEBUG_INFO("ivtv_unmap_user_dma\n");
 
@@ -165,7 +181,10 @@ void ivtv_udma_unmap(struct ivtv *itv)
 	/* sync DMA */
 	ivtv_udma_sync_for_cpu(itv);
 
-	unpin_user_pages(dma->map, dma->page_count);
+	/* Release User Pages */
+	for (i = 0; i < dma->page_count; i++) {
+		put_page(dma->map[i]);
+	}
 	dma->page_count = 0;
 }
 

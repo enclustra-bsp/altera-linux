@@ -5,7 +5,6 @@
  * Based on the work by Paul Menage (menage@google.com) and Balbir Singh
  * (balbir@in.ibm.com).
  */
-#include <asm/irq_regs.h>
 #include "sched.h"
 
 /* Time spent by the tasks of the CPU accounting group executing in ... */
@@ -340,7 +339,7 @@ void cpuacct_charge(struct task_struct *tsk, u64 cputime)
 {
 	struct cpuacct *ca;
 	int index = CPUACCT_STAT_SYSTEM;
-	struct pt_regs *regs = get_irq_regs() ? : task_pt_regs(tsk);
+	struct pt_regs *regs = task_pt_regs(tsk);
 
 	if (regs && user_mode(regs))
 		index = CPUACCT_STAT_USER;
@@ -348,7 +347,7 @@ void cpuacct_charge(struct task_struct *tsk, u64 cputime)
 	rcu_read_lock();
 
 	for (ca = task_ca(tsk); ca; ca = parent_ca(ca))
-		__this_cpu_add(ca->cpuusage->usages[index], cputime);
+		this_cpu_ptr(ca->cpuusage)->usages[index] += cputime;
 
 	rcu_read_unlock();
 }
@@ -364,7 +363,7 @@ void cpuacct_account_field(struct task_struct *tsk, int index, u64 val)
 
 	rcu_read_lock();
 	for (ca = task_ca(tsk); ca != &root_cpuacct; ca = parent_ca(ca))
-		__this_cpu_add(ca->cpustat->cpustat[index], val);
+		this_cpu_ptr(ca->cpustat)->cpustat[index] += val;
 	rcu_read_unlock();
 }
 

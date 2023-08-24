@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * OMAP3/4 - specific DPLL control functions
  *
@@ -13,6 +12,10 @@
  *
  * Parts of this code are based on code written by
  * Richard Woodruff, Tony Lindgren, Tuukka Tikkanen, Karthik Dasu
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/kernel.h>
@@ -728,7 +731,7 @@ static struct clk_hw_omap *omap3_find_clkoutx2_dpll(struct clk_hw *hw)
 	do {
 		do {
 			hw = clk_hw_get_parent(hw);
-		} while (hw && (!omap2_clk_is_hw_omap(hw)));
+		} while (hw && (clk_hw_get_flags(hw) & CLK_IS_BASIC));
 		if (!hw)
 			break;
 		pclk = to_clk_hw_omap(hw);

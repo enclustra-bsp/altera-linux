@@ -28,33 +28,45 @@
 #include <linux/regmap.h>
 
 static const struct mfd_cell s5m8751_devs[] = {
-	{ .name = "s5m8751-pmic", },
-	{ .name = "s5m-charger", },
-	{ .name = "s5m8751-codec", },
+	{
+		.name = "s5m8751-pmic",
+	}, {
+		.name = "s5m-charger",
+	}, {
+		.name = "s5m8751-codec",
+	},
 };
 
 static const struct mfd_cell s5m8763_devs[] = {
-	{ .name = "s5m8763-pmic", },
-	{ .name = "s5m-rtc", },
-	{ .name = "s5m-charger", },
+	{
+		.name = "s5m8763-pmic",
+	}, {
+		.name = "s5m-rtc",
+	}, {
+		.name = "s5m-charger",
+	},
 };
 
 static const struct mfd_cell s5m8767_devs[] = {
-	{ .name = "s5m8767-pmic", },
-	{ .name = "s5m-rtc", },
 	{
+		.name = "s5m8767-pmic",
+	}, {
+		.name = "s5m-rtc",
+	}, {
 		.name = "s5m8767-clk",
 		.of_compatible = "samsung,s5m8767-clk",
-	},
+	}
 };
 
 static const struct mfd_cell s2mps11_devs[] = {
-	{ .name = "s2mps11-regulator", },
-	{ .name = "s2mps14-rtc", },
 	{
+		.name = "s2mps11-regulator",
+	}, {
+		.name = "s2mps14-rtc",
+	}, {
 		.name = "s2mps11-clk",
 		.of_compatible = "samsung,s2mps11-clk",
-	},
+	}
 };
 
 static const struct mfd_cell s2mps13_devs[] = {
@@ -67,36 +79,42 @@ static const struct mfd_cell s2mps13_devs[] = {
 };
 
 static const struct mfd_cell s2mps14_devs[] = {
-	{ .name = "s2mps14-regulator", },
-	{ .name = "s2mps14-rtc", },
 	{
+		.name = "s2mps14-regulator",
+	}, {
+		.name = "s2mps14-rtc",
+	}, {
 		.name = "s2mps14-clk",
 		.of_compatible = "samsung,s2mps14-clk",
-	},
+	}
 };
 
 static const struct mfd_cell s2mps15_devs[] = {
-	{ .name = "s2mps15-regulator", },
-	{ .name = "s2mps15-rtc", },
 	{
+		.name = "s2mps15-regulator",
+	}, {
+		.name = "s2mps15-rtc",
+	}, {
 		.name = "s2mps13-clk",
 		.of_compatible = "samsung,s2mps13-clk",
 	},
 };
 
 static const struct mfd_cell s2mpa01_devs[] = {
-	{ .name = "s2mpa01-pmic", },
-	{ .name = "s2mps14-rtc", },
+	{
+		.name = "s2mpa01-pmic",
+	},
 };
 
 static const struct mfd_cell s2mpu02_devs[] = {
-	{ .name = "s2mpu02-regulator", },
+	{
+		.name = "s2mpu02-regulator",
+	},
 };
 
 #ifdef CONFIG_OF
 static const struct of_device_id sec_dt_match[] = {
-	{
-		.compatible = "samsung,s5m8767-pmic",
+	{	.compatible = "samsung,s5m8767-pmic",
 		.data = (void *)S5M8767X,
 	}, {
 		.compatible = "samsung,s2mps11-pmic",
@@ -291,8 +309,8 @@ static void sec_pmic_configure(struct sec_pmic_dev *sec_pmic)
  * the sub-modules need not instantiate another instance while parsing their
  * platform data.
  */
-static struct sec_platform_data *
-sec_pmic_i2c_parse_dt_pdata(struct device *dev)
+static struct sec_platform_data *sec_pmic_i2c_parse_dt_pdata(
+					struct device *dev)
 {
 	struct sec_platform_data *pd;
 
@@ -313,8 +331,8 @@ sec_pmic_i2c_parse_dt_pdata(struct device *dev)
 	return pd;
 }
 #else
-static struct sec_platform_data *
-sec_pmic_i2c_parse_dt_pdata(struct device *dev)
+static struct sec_platform_data *sec_pmic_i2c_parse_dt_pdata(
+					struct device *dev)
 {
 	return NULL;
 }
@@ -453,9 +471,8 @@ static int sec_pmic_probe(struct i2c_client *i2c,
 		num_sec_devs = ARRAY_SIZE(s2mpu02_devs);
 		break;
 	default:
-		dev_err(&i2c->dev, "Unsupported device type (%lu)\n",
-			sec_pmic->device_type);
-		return -ENODEV;
+		/* If this happens the probe function is problem */
+		BUG();
 	}
 	ret = devm_mfd_add_devices(sec_pmic->dev, -1, sec_devs, num_sec_devs,
 				   NULL, 0, NULL);

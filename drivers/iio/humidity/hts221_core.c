@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * STMicroelectronics hts221 sensor driver
  *
  * Copyright 2016 STMicroelectronics Inc.
  *
  * Lorenzo Bianconi <lorenzo.bianconi@st.com>
+ *
+ * Licensed under the GPL-2.
  */
 
 #include <linux/kernel.h>
@@ -23,6 +24,13 @@
 
 #define HTS221_REG_CNTRL1_ADDR		0x20
 #define HTS221_REG_CNTRL2_ADDR		0x21
+
+#define HTS221_REG_AVG_ADDR		0x10
+#define HTS221_REG_H_OUT_L		0x28
+#define HTS221_REG_T_OUT_L		0x2a
+
+#define HTS221_HUMIDITY_AVG_MASK	0x07
+#define HTS221_TEMP_AVG_MASK		0x38
 
 #define HTS221_ODR_MASK			0x03
 #define HTS221_BDU_MASK			BIT(2)
@@ -59,8 +67,8 @@ static const struct hts221_odr hts221_odr_table[] = {
 
 static const struct hts221_avg hts221_avg_list[] = {
 	{
-		.addr = 0x10,
-		.mask = 0x07,
+		.addr = HTS221_REG_AVG_ADDR,
+		.mask = HTS221_HUMIDITY_AVG_MASK,
 		.avg_avl = {
 			4, /* 0.4 %RH */
 			8, /* 0.3 %RH */
@@ -73,8 +81,8 @@ static const struct hts221_avg hts221_avg_list[] = {
 		},
 	},
 	{
-		.addr = 0x10,
-		.mask = 0x38,
+		.addr = HTS221_REG_AVG_ADDR,
+		.mask = HTS221_TEMP_AVG_MASK,
 		.avg_avl = {
 			2, /* 0.08 degC */
 			4, /* 0.05 degC */
@@ -91,7 +99,7 @@ static const struct hts221_avg hts221_avg_list[] = {
 static const struct iio_chan_spec hts221_channels[] = {
 	{
 		.type = IIO_HUMIDITYRELATIVE,
-		.address = 0x28,
+		.address = HTS221_REG_H_OUT_L,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
 				      BIT(IIO_CHAN_INFO_OFFSET) |
 				      BIT(IIO_CHAN_INFO_SCALE) |
@@ -107,7 +115,7 @@ static const struct iio_chan_spec hts221_channels[] = {
 	},
 	{
 		.type = IIO_TEMP,
-		.address = 0x2a,
+		.address = HTS221_REG_T_OUT_L,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
 				      BIT(IIO_CHAN_INFO_OFFSET) |
 				      BIT(IIO_CHAN_INFO_SCALE) |
@@ -572,6 +580,7 @@ int hts221_probe(struct device *dev, int irq, const char *name,
 		return err;
 
 	iio_dev->modes = INDIO_DIRECT_MODE;
+	iio_dev->dev.parent = hw->dev;
 	iio_dev->available_scan_masks = hts221_scan_masks;
 	iio_dev->channels = hts221_channels;
 	iio_dev->num_channels = ARRAY_SIZE(hts221_channels);
@@ -620,11 +629,11 @@ int hts221_probe(struct device *dev, int irq, const char *name,
 	}
 
 	if (hw->irq > 0) {
-		err = hts221_allocate_buffers(iio_dev);
+		err = hts221_allocate_buffers(hw);
 		if (err < 0)
 			return err;
 
-		err = hts221_allocate_trigger(iio_dev);
+		err = hts221_allocate_trigger(hw);
 		if (err)
 			return err;
 	}

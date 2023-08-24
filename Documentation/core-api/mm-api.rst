@@ -11,7 +11,7 @@ User Space Memory Access
 .. kernel-doc:: arch/x86/lib/usercopy_32.c
    :export:
 
-.. kernel-doc:: mm/gup.c
+.. kernel-doc:: mm/util.c
    :functions: get_user_pages_fast
 
 .. _mm-api-gfp-flags:
@@ -35,7 +35,7 @@ users will want to use a plain ``GFP_KERNEL``.
    :doc: Reclaim modifiers
 
 .. kernel-doc:: include/linux/gfp.h
-   :doc: Useful GFP flag combinations
+   :doc: Common combinations
 
 The Slab Cache
 ==============
@@ -46,20 +46,11 @@ The Slab Cache
 .. kernel-doc:: mm/slab.c
    :export:
 
-.. kernel-doc:: mm/slab_common.c
-   :export:
-
 .. kernel-doc:: mm/util.c
    :functions: kfree_const kvmalloc_node kvfree
 
-Virtually Contiguous Mappings
-=============================
-
-.. kernel-doc:: mm/vmalloc.c
-   :export:
-
-File Mapping and Page Cache
-===========================
+More Memory Management Functions
+================================
 
 .. kernel-doc:: mm/readahead.c
    :export:
@@ -67,31 +58,23 @@ File Mapping and Page Cache
 .. kernel-doc:: mm/filemap.c
    :export:
 
+.. kernel-doc:: mm/memory.c
+   :export:
+
+.. kernel-doc:: mm/vmalloc.c
+   :export:
+
+.. kernel-doc:: mm/page_alloc.c
+   :internal:
+
+.. kernel-doc:: mm/mempool.c
+   :export:
+
+.. kernel-doc:: mm/dmapool.c
+   :export:
+
 .. kernel-doc:: mm/page-writeback.c
    :export:
 
 .. kernel-doc:: mm/truncate.c
    :export:
-
-.. kernel-doc:: include/linux/pagemap.h
-   :internal:
-
-Memory pools
-============
-
-.. kernel-doc:: mm/mempool.c
-   :export:
-
-DMA pools
-=========
-
-.. kernel-doc:: mm/dmapool.c
-   :export:
-
-More Memory Management Functions
-================================
-
-.. kernel-doc:: mm/memory.c
-   :export:
-
-.. kernel-doc:: mm/page_alloc.c

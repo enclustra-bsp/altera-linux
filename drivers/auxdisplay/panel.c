@@ -55,7 +55,9 @@
 #include <linux/io.h>
 #include <linux/uaccess.h>
 
-#include "charlcd.h"
+#include <misc/charlcd.h>
+
+#define KEYPAD_MINOR		185
 
 #define LCD_MAXBYTES		256	/* max burst write */
 
@@ -1365,7 +1367,7 @@ static void panel_process_inputs(void)
 				break;
 			input->rise_timer = 0;
 			input->state = INPUT_ST_RISING;
-			fallthrough;
+			/* fall through */
 		case INPUT_ST_RISING:
 			if ((phys_curr & input->mask) != input->value) {
 				input->state = INPUT_ST_LOW;
@@ -1378,11 +1380,11 @@ static void panel_process_inputs(void)
 			}
 			input->high_timer = 0;
 			input->state = INPUT_ST_HIGH;
-			fallthrough;
+			/* fall through */
 		case INPUT_ST_HIGH:
 			if (input_state_high(input))
 				break;
-			fallthrough;
+			/* fall through */
 		case INPUT_ST_FALLING:
 			input_state_falling(input);
 		}
@@ -1615,12 +1617,10 @@ static void panel_attach(struct parport *port)
 	return;
 
 err_lcd_unreg:
-	if (scan_timer.function)
-		del_timer_sync(&scan_timer);
 	if (lcd.enabled)
 		charlcd_unregister(lcd.charlcd);
 err_unreg_device:
-	charlcd_free(lcd.charlcd);
+	kfree(lcd.charlcd);
 	lcd.charlcd = NULL;
 	parport_unregister_device(pprt);
 	pprt = NULL;
@@ -1647,7 +1647,7 @@ static void panel_detach(struct parport *port)
 	if (lcd.enabled) {
 		charlcd_unregister(lcd.charlcd);
 		lcd.initialized = false;
-		charlcd_free(lcd.charlcd);
+		kfree(lcd.charlcd);
 		lcd.charlcd = NULL;
 	}
 

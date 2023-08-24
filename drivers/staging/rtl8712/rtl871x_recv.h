@@ -12,6 +12,8 @@
 
 #define MAX_SUBFRAME_COUNT	64
 
+#define SNAP_SIZE sizeof(struct ieee80211_snap_hdr)
+
 /* for Rx reordering buffer control */
 struct recv_reorder_ctrl {
 	struct _adapter	*padapter;
@@ -51,7 +53,7 @@ struct rx_pkt_attrib {
 	u8	privacy; /* in frame_ctrl field */
 	u8	bdecrypted;
 	int	hdrlen;	 /* the WLAN Header Len */
-	int	encrypt; /* 0 no encrypt. != 0 encrypt algorithm */
+	int	encrypt; /* 0 no encrypt. != 0 encrypt algorith */
 	int	iv_len;
 	int	icv_len;
 	int	priority;
@@ -103,7 +105,7 @@ struct recv_priv {
 	u8 *precv_buf;    /* 4 alignment */
 	struct  __queue	free_recv_buf_queue;
 	u32	free_recv_buf_queue_cnt;
-	/* For the phy information */
+	/* For the phy informatiom */
 	s8 rssi;
 	u8 signal;
 	u8 noise;
@@ -126,7 +128,7 @@ struct sta_recv_priv {
 
 /* get a free recv_frame from pfree_recv_queue */
 union recv_frame *r8712_alloc_recvframe(struct  __queue *pfree_recv_queue);
-void r8712_free_recvframe(union recv_frame *precvframe,
+int r8712_free_recvframe(union recv_frame *precvframe,
 			  struct  __queue *pfree_recv_queue);
 void r8712_free_recvframe_queue(struct  __queue *pframequeue,
 				 struct  __queue *pfree_recv_queue);

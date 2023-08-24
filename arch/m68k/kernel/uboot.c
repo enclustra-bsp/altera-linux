@@ -26,6 +26,7 @@
 #include <asm/setup.h>
 #include <asm/irq.h>
 #include <asm/machdep.h>
+#include <asm/pgtable.h>
 #include <asm/sections.h>
 
 /*

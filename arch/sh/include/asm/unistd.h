@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-#include <asm/unistd_32.h>
-
-#define NR_syscalls	__NR_syscalls
+# ifdef CONFIG_SUPERH32
+#  include <asm/unistd_32.h>
+# else
+#  include <asm/unistd_64.h>
+# endif
 
 # define __ARCH_WANT_NEW_STAT
 # define __ARCH_WANT_OLD_READDIR
@@ -12,8 +14,8 @@
 # define __ARCH_WANT_SYS_IPC
 # define __ARCH_WANT_SYS_PAUSE
 # define __ARCH_WANT_SYS_SIGNAL
-# define __ARCH_WANT_SYS_TIME32
-# define __ARCH_WANT_SYS_UTIME32
+# define __ARCH_WANT_SYS_TIME
+# define __ARCH_WANT_SYS_UTIME
 # define __ARCH_WANT_SYS_WAITPID
 # define __ARCH_WANT_SYS_SOCKETCALL
 # define __ARCH_WANT_SYS_FADVISE64

@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2015 Thomas Meyer (thomas@m3y3r.de)
  * Copyright (C) 2002- 2007 Jeff Dike (jdike@{addtoit,linux.intel}.com)
+ * Licensed under the GPL
  */
 
 #include <stdlib.h>
@@ -249,7 +249,6 @@ static int userspace_tramp(void *stack)
 }
 
 int userspace_pid[NR_CPUS];
-int kill_userspace_mm[NR_CPUS];
 
 /**
  * start_userspace() - prepare a new userspace process
@@ -343,8 +342,6 @@ void userspace(struct uml_pt_regs *regs, unsigned long *aux_fp_regs)
 	interrupt_end();
 
 	while (1) {
-		if (kill_userspace_mm[0])
-			fatal_sigsegv();
 
 		/*
 		 * This can legitimately fail if the process loads a
@@ -428,9 +425,9 @@ void userspace(struct uml_pt_regs *regs, unsigned long *aux_fp_regs)
 			case SIGBUS:
 			case SIGFPE:
 			case SIGWINCH:
-				block_signals_trace();
+				block_signals();
 				(*sig_info[sig])(sig, (struct siginfo *)&si, regs);
-				unblock_signals_trace();
+				unblock_signals();
 				break;
 			default:
 				printk(UM_KERN_ERR "userspace - child stopped "
@@ -628,10 +625,10 @@ void initial_thread_cb_skas(void (*proc)(void *), void *arg)
 	cb_arg = arg;
 	cb_back = &here;
 
-	block_signals_trace();
+	block_signals();
 	if (UML_SETJMP(&here) == 0)
 		UML_LONGJMP(&initial_jmpbuf, INIT_JMP_CALLBACK);
-	unblock_signals_trace();
+	unblock_signals();
 
 	cb_proc = NULL;
 	cb_arg = NULL;
@@ -640,18 +637,17 @@ void initial_thread_cb_skas(void (*proc)(void *), void *arg)
 
 void halt_skas(void)
 {
-	block_signals_trace();
+	block_signals();
 	UML_LONGJMP(&initial_jmpbuf, INIT_JMP_HALT);
 }
 
 void reboot_skas(void)
 {
-	block_signals_trace();
+	block_signals();
 	UML_LONGJMP(&initial_jmpbuf, INIT_JMP_REBOOT);
 }
 
 void __switch_mm(struct mm_id *mm_idp)
 {
 	userspace_pid[0] = mm_idp->u.pid;
-	kill_userspace_mm[0] = mm_idp->kill;
 }

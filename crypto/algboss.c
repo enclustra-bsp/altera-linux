@@ -1,8 +1,13 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Create default crypto algorithm instances.
  *
  * Copyright (c) 2006 Herbert Xu <herbert@gondor.apana.org.au>
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
  */
 
 #include <crypto/internal/aead.h>
@@ -58,6 +63,7 @@ static int cryptomgr_probe(void *data)
 {
 	struct cryptomgr_param *param = data;
 	struct crypto_template *tmpl;
+	struct crypto_instance *inst;
 	int err;
 
 	tmpl = crypto_lookup_template(param->template);
@@ -65,7 +71,16 @@ static int cryptomgr_probe(void *data)
 		goto out;
 
 	do {
-		err = tmpl->create(tmpl, param->tb);
+		if (tmpl->create) {
+			err = tmpl->create(tmpl, param->tb);
+			continue;
+		}
+
+		inst = tmpl->alloc(param->tb);
+		if (IS_ERR(inst))
+			err = PTR_ERR(inst);
+		else if ((err = crypto_register_instance(tmpl, inst)))
+			tmpl->free(inst);
 	} while (err == -EAGAIN && !signal_pending(current));
 
 	crypto_tmpl_put(tmpl);
@@ -178,6 +193,8 @@ static int cryptomgr_schedule_probe(struct crypto_larval *larval)
 	if (IS_ERR(thread))
 		goto err_put_larval;
 
+	wait_for_completion_interruptible(&larval->completion);
+
 	return NOTIFY_STOP;
 
 err_put_larval:
@@ -279,13 +296,7 @@ static void __exit cryptomgr_exit(void)
 	BUG_ON(err);
 }
 
-/*
- * This is arch_initcall() so that the crypto self-tests are run on algorithms
- * registered early by subsys_initcall().  subsys_initcall() is needed for
- * generic implementations so that they're available for comparison tests when
- * other implementations are registered later by module_init().
- */
-arch_initcall(cryptomgr_init);
+subsys_initcall(cryptomgr_init);
 module_exit(cryptomgr_exit);
 
 MODULE_LICENSE("GPL");

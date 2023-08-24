@@ -14,8 +14,9 @@
 #define KERNEL_DS	((mm_segment_t){0})
 #define USER_DS 	((mm_segment_t){1})
 
-#define uaccess_kernel() (get_fs().seg == KERNEL_DS.seg)
+#define segment_eq(a, b) ((a).seg == (b).seg)
 
+#define get_ds()	(KERNEL_DS)
 #define get_fs()	(current_thread_info()->addr_limit)
 #define set_fs(x)	(current_thread_info()->addr_limit = (x))
 
@@ -26,7 +27,7 @@
  * that put_user is the same as __put_user, etc.
  */
 
-#define access_ok(uaddr, size)	\
+#define access_ok(type, uaddr, size)	\
 	( (uaddr) == (uaddr) )
 
 #define put_user __put_user

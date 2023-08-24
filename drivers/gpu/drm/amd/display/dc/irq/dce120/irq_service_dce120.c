@@ -23,8 +23,6 @@
  *
  */
 
-#include <linux/slab.h>
-
 #include "dm_services.h"
 
 #include "include/logger_interface.h"
@@ -86,11 +84,6 @@ static const struct irq_source_info_funcs vblank_irq_info_funcs = {
 	.ack = NULL
 };
 
-static const struct irq_source_info_funcs vupdate_irq_info_funcs = {
-	.set = NULL,
-	.ack = NULL
-};
-
 #define BASE_INNER(seg) \
 	DCE_BASE__INST0_SEG ## seg
 
@@ -147,7 +140,7 @@ static const struct irq_source_info_funcs vupdate_irq_info_funcs = {
 		IRQ_REG_ENTRY(CRTC, reg_num,\
 			CRTC_INTERRUPT_CONTROL, CRTC_V_UPDATE_INT_MSK,\
 			CRTC_V_UPDATE_INT_STATUS, CRTC_V_UPDATE_INT_CLEAR),\
-		.funcs = &vupdate_irq_info_funcs\
+		.funcs = &vblank_irq_info_funcs\
 	}
 
 #define vblank_int_entry(reg_num)\
@@ -273,7 +266,7 @@ static const struct irq_service_funcs irq_service_funcs_dce120 = {
 		.to_dal_irq_source = to_dal_irq_source_dce110
 };
 
-static void dce120_irq_construct(
+static void construct(
 	struct irq_service *irq_service,
 	struct irq_service_init_data *init_data)
 {
@@ -292,6 +285,6 @@ struct irq_service *dal_irq_service_dce120_create(
 	if (!irq_service)
 		return NULL;
 
-	dce120_irq_construct(irq_service, init_data);
+	construct(irq_service, init_data);
 	return irq_service;
 }

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Loopback driver for rc-core,
  *
@@ -7,6 +6,17 @@
  * This driver receives TX data and passes it back as RX data,
  * which is useful for (scripted) debugging of rc-core without
  * having to use actual hardware.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
  */
 
 #include <linux/device.h>
@@ -42,7 +52,7 @@ static int loop_set_tx_mask(struct rc_dev *dev, u32 mask)
 
 	if ((mask & (RXMASK_REGULAR | RXMASK_LEARNING)) != mask) {
 		dprintk("invalid tx mask: %u\n", mask);
-		return 2;
+		return -EINVAL;
 	}
 
 	dprintk("setting tx mask: %u\n", mask);
@@ -113,7 +123,7 @@ static int loop_tx_ir(struct rc_dev *dev, unsigned *txbuf, unsigned count)
 
 	for (i = 0; i < count; i++) {
 		rawir.pulse = i % 2 ? false : true;
-		rawir.duration = txbuf[i];
+		rawir.duration = txbuf[i] * 1000;
 		if (rawir.duration)
 			ir_raw_event_store_with_filter(dev, &rawir);
 	}
@@ -219,11 +229,11 @@ static int __init loop_init(void)
 	rc->allowed_protocols	= RC_PROTO_BIT_ALL_IR_DECODER;
 	rc->allowed_wakeup_protocols = RC_PROTO_BIT_ALL_IR_ENCODER;
 	rc->encode_wakeup	= true;
-	rc->timeout		= MS_TO_US(100); /* 100 ms */
+	rc->timeout		= 100 * 1000 * 1000; /* 100 ms */
 	rc->min_timeout		= 1;
 	rc->max_timeout		= UINT_MAX;
-	rc->rx_resolution	= 1;
-	rc->tx_resolution	= 1;
+	rc->rx_resolution	= 1000;
+	rc->tx_resolution	= 1000;
 	rc->s_tx_mask		= loop_set_tx_mask;
 	rc->s_tx_carrier	= loop_set_tx_carrier;
 	rc->s_tx_duty_cycle	= loop_set_tx_duty_cycle;

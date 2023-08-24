@@ -988,9 +988,6 @@ exit:
 
 /**
  * vxge_hw_device_hw_info_get - Get the hw information
- * @bar0: the bar
- * @hw_info: the hw_info struct
- *
  * Returns the vpath mask that has the bits set for each vpath allocated
  * for the driver, FW version information, and the first mac address for
  * each vpath
@@ -1105,10 +1102,10 @@ static void __vxge_hw_blockpool_destroy(struct __vxge_hw_blockpool *blockpool)
 	hldev = blockpool->hldev;
 
 	list_for_each_safe(p, n, &blockpool->free_block_list) {
-		dma_unmap_single(&hldev->pdev->dev,
-				 ((struct __vxge_hw_blockpool_entry *)p)->dma_addr,
-				 ((struct __vxge_hw_blockpool_entry *)p)->length,
-				 DMA_BIDIRECTIONAL);
+		pci_unmap_single(hldev->pdev,
+			((struct __vxge_hw_blockpool_entry *)p)->dma_addr,
+			((struct __vxge_hw_blockpool_entry *)p)->length,
+			PCI_DMA_BIDIRECTIONAL);
 
 		vxge_os_dma_free(hldev->pdev,
 			((struct __vxge_hw_blockpool_entry *)p)->memblock,
@@ -1181,10 +1178,10 @@ __vxge_hw_blockpool_create(struct __vxge_hw_device *hldev,
 			goto blockpool_create_exit;
 		}
 
-		dma_addr = dma_map_single(&hldev->pdev->dev, memblock,
-					  VXGE_HW_BLOCK_SIZE,
-					  DMA_BIDIRECTIONAL);
-		if (unlikely(dma_mapping_error(&hldev->pdev->dev, dma_addr))) {
+		dma_addr = pci_map_single(hldev->pdev, memblock,
+				VXGE_HW_BLOCK_SIZE, PCI_DMA_BIDIRECTIONAL);
+		if (unlikely(pci_dma_mapping_error(hldev->pdev,
+				dma_addr))) {
 			vxge_os_dma_free(hldev->pdev, memblock, &acc_handle);
 			__vxge_hw_blockpool_destroy(blockpool);
 			status = VXGE_HW_ERR_OUT_OF_MEMORY;
@@ -2267,10 +2264,10 @@ static void vxge_hw_blockpool_block_add(struct __vxge_hw_device *devh,
 		goto exit;
 	}
 
-	dma_addr = dma_map_single(&devh->pdev->dev, block_addr, length,
-				  DMA_BIDIRECTIONAL);
+	dma_addr = pci_map_single(devh->pdev, block_addr, length,
+				PCI_DMA_BIDIRECTIONAL);
 
-	if (unlikely(dma_mapping_error(&devh->pdev->dev, dma_addr))) {
+	if (unlikely(pci_dma_mapping_error(devh->pdev, dma_addr))) {
 		vxge_os_dma_free(devh->pdev, block_addr, &acc_handle);
 		blockpool->req_out--;
 		goto exit;
@@ -2306,9 +2303,16 @@ exit:
 static inline void
 vxge_os_dma_malloc_async(struct pci_dev *pdev, void *devh, unsigned long size)
 {
+	gfp_t flags;
 	void *vaddr;
 
-	vaddr = kmalloc(size, GFP_KERNEL | GFP_DMA);
+	if (in_interrupt())
+		flags = GFP_ATOMIC | GFP_DMA;
+	else
+		flags = GFP_KERNEL | GFP_DMA;
+
+	vaddr = kmalloc((size), flags);
+
 	vxge_hw_blockpool_block_add(devh, vaddr, size, pdev, pdev);
 }
 
@@ -2355,13 +2359,13 @@ static void *__vxge_hw_blockpool_malloc(struct __vxge_hw_device *devh, u32 size,
 		if (!memblock)
 			goto exit;
 
-		dma_object->addr = dma_map_single(&devh->pdev->dev, memblock,
-						  size, DMA_BIDIRECTIONAL);
+		dma_object->addr = pci_map_single(devh->pdev, memblock, size,
+					PCI_DMA_BIDIRECTIONAL);
 
-		if (unlikely(dma_mapping_error(&devh->pdev->dev, dma_object->addr))) {
+		if (unlikely(pci_dma_mapping_error(devh->pdev,
+				dma_object->addr))) {
 			vxge_os_dma_free(devh->pdev, memblock,
 				&dma_object->acc_handle);
-			memblock = NULL;
 			goto exit;
 		}
 
@@ -2405,10 +2409,11 @@ __vxge_hw_blockpool_blocks_remove(struct __vxge_hw_blockpool *blockpool)
 		if (blockpool->pool_size < blockpool->pool_max)
 			break;
 
-		dma_unmap_single(&(blockpool->hldev)->pdev->dev,
-				 ((struct __vxge_hw_blockpool_entry *)p)->dma_addr,
-				 ((struct __vxge_hw_blockpool_entry *)p)->length,
-				 DMA_BIDIRECTIONAL);
+		pci_unmap_single(
+			(blockpool->hldev)->pdev,
+			((struct __vxge_hw_blockpool_entry *)p)->dma_addr,
+			((struct __vxge_hw_blockpool_entry *)p)->length,
+			PCI_DMA_BIDIRECTIONAL);
 
 		vxge_os_dma_free(
 			(blockpool->hldev)->pdev,
@@ -2439,8 +2444,8 @@ static void __vxge_hw_blockpool_free(struct __vxge_hw_device *devh,
 	blockpool = &devh->block_pool;
 
 	if (size != blockpool->block_size) {
-		dma_unmap_single(&devh->pdev->dev, dma_object->addr, size,
-				 DMA_BIDIRECTIONAL);
+		pci_unmap_single(devh->pdev, dma_object->addr, size,
+			PCI_DMA_BIDIRECTIONAL);
 		vxge_os_dma_free(devh->pdev, memblock, &dma_object->acc_handle);
 	} else {
 
@@ -3764,20 +3769,20 @@ vxge_hw_rts_rth_data0_data1_get(u32 j, u64 *data0, u64 *data1,
 			VXGE_HW_RTS_ACCESS_STEER_DATA0_RTH_ITEM0_ENTRY_EN |
 			VXGE_HW_RTS_ACCESS_STEER_DATA0_RTH_ITEM0_BUCKET_DATA(
 			itable[j]);
-		fallthrough;
+		/* fall through */
 	case 2:
 		*data0 |=
 			VXGE_HW_RTS_ACCESS_STEER_DATA0_RTH_ITEM1_BUCKET_NUM(j)|
 			VXGE_HW_RTS_ACCESS_STEER_DATA0_RTH_ITEM1_ENTRY_EN |
 			VXGE_HW_RTS_ACCESS_STEER_DATA0_RTH_ITEM1_BUCKET_DATA(
 			itable[j]);
-		fallthrough;
+		/* fall through */
 	case 3:
 		*data1 = VXGE_HW_RTS_ACCESS_STEER_DATA1_RTH_ITEM0_BUCKET_NUM(j)|
 			VXGE_HW_RTS_ACCESS_STEER_DATA1_RTH_ITEM0_ENTRY_EN |
 			VXGE_HW_RTS_ACCESS_STEER_DATA1_RTH_ITEM0_BUCKET_DATA(
 			itable[j]);
-		fallthrough;
+		/* fall through */
 	case 4:
 		*data1 |=
 			VXGE_HW_RTS_ACCESS_STEER_DATA1_RTH_ITEM1_BUCKET_NUM(j)|
@@ -3922,7 +3927,7 @@ exit:
 
 /**
  * vxge_hw_vpath_check_leak - Check for memory leak
- * @ring: Handle to the ring object used for receive
+ * @ringh: Handle to the ring object used for receive
  *
  * If PRC_RXD_DOORBELL_VPn.NEW_QW_CNT is larger or equal to
  * PRC_CFG6_VPn.RXD_SPAT then a leak has occurred.

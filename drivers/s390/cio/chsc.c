@@ -24,7 +24,6 @@
 #include <asm/crw.h>
 #include <asm/isc.h>
 #include <asm/ebcdic.h>
-#include <asm/ap.h>
 
 #include "css.h"
 #include "cio.h"
@@ -57,7 +56,6 @@ int chsc_error_from_response(int response)
 	case 0x0104:
 		return -EINVAL;
 	case 0x0004:
-	case 0x0106:		/* "Wrong Channel Parm" for the op 0x003d */
 		return -EOPNOTSUPP;
 	case 0x000b:
 	case 0x0107:		/* "Channel busy" for the op 0x003d */
@@ -65,8 +63,6 @@ int chsc_error_from_response(int response)
 	case 0x0100:
 	case 0x0102:
 		return -ENOMEM;
-	case 0x0108:		/* "HW limit exceeded" for the op 0x003d */
-		return -EUSERS;
 	default:
 		return -EIO;
 	}
@@ -183,12 +179,11 @@ EXPORT_SYMBOL_GPL(chsc_ssqd);
  * @scssc: request and response block for SADC
  * @summary_indicator_addr: summary indicator address
  * @subchannel_indicator_addr: subchannel indicator address
- * @isc: Interruption Subclass for this subchannel
  *
  * Returns 0 on success.
  */
 int chsc_sadc(struct subchannel_id schid, struct chsc_scssc_area *scssc,
-	      u64 summary_indicator_addr, u64 subchannel_indicator_addr, u8 isc)
+	      u64 summary_indicator_addr, u64 subchannel_indicator_addr)
 {
 	memset(scssc, 0, sizeof(*scssc));
 	scssc->request.length = 0x0fe0;
@@ -200,7 +195,7 @@ int chsc_sadc(struct subchannel_id schid, struct chsc_scssc_area *scssc,
 
 	scssc->ks = PAGE_DEFAULT_KEY >> 4;
 	scssc->kc = PAGE_DEFAULT_KEY >> 4;
-	scssc->isc = isc;
+	scssc->isc = QDIO_AIRQ_ISC;
 	scssc->schid = schid;
 
 	/* enable the time delay disablement facility */
@@ -325,6 +320,36 @@ struct chsc_sei {
 		u8 nt_area[PAGE_SIZE - 24];
 	} u;
 } __packed __aligned(PAGE_SIZE);
+
+/*
+ * Node Descriptor as defined in SA22-7204, "Common I/O-Device Commands"
+ */
+
+#define ND_VALIDITY_VALID	0
+#define ND_VALIDITY_OUTDATED	1
+#define ND_VALIDITY_INVALID	2
+
+struct node_descriptor {
+	/* Flags. */
+	union {
+		struct {
+			u32 validity:3;
+			u32 reserved:5;
+		} __packed;
+		u8 byte0;
+	} __packed;
+
+	/* Node parameters. */
+	u32 params:24;
+
+	/* Node ID. */
+	char type[6];
+	char model[3];
+	char manufacturer[3];
+	char plant[2];
+	char seq[12];
+	u16 tag;
+} __packed;
 
 /*
  * Link Incident Record as defined in SA22-7202, "ESCON I/O Interface"
@@ -561,15 +586,6 @@ static void chsc_process_sei_scm_avail(struct chsc_sei_nt0_area *sei_area)
 			      " failed (rc=%d).\n", ret);
 }
 
-static void chsc_process_sei_ap_cfg_chg(struct chsc_sei_nt0_area *sei_area)
-{
-	CIO_CRW_EVENT(3, "chsc: ap config changed\n");
-	if (sei_area->rs != 5)
-		return;
-
-	ap_bus_cfg_chg();
-}
-
 static void chsc_process_sei_nt2(struct chsc_sei_nt2_area *sei_area)
 {
 	switch (sei_area->cc) {
@@ -595,9 +611,6 @@ static void chsc_process_sei_nt0(struct chsc_sei_nt0_area *sei_area)
 		break;
 	case 2: /* i/o resource accessibility */
 		chsc_process_sei_res_acc(sei_area);
-		break;
-	case 3: /* ap config changed */
-		chsc_process_sei_ap_cfg_chg(sei_area);
 		break;
 	case 7: /* channel-path-availability information */
 		chsc_process_sei_chp_avail(sei_area);
@@ -757,6 +770,8 @@ int chsc_chp_vary(struct chp_id chpid, int on)
 {
 	struct channel_path *chp = chpid_to_chp(chpid);
 
+	/* Wait until previous actions have settled. */
+	css_wait_for_slow_path();
 	/*
 	 * Redo PathVerification on the devices the chpid connects to
 	 */
@@ -1114,7 +1129,7 @@ int chsc_enable_facility(int operation_code)
 	return ret;
 }
 
-int __init chsc_get_cssid_iid(int idx, u8 *cssid, u8 *iid)
+int __init chsc_get_cssid(int idx)
 {
 	struct {
 		struct chsc_header request;
@@ -1125,8 +1140,7 @@ int __init chsc_get_cssid_iid(int idx, u8 *cssid, u8 *iid)
 		u32 reserved2[3];
 		struct {
 			u8 cssid;
-			u8 iid;
-			u32 : 16;
+			u32 : 24;
 		} list[0];
 	} *sdcal_area;
 	int ret;
@@ -1152,10 +1166,8 @@ int __init chsc_get_cssid_iid(int idx, u8 *cssid, u8 *iid)
 	}
 
 	if ((addr_t) &sdcal_area->list[idx] <
-	    (addr_t) &sdcal_area->response + sdcal_area->response.length) {
-		*cssid = sdcal_area->list[idx].cssid;
-		*iid = sdcal_area->list[idx].iid;
-	}
+	    (addr_t) &sdcal_area->response + sdcal_area->response.length)
+		ret = sdcal_area->list[idx].cssid;
 	else
 		ret = -ENODEV;
 exit:
@@ -1263,27 +1275,6 @@ int chsc_sstpi(void *page, void *result, size_t size)
 	return (rr->response.code == 0x0001) ? 0 : -EIO;
 }
 
-int chsc_stzi(void *page, void *result, size_t size)
-{
-	struct {
-		struct chsc_header request;
-		unsigned int rsvd0[3];
-		struct chsc_header response;
-		char data[];
-	} *rr;
-	int rc;
-
-	memset(page, 0, PAGE_SIZE);
-	rr = page;
-	rr->request.length = 0x0010;
-	rr->request.code = 0x003e;
-	rc = chsc(rr);
-	if (rc)
-		return -EIO;
-	memcpy(result, &rr->data, size);
-	return (rr->response.code == 0x0001) ? 0 : -EIO;
-}
-
 int chsc_siosl(struct subchannel_id schid)
 {
 	struct {
@@ -1361,68 +1352,33 @@ out:
 EXPORT_SYMBOL_GPL(chsc_scm_info);
 
 /**
- * chsc_pnso() - Perform Network-Subchannel Operation
+ * chsc_pnso_brinfo() - Perform Network-Subchannel Operation, Bridge Info.
  * @schid:		id of the subchannel on which PNSO is performed
- * @pnso_area:		request and response block for the operation
- * @oc:			Operation Code
+ * @brinfo_area:	request and response block for the operation
  * @resume_token:	resume token for multiblock response
  * @cnc:		Boolean change-notification control
  *
- * pnso_area must be allocated by the caller with get_zeroed_page(GFP_KERNEL)
+ * brinfo_area must be allocated by the caller with get_zeroed_page(GFP_KERNEL)
  *
  * Returns 0 on success.
  */
-int chsc_pnso(struct subchannel_id schid, struct chsc_pnso_area *pnso_area,
-	      u8 oc, struct chsc_pnso_resume_token resume_token, int cnc)
+int chsc_pnso_brinfo(struct subchannel_id schid,
+		struct chsc_pnso_area *brinfo_area,
+		struct chsc_brinfo_resume_token resume_token,
+		int cnc)
 {
-	memset(pnso_area, 0, sizeof(*pnso_area));
-	pnso_area->request.length = 0x0030;
-	pnso_area->request.code = 0x003d; /* network-subchannel operation */
-	pnso_area->m	   = schid.m;
-	pnso_area->ssid  = schid.ssid;
-	pnso_area->sch	 = schid.sch_no;
-	pnso_area->cssid = schid.cssid;
-	pnso_area->oc	 = oc;
-	pnso_area->resume_token = resume_token;
-	pnso_area->n	   = (cnc != 0);
-	if (chsc(pnso_area))
+	memset(brinfo_area, 0, sizeof(*brinfo_area));
+	brinfo_area->request.length = 0x0030;
+	brinfo_area->request.code = 0x003d; /* network-subchannel operation */
+	brinfo_area->m	   = schid.m;
+	brinfo_area->ssid  = schid.ssid;
+	brinfo_area->sch   = schid.sch_no;
+	brinfo_area->cssid = schid.cssid;
+	brinfo_area->oc    = 0; /* Store-network-bridging-information list */
+	brinfo_area->resume_token = resume_token;
+	brinfo_area->n	   = (cnc != 0);
+	if (chsc(brinfo_area))
 		return -EIO;
-	return chsc_error_from_response(pnso_area->response.code);
+	return chsc_error_from_response(brinfo_area->response.code);
 }
-
-int chsc_sgib(u32 origin)
-{
-	struct {
-		struct chsc_header request;
-		u16 op;
-		u8  reserved01[2];
-		u8  reserved02:4;
-		u8  fmt:4;
-		u8  reserved03[7];
-		/* operation data area begin */
-		u8  reserved04[4];
-		u32 gib_origin;
-		u8  reserved05[10];
-		u8  aix;
-		u8  reserved06[4029];
-		struct chsc_header response;
-		u8  reserved07[4];
-	} *sgib_area;
-	int ret;
-
-	spin_lock_irq(&chsc_page_lock);
-	memset(chsc_page, 0, PAGE_SIZE);
-	sgib_area = chsc_page;
-	sgib_area->request.length = 0x0fe0;
-	sgib_area->request.code = 0x0021;
-	sgib_area->op = 0x1;
-	sgib_area->gib_origin = origin;
-
-	ret = chsc(sgib_area);
-	if (ret == 0)
-		ret = chsc_error_from_response(sgib_area->response.code);
-	spin_unlock_irq(&chsc_page_lock);
-
-	return ret;
-}
-EXPORT_SYMBOL_GPL(chsc_sgib);
+EXPORT_SYMBOL_GPL(chsc_pnso_brinfo);

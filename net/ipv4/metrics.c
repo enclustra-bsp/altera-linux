@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <linux/types.h>
@@ -7,8 +6,7 @@
 #include <net/tcp.h>
 
 static int ip_metrics_convert(struct net *net, struct nlattr *fc_mx,
-			      int fc_mx_len, u32 *metrics,
-			      struct netlink_ext_ack *extack)
+			      int fc_mx_len, u32 *metrics)
 {
 	bool ecn_ca = false;
 	struct nlattr *nla;
@@ -23,26 +21,19 @@ static int ip_metrics_convert(struct net *net, struct nlattr *fc_mx,
 
 		if (!type)
 			continue;
-		if (type > RTAX_MAX) {
-			NL_SET_ERR_MSG(extack, "Invalid metric type");
+		if (type > RTAX_MAX)
 			return -EINVAL;
-		}
 
 		if (type == RTAX_CC_ALGO) {
 			char tmp[TCP_CA_NAME_MAX];
 
 			nla_strlcpy(tmp, nla, sizeof(tmp));
 			val = tcp_ca_get_key_by_name(net, tmp, &ecn_ca);
-			if (val == TCP_CA_UNSPEC) {
-				NL_SET_ERR_MSG(extack, "Unknown tcp congestion algorithm");
+			if (val == TCP_CA_UNSPEC)
 				return -EINVAL;
-			}
 		} else {
-			if (nla_len(nla) != sizeof(u32)) {
-				NL_SET_ERR_MSG_ATTR(extack, nla,
-						    "Invalid attribute in metrics");
+			if (nla_len(nla) != sizeof(u32))
 				return -EINVAL;
-			}
 			val = nla_get_u32(nla);
 		}
 		if (type == RTAX_ADVMSS && val > 65535 - 40)
@@ -51,10 +42,8 @@ static int ip_metrics_convert(struct net *net, struct nlattr *fc_mx,
 			val = 65535 - 15;
 		if (type == RTAX_HOPLIMIT && val > 255)
 			val = 255;
-		if (type == RTAX_FEATURES && (val & ~RTAX_FEATURE_MASK)) {
-			NL_SET_ERR_MSG(extack, "Unknown flag set in feature mask in metrics attribute");
+		if (type == RTAX_FEATURES && (val & ~RTAX_FEATURE_MASK))
 			return -EINVAL;
-		}
 		metrics[type - 1] = val;
 	}
 
@@ -65,8 +54,7 @@ static int ip_metrics_convert(struct net *net, struct nlattr *fc_mx,
 }
 
 struct dst_metrics *ip_fib_metrics_init(struct net *net, struct nlattr *fc_mx,
-					int fc_mx_len,
-					struct netlink_ext_ack *extack)
+					int fc_mx_len)
 {
 	struct dst_metrics *fib_metrics;
 	int err;
@@ -78,8 +66,7 @@ struct dst_metrics *ip_fib_metrics_init(struct net *net, struct nlattr *fc_mx,
 	if (unlikely(!fib_metrics))
 		return ERR_PTR(-ENOMEM);
 
-	err = ip_metrics_convert(net, fc_mx, fc_mx_len, fib_metrics->metrics,
-				 extack);
+	err = ip_metrics_convert(net, fc_mx, fc_mx_len, fib_metrics->metrics);
 	if (!err) {
 		refcount_set(&fib_metrics->refcnt, 1);
 	} else {

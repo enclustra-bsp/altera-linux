@@ -1,9 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2008
  * Guennadi Liakhovetski, DENX Software Engineering, <lg@denx.de>
  *
  * Copyright (C) 2005-2007 Freescale Semiconductor, Inc. All Rights Reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/dma-mapping.h>
@@ -1299,9 +1302,9 @@ static irqreturn_t idmac_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void ipu_gc_tasklet(struct tasklet_struct *t)
+static void ipu_gc_tasklet(unsigned long arg)
 {
-	struct ipu *ipu = from_tasklet(ipu, t, tasklet);
+	struct ipu *ipu = (struct ipu *)arg;
 	int i;
 
 	for (i = 0; i < IPU_CHANNELS_NUM; i++) {
@@ -1740,7 +1743,7 @@ static int __init ipu_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto err_idmac_init;
 
-	tasklet_setup(&ipu_data.tasklet, ipu_gc_tasklet);
+	tasklet_init(&ipu_data.tasklet, ipu_gc_tasklet, (unsigned long)&ipu_data);
 
 	ipu_data.dev = &pdev->dev;
 

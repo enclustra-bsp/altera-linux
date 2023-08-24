@@ -1,13 +1,13 @@
-// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+// SPDX-License-Identifier: GPL-2.0+
 // Copyright (C) 2018 Facebook
 
 #include <stdlib.h>
 #include <string.h>
-#include <bpf/libbpf.h>
+#include <libbpf.h>
 #include <linux/rtnetlink.h>
 #include <linux/tc_act/tc_bpf.h>
 
-#include "bpf/nlattr.h"
+#include <nlattr.h>
 #include "main.h"
 #include "netlink_dumper.h"
 

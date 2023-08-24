@@ -7,8 +7,15 @@
 #include <sys/un.h>
 #include <arpa/inet.h>
 
-#include "trace/beauty/generated/socket_arrays.c"
-DEFINE_STRARRAY(socket_families, "PF_");
+static const char *socket_families[] = {
+	"UNSPEC", "LOCAL", "INET", "AX25", "IPX", "APPLETALK", "NETROM",
+	"BRIDGE", "ATMPVC", "X25", "INET6", "ROSE", "DECnet", "NETBEUI",
+	"SECURITY", "KEY", "NETLINK", "PACKET", "ASH", "ECONET", "ATMSVC",
+	"RDS", "SNA", "IRDA", "PPPOX", "WANPIPE", "LLC", "IB", "CAN", "TIPC",
+	"BLUETOOTH", "IUCV", "RXRPC", "ISDN", "PHONET", "IEEE802154", "CAIF",
+	"ALG", "NFC", "VSOCK",
+};
+DEFINE_STRARRAY(socket_families);
 
 static size_t af_inet__scnprintf(struct sockaddr *sa, char *bf, size_t size)
 {
@@ -51,7 +58,7 @@ static size_t syscall_arg__scnprintf_augmented_sockaddr(struct syscall_arg *arg,
 	char family[32];
 	size_t printed;
 
-	strarray__scnprintf(&strarray__socket_families, family, sizeof(family), "%d", arg->show_string_prefix, sa->sa_family);
+	strarray__scnprintf(&strarray__socket_families, family, sizeof(family), "%d", sa->sa_family);
 	printed = scnprintf(bf, size, "{ .family: %s", family);
 
 	if (sa->sa_family < ARRAY_SIZE(af_scnprintfs) && af_scnprintfs[sa->sa_family])
@@ -65,5 +72,5 @@ size_t syscall_arg__scnprintf_sockaddr(char *bf, size_t size, struct syscall_arg
 	if (arg->augmented.args)
 		return syscall_arg__scnprintf_augmented_sockaddr(arg, bf, size);
 
-	return scnprintf(bf, size, "%#lx", arg->val);
+	return scnprintf(bf, size, "%#x", arg->val);
 }

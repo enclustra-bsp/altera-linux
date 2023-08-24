@@ -14,7 +14,8 @@
 #include <linux/property.h>
 #include <linux/slab.h>
 
-#include "charlcd.h"
+#include <misc/charlcd.h>
+
 
 enum hd44780_pin {
 	/* Order does matter due to writing to GPIO array subsets! */
@@ -270,7 +271,7 @@ static int hd44780_probe(struct platform_device *pdev)
 	return 0;
 
 fail:
-	charlcd_free(lcd);
+	kfree(lcd);
 	return ret;
 }
 
@@ -279,8 +280,6 @@ static int hd44780_remove(struct platform_device *pdev)
 	struct charlcd *lcd = platform_get_drvdata(pdev);
 
 	charlcd_unregister(lcd);
-
-	charlcd_free(lcd);
 	return 0;
 }
 

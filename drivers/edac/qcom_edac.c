@@ -292,6 +292,7 @@ llcc_ecc_irq_handler(int irq, void *edev_ctl)
 	struct llcc_drv_data *drv = edac_dev_ctl->pvt_info;
 	irqreturn_t irq_rc = IRQ_NONE;
 	u32 drp_error, trp_error, i;
+	bool irq_handled;
 	int ret;
 
 	/* Iterate over the banks and look for Tag RAM or Data RAM errors */
@@ -310,7 +311,7 @@ llcc_ecc_irq_handler(int irq, void *edev_ctl)
 			ret = dump_syn_reg(edev_ctl, LLCC_DRAM_UE, i);
 		}
 		if (!ret)
-			irq_rc = IRQ_HANDLED;
+			irq_handled = true;
 
 		ret = regmap_read(drv->regmap,
 				  drv->offsets[i] + TRP_INTERRUPT_0_STATUS,
@@ -326,8 +327,11 @@ llcc_ecc_irq_handler(int irq, void *edev_ctl)
 			ret = dump_syn_reg(edev_ctl, LLCC_TRAM_UE, i);
 		}
 		if (!ret)
-			irq_rc = IRQ_HANDLED;
+			irq_handled = true;
 	}
+
+	if (irq_handled)
+		irq_rc = IRQ_HANDLED;
 
 	return irq_rc;
 }

@@ -2103,6 +2103,7 @@ done:
 static int omap_udc_stop(struct usb_gadget *g)
 {
 	unsigned long	flags;
+	int		status = -ENODEV;
 
 	if (udc->dc_clk != NULL)
 		omap_udc_enable_clock(1);
@@ -2124,7 +2125,7 @@ static int omap_udc_stop(struct usb_gadget *g)
 	if (udc->dc_clk != NULL)
 		omap_udc_enable_clock(0);
 
-	return 0;
+	return status;
 }
 
 /*-------------------------------------------------------------------------*/
@@ -2576,7 +2577,7 @@ omap_ep_setup(char *name, u8 addr, u8 type,
 	case USB_ENDPOINT_XFER_INT:
 		ep->ep.caps.type_int = true;
 		break;
-	}
+	};
 
 	if (addr & USB_DIR_IN)
 		ep->ep.caps.dir_in = true;
@@ -2757,7 +2758,7 @@ static int omap_udc_probe(struct platform_device *pdev)
 
 	/* NOTE:  "knows" the order of the resources! */
 	if (!request_mem_region(pdev->resource[0].start,
-			resource_size(&pdev->resource[0]),
+			pdev->resource[0].end - pdev->resource[0].start + 1,
 			driver_name)) {
 		DBG("request_mem_region failed\n");
 		return -EBUSY;
@@ -2831,7 +2832,7 @@ static int omap_udc_probe(struct platform_device *pdev)
 				type = "integrated";
 				break;
 			}
-			fallthrough;
+			/* FALL THROUGH */
 		case 3:
 		case 11:
 		case 16:
@@ -2848,7 +2849,7 @@ static int omap_udc_probe(struct platform_device *pdev)
 		case 14:			/* transceiverless */
 			if (cpu_is_omap1710())
 				goto bad_on_1710;
-			fallthrough;
+			/* FALL THROUGH */
 		case 13:
 		case 15:
 			type = "no";
@@ -2934,7 +2935,7 @@ cleanup0:
 	}
 
 	release_mem_region(pdev->resource[0].start,
-			   resource_size(&pdev->resource[0]));
+			pdev->resource[0].end - pdev->resource[0].start + 1);
 
 	return status;
 }
@@ -2950,7 +2951,7 @@ static int omap_udc_remove(struct platform_device *pdev)
 	wait_for_completion(&done);
 
 	release_mem_region(pdev->resource[0].start,
-			   resource_size(&pdev->resource[0]));
+			pdev->resource[0].end - pdev->resource[0].start + 1);
 
 	return 0;
 }
@@ -3001,7 +3002,7 @@ static struct platform_driver udc_driver = {
 	.suspend	= omap_udc_suspend,
 	.resume		= omap_udc_resume,
 	.driver		= {
-		.name	= driver_name,
+		.name	= (char *) driver_name,
 	},
 };
 

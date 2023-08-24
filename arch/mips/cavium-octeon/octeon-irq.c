@@ -2193,15 +2193,12 @@ static int octeon_irq_cib_map(struct irq_domain *d,
 	struct octeon_irq_cib_chip_data *cd;
 
 	if (hw >= host_data->max_bits) {
-		pr_err("ERROR: %s mapping %u is too big!\n",
+		pr_err("ERROR: %s mapping %u is to big!\n",
 		       irq_domain_get_of_node(d)->name, (unsigned)hw);
 		return -EINVAL;
 	}
 
 	cd = kzalloc(sizeof(*cd), GFP_KERNEL);
-	if (!cd)
-		return -ENOMEM;
-
 	cd->host_data = host_data;
 	cd->bit = hw;
 
@@ -2486,8 +2483,8 @@ void octeon_irq_ciu3_mask_ack(struct irq_data *data)
 }
 
 #ifdef CONFIG_SMP
-static int octeon_irq_ciu3_set_affinity(struct irq_data *data,
-					const struct cpumask *dest, bool force)
+int octeon_irq_ciu3_set_affinity(struct irq_data *data,
+				 const struct cpumask *dest, bool force)
 {
 	union cvmx_ciu3_iscx_ctl isc_ctl;
 	union cvmx_ciu3_iscx_w1c isc_w1c;

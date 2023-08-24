@@ -8,8 +8,6 @@
 
 #ifdef CONFIG_HAVE_MARCH_Z196_FEATURES
 
-/* We use the MSB mostly because its available */
-#define PREEMPT_NEED_RESCHED	0x80000000
 #define PREEMPT_ENABLED	(0 + PREEMPT_NEED_RESCHED)
 
 static inline int preempt_count(void)
@@ -28,6 +26,12 @@ static inline void preempt_count_set(int pc)
 	} while (__atomic_cmpxchg(&S390_lowcore.preempt_count,
 				  old, new) != old);
 }
+
+#define init_task_preempt_count(p)	do { } while (0)
+
+#define init_idle_preempt_count(p, cpu)	do { \
+	S390_lowcore.preempt_count = PREEMPT_ENABLED; \
+} while (0)
 
 static inline void set_preempt_need_resched(void)
 {
@@ -82,6 +86,12 @@ static inline void preempt_count_set(int pc)
 	S390_lowcore.preempt_count = pc;
 }
 
+#define init_task_preempt_count(p)	do { } while (0)
+
+#define init_idle_preempt_count(p, cpu)	do { \
+	S390_lowcore.preempt_count = PREEMPT_ENABLED; \
+} while (0)
+
 static inline void set_preempt_need_resched(void)
 {
 }
@@ -118,15 +128,11 @@ static inline bool should_resched(int preempt_offset)
 
 #endif /* CONFIG_HAVE_MARCH_Z196_FEATURES */
 
-#define init_task_preempt_count(p)	do { } while (0)
-/* Deferred to CPU bringup time */
-#define init_idle_preempt_count(p, cpu)	do { } while (0)
-
-#ifdef CONFIG_PREEMPTION
+#ifdef CONFIG_PREEMPT
 extern asmlinkage void preempt_schedule(void);
 #define __preempt_schedule() preempt_schedule()
 extern asmlinkage void preempt_schedule_notrace(void);
 #define __preempt_schedule_notrace() preempt_schedule_notrace()
-#endif /* CONFIG_PREEMPTION */
+#endif /* CONFIG_PREEMPT */
 
 #endif /* __ASM_PREEMPT_H */

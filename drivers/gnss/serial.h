@@ -16,7 +16,7 @@ struct gnss_serial {
 	struct gnss_device *gdev;
 	speed_t	speed;
 	const struct gnss_serial_ops *ops;
-	unsigned long drvdata[];
+	unsigned long drvdata[0];
 };
 
 enum gnss_serial_pm_state {

@@ -13,7 +13,8 @@
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/err.h>
-#include <linux/most.h>
+
+#include "most/core.h"
 
 enum { CH_RX, CH_TX, NUM_CHANNELS };
 

@@ -5,7 +5,6 @@
 #include <linux/if_ether.h>
 #include <linux/gfp.h>
 #include <linux/if_vlan.h>
-#include <generated/utsrelease.h>
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_device.h>
 #include <scsi/fc/fc_fs.h>
@@ -193,7 +192,7 @@ static int ixgbe_fcoe_ddp_setup(struct net_device *netdev, u16 xid,
 	}
 
 	/* alloc the udl from per cpu ddp pool */
-	ddp->udl = dma_pool_alloc(ddp_pool->pool, GFP_ATOMIC, &ddp->udp);
+	ddp->udl = dma_pool_alloc(ddp_pool->pool, GFP_KERNEL, &ddp->udp);
 	if (!ddp->udl) {
 		e_err(drv, "failed allocated ddp context\n");
 		goto out_noddp_unmap;
@@ -444,7 +443,7 @@ int ixgbe_fcoe_ddp(struct ixgbe_adapter *adapter,
 		ddp->err = (__force u32)ddp_err;
 		ddp->sgl = NULL;
 		ddp->sgc = 0;
-		fallthrough;
+		/* fall through */
 	/* if DDP length is present pass it through to ULD */
 	case cpu_to_le32(IXGBE_RXDADV_STAT_FCSTAT_NODDP):
 		/* update length of DDPed data */
@@ -969,7 +968,8 @@ int ixgbe_fcoe_get_hbainfo(struct net_device *netdev,
 {
 	struct ixgbe_adapter *adapter = netdev_priv(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
-	u64 dsn;
+	int i, pos;
+	u8 buf[8];
 
 	if (!info)
 		return -EINVAL;
@@ -985,11 +985,17 @@ int ixgbe_fcoe_get_hbainfo(struct net_device *netdev,
 	/* Serial Number */
 
 	/* Get the PCI-e Device Serial Number Capability */
-	dsn = pci_get_dsn(adapter->pdev);
-	if (dsn)
+	pos = pci_find_ext_capability(adapter->pdev, PCI_EXT_CAP_ID_DSN);
+	if (pos) {
+		pos += 4;
+		for (i = 0; i < 8; i++)
+			pci_read_config_byte(adapter->pdev, pos + i, &buf[i]);
+
 		snprintf(info->serial_number, sizeof(info->serial_number),
-			 "%016llX", dsn);
-	else
+			 "%02X%02X%02X%02X%02X%02X%02X%02X",
+			 buf[7], buf[6], buf[5], buf[4],
+			 buf[3], buf[2], buf[1], buf[0]);
+	} else
 		snprintf(info->serial_number, sizeof(info->serial_number),
 			 "Unknown");
 
@@ -1002,7 +1008,7 @@ int ixgbe_fcoe_get_hbainfo(struct net_device *netdev,
 		 sizeof(info->driver_version),
 		 "%s v%s",
 		 ixgbe_driver_name,
-		 UTS_RELEASE);
+		 ixgbe_driver_version);
 	/* Firmware Version */
 	strlcpy(info->firmware_version, adapter->eeprom_id,
 		sizeof(info->firmware_version));

@@ -296,6 +296,7 @@ _transport_expander_report_manufacture(struct MPT3SAS_ADAPTER *ioc,
 	struct rep_manu_request *manufacture_request;
 	int rc;
 	u16 smid;
+	u32 ioc_state;
 	void *psge;
 	u8 issue_reset = 0;
 	void *data_out = NULL;
@@ -303,6 +304,7 @@ _transport_expander_report_manufacture(struct MPT3SAS_ADAPTER *ioc,
 	dma_addr_t data_in_dma;
 	size_t data_in_sz;
 	size_t data_out_sz;
+	u16 wait_state_count;
 
 	if (ioc->shost_recovery || ioc->pci_error_recovery) {
 		ioc_info(ioc, "%s: host reset in progress!\n", __func__);
@@ -318,9 +320,22 @@ _transport_expander_report_manufacture(struct MPT3SAS_ADAPTER *ioc,
 	}
 	ioc->transport_cmds.status = MPT3_CMD_PENDING;
 
-	rc = mpt3sas_wait_for_ioc(ioc, IOC_OPERATIONAL_WAIT_COUNT);
-	if (rc)
-		goto out;
+	wait_state_count = 0;
+	ioc_state = mpt3sas_base_get_iocstate(ioc, 1);
+	while (ioc_state != MPI2_IOC_STATE_OPERATIONAL) {
+		if (wait_state_count++ == 10) {
+			ioc_err(ioc, "%s: failed due to ioc not operational\n",
+				__func__);
+			rc = -EFAULT;
+			goto out;
+		}
+		ssleep(1);
+		ioc_state = mpt3sas_base_get_iocstate(ioc, 1);
+		ioc_info(ioc, "%s: waiting for operational state(count=%d)\n",
+			 __func__, wait_state_count);
+	}
+	if (wait_state_count)
+		ioc_info(ioc, "%s: ioc is operational\n", __func__);
 
 	smid = mpt3sas_base_get_smid(ioc, ioc->transport_cb_idx);
 	if (!smid) {
@@ -367,7 +382,7 @@ _transport_expander_report_manufacture(struct MPT3SAS_ADAPTER *ioc,
 			 ioc_info(ioc, "report_manufacture - send to sas_addr(0x%016llx)\n",
 				  (u64)sas_address));
 	init_completion(&ioc->transport_cmds.done);
-	ioc->put_smid_default(ioc, smid);
+	mpt3sas_base_put_smid_default(ioc, smid);
 	wait_for_completion_timeout(&ioc->transport_cmds.done, 10*HZ);
 
 	if (!(ioc->transport_cmds.status & MPT3_CMD_COMPLETE)) {
@@ -719,10 +734,11 @@ mpt3sas_transport_port_add(struct MPT3SAS_ADAPTER *ioc, u16 handle,
 		sas_device_put(sas_device);
 	}
 
-	dev_info(&rphy->dev,
-	    "add: handle(0x%04x), sas_addr(0x%016llx)\n", handle,
-	    (unsigned long long)mpt3sas_port->remote_identify.sas_address);
-
+	if ((ioc->logging_level & MPT_DEBUG_TRANSPORT))
+		dev_printk(KERN_INFO, &rphy->dev,
+			"add: handle(0x%04x), sas_addr(0x%016llx)\n",
+			handle, (unsigned long long)
+		    mpt3sas_port->remote_identify.sas_address);
 	mpt3sas_port->rphy = rphy;
 	spin_lock_irqsave(&ioc->sas_node_lock, flags);
 	list_add_tail(&mpt3sas_port->port_list, &sas_node->sas_port_list);
@@ -805,15 +821,10 @@ mpt3sas_transport_port_remove(struct MPT3SAS_ADAPTER *ioc, u64 sas_address,
 			    mpt3sas_port->remote_identify.sas_address,
 			    mpt3sas_phy->phy_id);
 		mpt3sas_phy->phy_belongs_to_port = 0;
-		if (!ioc->remove_host)
-			sas_port_delete_phy(mpt3sas_port->port,
-						mpt3sas_phy->phy);
+		sas_port_delete_phy(mpt3sas_port->port, mpt3sas_phy->phy);
 		list_del(&mpt3sas_phy->port_siblings);
 	}
-	if (!ioc->remove_host)
-		sas_port_delete(mpt3sas_port->port);
-	ioc_info(ioc, "%s: removed: sas_addr(0x%016llx)\n",
-	    __func__, (unsigned long long)sas_address);
+	sas_port_delete(mpt3sas_port->port);
 	kfree(mpt3sas_port);
 }
 
@@ -1065,11 +1076,13 @@ _transport_get_expander_phy_error_log(struct MPT3SAS_ADAPTER *ioc,
 	struct phy_error_log_reply *phy_error_log_reply;
 	int rc;
 	u16 smid;
+	u32 ioc_state;
 	void *psge;
 	u8 issue_reset = 0;
 	void *data_out = NULL;
 	dma_addr_t data_out_dma;
 	u32 sz;
+	u16 wait_state_count;
 
 	if (ioc->shost_recovery || ioc->pci_error_recovery) {
 		ioc_info(ioc, "%s: host reset in progress!\n", __func__);
@@ -1085,9 +1098,22 @@ _transport_get_expander_phy_error_log(struct MPT3SAS_ADAPTER *ioc,
 	}
 	ioc->transport_cmds.status = MPT3_CMD_PENDING;
 
-	rc = mpt3sas_wait_for_ioc(ioc, IOC_OPERATIONAL_WAIT_COUNT);
-	if (rc)
-		goto out;
+	wait_state_count = 0;
+	ioc_state = mpt3sas_base_get_iocstate(ioc, 1);
+	while (ioc_state != MPI2_IOC_STATE_OPERATIONAL) {
+		if (wait_state_count++ == 10) {
+			ioc_err(ioc, "%s: failed due to ioc not operational\n",
+				__func__);
+			rc = -EFAULT;
+			goto out;
+		}
+		ssleep(1);
+		ioc_state = mpt3sas_base_get_iocstate(ioc, 1);
+		ioc_info(ioc, "%s: waiting for operational state(count=%d)\n",
+			 __func__, wait_state_count);
+	}
+	if (wait_state_count)
+		ioc_info(ioc, "%s: ioc is operational\n", __func__);
 
 	smid = mpt3sas_base_get_smid(ioc, ioc->transport_cb_idx);
 	if (!smid) {
@@ -1140,7 +1166,7 @@ _transport_get_expander_phy_error_log(struct MPT3SAS_ADAPTER *ioc,
 				  (u64)phy->identify.sas_address,
 				  phy->number));
 	init_completion(&ioc->transport_cmds.done);
-	ioc->put_smid_default(ioc, smid);
+	mpt3sas_base_put_smid_default(ioc, smid);
 	wait_for_completion_timeout(&ioc->transport_cmds.done, 10*HZ);
 
 	if (!(ioc->transport_cmds.status & MPT3_CMD_COMPLETE)) {
@@ -1355,11 +1381,13 @@ _transport_expander_phy_control(struct MPT3SAS_ADAPTER *ioc,
 	struct phy_control_reply *phy_control_reply;
 	int rc;
 	u16 smid;
+	u32 ioc_state;
 	void *psge;
 	u8 issue_reset = 0;
 	void *data_out = NULL;
 	dma_addr_t data_out_dma;
 	u32 sz;
+	u16 wait_state_count;
 
 	if (ioc->shost_recovery || ioc->pci_error_recovery) {
 		ioc_info(ioc, "%s: host reset in progress!\n", __func__);
@@ -1375,9 +1403,22 @@ _transport_expander_phy_control(struct MPT3SAS_ADAPTER *ioc,
 	}
 	ioc->transport_cmds.status = MPT3_CMD_PENDING;
 
-	rc = mpt3sas_wait_for_ioc(ioc, IOC_OPERATIONAL_WAIT_COUNT);
-	if (rc)
-		goto out;
+	wait_state_count = 0;
+	ioc_state = mpt3sas_base_get_iocstate(ioc, 1);
+	while (ioc_state != MPI2_IOC_STATE_OPERATIONAL) {
+		if (wait_state_count++ == 10) {
+			ioc_err(ioc, "%s: failed due to ioc not operational\n",
+				__func__);
+			rc = -EFAULT;
+			goto out;
+		}
+		ssleep(1);
+		ioc_state = mpt3sas_base_get_iocstate(ioc, 1);
+		ioc_info(ioc, "%s: waiting for operational state(count=%d)\n",
+			 __func__, wait_state_count);
+	}
+	if (wait_state_count)
+		ioc_info(ioc, "%s: ioc is operational\n", __func__);
 
 	smid = mpt3sas_base_get_smid(ioc, ioc->transport_cb_idx);
 	if (!smid) {
@@ -1435,7 +1476,7 @@ _transport_expander_phy_control(struct MPT3SAS_ADAPTER *ioc,
 				  (u64)phy->identify.sas_address,
 				  phy->number, phy_operation));
 	init_completion(&ioc->transport_cmds.done);
-	ioc->put_smid_default(ioc, smid);
+	mpt3sas_base_put_smid_default(ioc, smid);
 	wait_for_completion_timeout(&ioc->transport_cmds.done, 10*HZ);
 
 	if (!(ioc->transport_cmds.status & MPT3_CMD_COMPLETE)) {
@@ -1839,6 +1880,7 @@ _transport_smp_handler(struct bsg_job *job, struct Scsi_Host *shost,
 	Mpi2SmpPassthroughReply_t *mpi_reply;
 	int rc;
 	u16 smid;
+	u32 ioc_state;
 	void *psge;
 	dma_addr_t dma_addr_in;
 	dma_addr_t dma_addr_out;
@@ -1846,6 +1888,7 @@ _transport_smp_handler(struct bsg_job *job, struct Scsi_Host *shost,
 	void *addr_out = NULL;
 	size_t dma_len_in;
 	size_t dma_len_out;
+	u16 wait_state_count;
 	unsigned int reslen = 0;
 
 	if (ioc->shost_recovery || ioc->pci_error_recovery) {
@@ -1881,9 +1924,22 @@ _transport_smp_handler(struct bsg_job *job, struct Scsi_Host *shost,
 	if (rc)
 		goto unmap_out;
 
-	rc = mpt3sas_wait_for_ioc(ioc, IOC_OPERATIONAL_WAIT_COUNT);
-	if (rc)
-		goto unmap_in;
+	wait_state_count = 0;
+	ioc_state = mpt3sas_base_get_iocstate(ioc, 1);
+	while (ioc_state != MPI2_IOC_STATE_OPERATIONAL) {
+		if (wait_state_count++ == 10) {
+			ioc_err(ioc, "%s: failed due to ioc not operational\n",
+				__func__);
+			rc = -EFAULT;
+			goto unmap_in;
+		}
+		ssleep(1);
+		ioc_state = mpt3sas_base_get_iocstate(ioc, 1);
+		ioc_info(ioc, "%s: waiting for operational state(count=%d)\n",
+			 __func__, wait_state_count);
+	}
+	if (wait_state_count)
+		ioc_info(ioc, "%s: ioc is operational\n", __func__);
 
 	smid = mpt3sas_base_get_smid(ioc, ioc->transport_cb_idx);
 	if (!smid) {
@@ -1912,7 +1968,7 @@ _transport_smp_handler(struct bsg_job *job, struct Scsi_Host *shost,
 			 ioc_info(ioc, "%s: sending smp request\n", __func__));
 
 	init_completion(&ioc->transport_cmds.done);
-	ioc->put_smid_default(ioc, smid);
+	mpt3sas_base_put_smid_default(ioc, smid);
 	wait_for_completion_timeout(&ioc->transport_cmds.done, 10*HZ);
 
 	if (!(ioc->transport_cmds.status & MPT3_CMD_COMPLETE)) {

@@ -20,9 +20,12 @@ typedef union {
 } pte_t;
 #endif	/* !__ASSEMBLY__ */
 
+#ifdef CONFIG_PARAVIRT_XXL
+#define SHARED_KERNEL_PMD	((!static_cpu_has(X86_FEATURE_PTI) &&	\
+				 (pv_info.shared_kernel_pmd)))
+#else
 #define SHARED_KERNEL_PMD	(!static_cpu_has(X86_FEATURE_PTI))
-
-#define ARCH_PAGE_TABLE_SYNC_MASK	(SHARED_KERNEL_PMD ? 0 : PGTBL_PMD_MODIFIED)
+#endif
 
 /*
  * PGDIR_SHIFT determines what a top-level page table entry can map

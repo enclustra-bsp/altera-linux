@@ -14,12 +14,34 @@
 #include <linux/kdebug.h>
 #include <linux/prefetch.h>
 #include <linux/uaccess.h>
-#include <linux/perf_event.h>
 
+#include <asm/pgtable.h>
 #include <asm/processor.h>
 #include <asm/exception.h>
 
 extern int die(char *, struct pt_regs *, long);
+
+#ifdef CONFIG_KPROBES
+static inline int notify_page_fault(struct pt_regs *regs, int trap)
+{
+	int ret = 0;
+
+	if (!user_mode(regs)) {
+		/* kprobe_running() needs smp_processor_id() */
+		preempt_disable();
+		if (kprobe_running() && kprobe_fault_handler(regs, trap))
+			ret = 1;
+		preempt_enable();
+	}
+
+	return ret;
+}
+#else
+static inline int notify_page_fault(struct pt_regs *regs, int trap)
+{
+	return 0;
+}
+#endif
 
 /*
  * Return TRUE if ADDRESS points at a page in the kernel's mapped segment
@@ -29,7 +51,6 @@ static int
 mapped_kernel_page_is_present (unsigned long address)
 {
 	pgd_t *pgd;
-	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *ptep, pte;
@@ -38,11 +59,7 @@ mapped_kernel_page_is_present (unsigned long address)
 	if (pgd_none(*pgd) || pgd_bad(*pgd))
 		return 0;
 
-	p4d = p4d_offset(pgd, address);
-	if (p4d_none(*p4d) || p4d_bad(*p4d))
-		return 0;
-
-	pud = pud_offset(p4d, address);
+	pud = pud_offset(pgd, address);
 	if (pud_none(*pud) || pud_bad(*pud))
 		return 0;
 
@@ -70,13 +87,13 @@ ia64_do_page_fault (unsigned long address, unsigned long isr, struct pt_regs *re
 	struct mm_struct *mm = current->mm;
 	unsigned long mask;
 	vm_fault_t fault;
-	unsigned int flags = FAULT_FLAG_DEFAULT;
+	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 
 	mask = ((((isr >> IA64_ISR_X_BIT) & 1UL) << VM_EXEC_BIT)
 		| (((isr >> IA64_ISR_W_BIT) & 1UL) << VM_WRITE_BIT));
 
-	/* mmap_lock is performance critical.... */
-	prefetchw(&mm->mmap_lock);
+	/* mmap_sem is performance critical.... */
+	prefetchw(&mm->mmap_sem);
 
 	/*
 	 * If we're in an interrupt or have no user context, we must not take the fault..
@@ -87,7 +104,7 @@ ia64_do_page_fault (unsigned long address, unsigned long isr, struct pt_regs *re
 #ifdef CONFIG_VIRTUAL_MEM_MAP
 	/*
 	 * If fault is in region 5 and we are in the kernel, we may already
-	 * have the mmap_lock (pfn_valid macro is called during mmap). There
+	 * have the mmap_sem (pfn_valid macro is called during mmap). There
 	 * is no vma for region 5 addr's anyway, so skip getting the semaphore
 	 * and go directly to the exception handling code.
 	 */
@@ -99,17 +116,15 @@ ia64_do_page_fault (unsigned long address, unsigned long isr, struct pt_regs *re
 	/*
 	 * This is to handle the kprobes on user space access instructions
 	 */
-	if (kprobe_page_fault(regs, TRAP_BRKPT))
+	if (notify_page_fault(regs, TRAP_BRKPT))
 		return;
 
 	if (user_mode(regs))
 		flags |= FAULT_FLAG_USER;
 	if (mask & VM_WRITE)
 		flags |= FAULT_FLAG_WRITE;
-
-	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
 retry:
-	mmap_read_lock(mm);
+	down_read(&mm->mmap_sem);
 
 	vma = find_vma_prev(mm, address, &prev_vma);
 	if (!vma && !prev_vma )
@@ -146,9 +161,9 @@ retry:
 	 * sure we exit gracefully rather than endlessly redo the
 	 * fault.
 	 */
-	fault = handle_mm_fault(vma, address, flags, regs);
+	fault = handle_mm_fault(vma, address, flags);
 
-	if (fault_signal_pending(fault, regs))
+	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
 		return;
 
 	if (unlikely(fault & VM_FAULT_ERROR)) {
@@ -169,10 +184,15 @@ retry:
 	}
 
 	if (flags & FAULT_FLAG_ALLOW_RETRY) {
+		if (fault & VM_FAULT_MAJOR)
+			current->maj_flt++;
+		else
+			current->min_flt++;
 		if (fault & VM_FAULT_RETRY) {
+			flags &= ~FAULT_FLAG_ALLOW_RETRY;
 			flags |= FAULT_FLAG_TRIED;
 
-			 /* No need to mmap_read_unlock(mm) as we would
+			 /* No need to up_read(&mm->mmap_sem) as we would
 			 * have already released it in __lock_page_or_retry
 			 * in mm/filemap.c.
 			 */
@@ -181,7 +201,7 @@ retry:
 		}
 	}
 
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 	return;
 
   check_expansion:
@@ -212,7 +232,7 @@ retry:
 	goto good_area;
 
   bad_area:
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 #ifdef CONFIG_VIRTUAL_MEM_MAP
   bad_area_no_up:
 #endif
@@ -229,7 +249,7 @@ retry:
 	}
 	if (user_mode(regs)) {
 		force_sig_fault(signal, code, (void __user *) address,
-				0, __ISR_VALID, isr);
+				0, __ISR_VALID, isr, current);
 		return;
 	}
 
@@ -278,7 +298,7 @@ retry:
 	return;
 
   out_of_memory:
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 	if (!user_mode(regs))
 		goto no_context;
 	pagefault_out_of_memory();

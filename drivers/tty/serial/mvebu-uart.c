@@ -72,8 +72,6 @@
 #define  BRDV_BAUD_MASK         0x3FF
 
 #define UART_OSAMP		0x14
-#define  OSAMP_DEFAULT_DIVISOR	16
-#define  OSAMP_DIVISORS_MASK	0x3F3F3F3F
 
 #define MVEBU_NR_UARTS		2
 
@@ -164,7 +162,7 @@ static unsigned int mvebu_uart_tx_empty(struct uart_port *port)
 	st = readl(port->membase + UART_STAT);
 	spin_unlock_irqrestore(&port->lock, flags);
 
-	return (st & STAT_TX_EMP) ? TIOCSER_TEMT : 0;
+	return (st & STAT_TX_FIFO_EMP) ? TIOCSER_TEMT : 0;
 }
 
 static unsigned int mvebu_uart_get_mctrl(struct uart_port *port)
@@ -445,33 +443,25 @@ static void mvebu_uart_shutdown(struct uart_port *port)
 
 static int mvebu_uart_baud_rate_set(struct uart_port *port, unsigned int baud)
 {
-	unsigned int d_divisor, m_divisor;
-	u32 brdv, osamp;
+	struct mvebu_uart *mvuart = to_mvuart(port);
+	unsigned int baud_rate_div;
+	u32 brdv;
 
-	if (!port->uartclk)
-		return -EOPNOTSUPP;
+	if (IS_ERR(mvuart->clk))
+		return -PTR_ERR(mvuart->clk);
 
 	/*
-	 * The baudrate is derived from the UART clock thanks to two divisors:
-	 *   > D ("baud generator"): can divide the clock from 2 to 2^10 - 1.
-	 *   > M ("fractional divisor"): allows a better accuracy for
-	 *     baudrates higher than 230400.
-	 *
-	 * As the derivation of M is rather complicated, the code sticks to its
-	 * default value (x16) when all the prescalers are zeroed, and only
-	 * makes use of D to configure the desired baudrate.
+	 * The UART clock is divided by the value of the divisor to generate
+	 * UCLK_OUT clock, which is 16 times faster than the baudrate.
+	 * This prescaler can achieve all standard baudrates until 230400.
+	 * Higher baudrates could be achieved for the extended UART by using the
+	 * programmable oversampling stack (also called fractional divisor).
 	 */
-	m_divisor = OSAMP_DEFAULT_DIVISOR;
-	d_divisor = DIV_ROUND_CLOSEST(port->uartclk, baud * m_divisor);
-
+	baud_rate_div = DIV_ROUND_UP(port->uartclk, baud * 16);
 	brdv = readl(port->membase + UART_BRDV);
 	brdv &= ~BRDV_BAUD_MASK;
-	brdv |= d_divisor;
+	brdv |= baud_rate_div;
 	writel(brdv, port->membase + UART_BRDV);
-
-	osamp = readl(port->membase + UART_OSAMP);
-	osamp &= ~OSAMP_DIVISORS_MASK;
-	writel(osamp, port->membase + UART_OSAMP);
 
 	return 0;
 }
@@ -481,7 +471,7 @@ static void mvebu_uart_set_termios(struct uart_port *port,
 				   struct ktermios *old)
 {
 	unsigned long flags;
-	unsigned int baud, min_baud, max_baud;
+	unsigned int baud;
 
 	spin_lock_irqsave(&port->lock, flags);
 
@@ -500,21 +490,16 @@ static void mvebu_uart_set_termios(struct uart_port *port,
 		port->ignore_status_mask |= STAT_RX_RDY(port) | STAT_BRK_ERR;
 
 	/*
-	 * Maximal divisor is 1023 * 16 when using default (x16) scheme.
 	 * Maximum achievable frequency with simple baudrate divisor is 230400.
 	 * Since the error per bit frame would be of more than 15%, achieving
 	 * higher frequencies would require to implement the fractional divisor
 	 * feature.
 	 */
-	min_baud = DIV_ROUND_UP(port->uartclk, 1023 * 16);
-	max_baud = 230400;
-
-	baud = uart_get_baud_rate(port, termios, old, min_baud, max_baud);
+	baud = uart_get_baud_rate(port, termios, old, 0, 230400);
 	if (mvebu_uart_baud_rate_set(port, baud)) {
 		/* No clock available, baudrate cannot be changed */
 		if (old)
-			baud = uart_get_baud_rate(port, old, NULL,
-						  min_baud, max_baud);
+			baud = uart_get_baud_rate(port, old, NULL, 0, 230400);
 	} else {
 		tty_termios_encode_baud_rate(termios, baud, baud);
 		uart_update_timeout(port, termios->c_cflag, baud);
@@ -652,14 +637,6 @@ static void wait_for_xmitr(struct uart_port *port)
 				  (val & STAT_TX_RDY(port)), 1, 10000);
 }
 
-static void wait_for_xmite(struct uart_port *port)
-{
-	u32 val;
-
-	readl_poll_timeout_atomic(port->membase + UART_STAT, val,
-				  (val & STAT_TX_EMP), 1, 10000);
-}
-
 static void mvebu_uart_console_putchar(struct uart_port *port, int ch)
 {
 	wait_for_xmitr(port);
@@ -687,7 +664,7 @@ static void mvebu_uart_console_write(struct console *co, const char *s,
 
 	uart_console_write(port, s, count, mvebu_uart_console_putchar);
 
-	wait_for_xmite(port);
+	wait_for_xmitr(port);
 
 	if (ier)
 		writel(ier, port->membase + UART_CTRL(port));
@@ -815,7 +792,7 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 							   &pdev->dev);
 	struct uart_port *port;
 	struct mvebu_uart *mvuart;
-	int id, irq;
+	int ret, id, irq;
 
 	if (!reg) {
 		dev_err(&pdev->dev, "no registers defined\n");
@@ -860,7 +837,7 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 
 	port->membase = devm_ioremap_resource(&pdev->dev, reg);
 	if (IS_ERR(port->membase))
-		return PTR_ERR(port->membase);
+		return -PTR_ERR(port->membase);
 
 	mvuart = devm_kzalloc(&pdev->dev, sizeof(struct mvebu_uart),
 			      GFP_KERNEL);
@@ -893,8 +870,10 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 	if (platform_irq_count(pdev) == 1) {
 		/* Old bindings: no name on the single unamed UART0 IRQ */
 		irq = platform_get_irq(pdev, 0);
-		if (irq < 0)
+		if (irq < 0) {
+			dev_err(&pdev->dev, "unable to get UART IRQ\n");
 			return irq;
+		}
 
 		mvuart->irq[UART_IRQ_SUM] = irq;
 	} else {
@@ -904,14 +883,18 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 		 * uart-sum of UART0 port.
 		 */
 		irq = platform_get_irq_byname(pdev, "uart-rx");
-		if (irq < 0)
+		if (irq < 0) {
+			dev_err(&pdev->dev, "unable to get 'uart-rx' IRQ\n");
 			return irq;
+		}
 
 		mvuart->irq[UART_RX_IRQ] = irq;
 
 		irq = platform_get_irq_byname(pdev, "uart-tx");
-		if (irq < 0)
+		if (irq < 0) {
+			dev_err(&pdev->dev, "unable to get 'uart-tx' IRQ\n");
 			return irq;
+		}
 
 		mvuart->irq[UART_TX_IRQ] = irq;
 	}
@@ -921,7 +904,10 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 	udelay(1);
 	writel(0, port->membase + UART_CTRL(port));
 
-	return uart_add_one_port(&mvebu_uart_driver, port);
+	ret = uart_add_one_port(&mvebu_uart_driver, port);
+	if (ret)
+		return ret;
+	return 0;
 }
 
 static struct mvebu_uart_driver_data uart_std_driver_data = {

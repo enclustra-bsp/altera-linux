@@ -53,7 +53,6 @@
 
 #include <linux/ntb.h>
 #include <linux/pci.h>
-#include <linux/io-64-nonatomic-lo-hi.h>
 
 /* PCI device IDs */
 #define PCI_DEVICE_ID_INTEL_NTB_B2B_JSF	0x3725
@@ -72,7 +71,6 @@
 #define PCI_DEVICE_ID_INTEL_NTB_PS_BDX	0x6F0E
 #define PCI_DEVICE_ID_INTEL_NTB_SS_BDX	0x6F0F
 #define PCI_DEVICE_ID_INTEL_NTB_B2B_SKX	0x201C
-#define PCI_DEVICE_ID_INTEL_NTB_B2B_ICX	0x347e
 
 /* Ntb control and link status */
 #define NTB_CTL_CFG_LOCK		BIT(0)
@@ -103,7 +101,7 @@ struct intel_ntb_dev;
 struct intel_ntb_reg {
 	int (*poll_link)(struct intel_ntb_dev *ndev);
 	int (*link_is_up)(struct intel_ntb_dev *ndev);
-	u64 (*db_ioread)(const void __iomem *mmio);
+	u64 (*db_ioread)(void __iomem *mmio);
 	void (*db_iowrite)(u64 db_bits, void __iomem *mmio);
 	unsigned long			ntb_ctl;
 	resource_size_t			db_size;
@@ -121,7 +119,6 @@ struct intel_ntb_xlat_reg {
 	unsigned long			bar0_base;
 	unsigned long			bar2_xlat;
 	unsigned long			bar2_limit;
-	unsigned short			bar2_idx;
 };
 
 struct intel_b2b_addr {
@@ -184,9 +181,6 @@ struct intel_ntb_dev {
 
 	struct dentry			*debugfs_dir;
 	struct dentry			*debugfs_info;
-
-	/* gen4 entries */
-	int				dev_up;
 };
 
 #define ntb_ndev(__ntb) container_of(__ntb, struct intel_ntb_dev, ntb)
@@ -224,11 +218,33 @@ static inline int pdev_is_gen3(struct pci_dev *pdev)
 	return 0;
 }
 
-static inline int pdev_is_gen4(struct pci_dev *pdev)
+#ifndef ioread64
+#ifdef readq
+#define ioread64 readq
+#else
+#define ioread64 _ioread64
+static inline u64 _ioread64(void __iomem *mmio)
 {
-	if (pdev->device == PCI_DEVICE_ID_INTEL_NTB_B2B_ICX)
-		return 1;
+	u64 low, high;
 
-	return 0;
+	low = ioread32(mmio);
+	high = ioread32(mmio + sizeof(u32));
+	return low | (high << 32);
 }
+#endif
+#endif
+
+#ifndef iowrite64
+#ifdef writeq
+#define iowrite64 writeq
+#else
+#define iowrite64 _iowrite64
+static inline void _iowrite64(u64 val, void __iomem *mmio)
+{
+	iowrite32(val, mmio);
+	iowrite32(val >> 32, mmio + sizeof(u32));
+}
+#endif
+#endif
+
 #endif

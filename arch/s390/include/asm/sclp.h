@@ -78,9 +78,6 @@ struct sclp_info {
 	unsigned char has_skey : 1;
 	unsigned char has_kss : 1;
 	unsigned char has_gisaf : 1;
-	unsigned char has_diag318 : 1;
-	unsigned char has_sipl : 1;
-	unsigned char has_dirq : 1;
 	unsigned int ibc;
 	unsigned int mtid;
 	unsigned int mtid_cp;
@@ -114,7 +111,8 @@ int sclp_early_get_core_info(struct sclp_core_info *info);
 void sclp_early_get_ipl_info(struct sclp_ipl_info *info);
 void sclp_early_detect(void);
 void sclp_early_printk(const char *s);
-void __sclp_early_printk(const char *s, unsigned int len);
+void sclp_early_printk_force(const char *s);
+void __sclp_early_printk(const char *s, unsigned int len, unsigned int force);
 
 int sclp_early_get_memsize(unsigned long *mem);
 int sclp_early_get_hsa_size(unsigned long *hsa_size);
@@ -128,8 +126,6 @@ int sclp_chp_deconfigure(struct chp_id chpid);
 int sclp_chp_read_info(struct sclp_chp_info *info);
 int sclp_pci_configure(u32 fid);
 int sclp_pci_deconfigure(u32 fid);
-int sclp_ap_configure(u32 apid);
-int sclp_ap_deconfigure(u32 apid);
 int sclp_pci_report(struct zpci_report_error_header *report, u32 fh, u32 fid);
 int memcpy_hsa_kernel(void *dest, unsigned long src, size_t count);
 int memcpy_hsa_user(void __user *dest, unsigned long src, size_t count);

@@ -11,8 +11,9 @@
 #define __LINUX_OF_GPIO_H
 
 #include <linux/compiler.h>
-#include <linux/gpio/driver.h>
-#include <linux/gpio.h>		/* FIXME: Shouldn't be here */
+#include <linux/kernel.h>
+#include <linux/errno.h>
+#include <linux/gpio.h>
 #include <linux/of.h>
 
 struct device_node;
@@ -27,13 +28,9 @@ enum of_gpio_flags {
 	OF_GPIO_SINGLE_ENDED = 0x2,
 	OF_GPIO_OPEN_DRAIN = 0x4,
 	OF_GPIO_TRANSITORY = 0x8,
-	OF_GPIO_PULL_UP = 0x10,
-	OF_GPIO_PULL_DOWN = 0x20,
 };
 
 #ifdef CONFIG_OF_GPIO
-
-#include <linux/kernel.h>
 
 /*
  * OF GPIO chip for memory mapped banks
@@ -62,9 +59,11 @@ static inline int of_mm_gpiochip_add(struct device_node *np,
 }
 extern void of_mm_gpiochip_remove(struct of_mm_gpio_chip *mm_gc);
 
-#else /* CONFIG_OF_GPIO */
+extern int of_gpio_simple_xlate(struct gpio_chip *gc,
+				const struct of_phandle_args *gpiospec,
+				u32 *flags);
 
-#include <linux/errno.h>
+#else /* CONFIG_OF_GPIO */
 
 /* Drivers may not strictly depend on the GPIO support, so let them link. */
 static inline int of_get_named_gpio_flags(struct device_node *np,
@@ -73,6 +72,13 @@ static inline int of_get_named_gpio_flags(struct device_node *np,
 	if (flags)
 		*flags = 0;
 
+	return -ENOSYS;
+}
+
+static inline int of_gpio_simple_xlate(struct gpio_chip *gc,
+				       const struct of_phandle_args *gpiospec,
+				       u32 *flags)
+{
 	return -ENOSYS;
 }
 

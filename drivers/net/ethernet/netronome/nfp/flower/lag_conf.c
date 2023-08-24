@@ -156,8 +156,7 @@ nfp_fl_lag_find_group_for_master_with_lag(struct nfp_fl_lag *lag,
 
 int nfp_flower_lag_populate_pre_action(struct nfp_app *app,
 				       struct net_device *master,
-				       struct nfp_fl_pre_lag *pre_act,
-				       struct netlink_ext_ack *extack)
+				       struct nfp_fl_pre_lag *pre_act)
 {
 	struct nfp_flower_priv *priv = app->priv;
 	struct nfp_fl_lag_group *group = NULL;
@@ -168,7 +167,6 @@ int nfp_flower_lag_populate_pre_action(struct nfp_app *app,
 							  master);
 	if (!group) {
 		mutex_unlock(&priv->nfp_lag.lock);
-		NL_SET_ERR_MSG_MOD(extack, "invalid entry: group does not exist for LAG action");
 		return -ENOENT;
 	}
 
@@ -474,25 +472,17 @@ nfp_fl_lag_schedule_group_remove(struct nfp_fl_lag *lag,
 	schedule_delayed_work(&lag->work, NFP_FL_LAG_DELAY);
 }
 
-static void
+static int
 nfp_fl_lag_schedule_group_delete(struct nfp_fl_lag *lag,
 				 struct net_device *master)
 {
 	struct nfp_fl_lag_group *group;
-	struct nfp_flower_priv *priv;
-
-	priv = container_of(lag, struct nfp_flower_priv, nfp_lag);
-
-	if (!netif_is_bond_master(master))
-		return;
 
 	mutex_lock(&lag->lock);
 	group = nfp_fl_lag_find_group_for_master_with_lag(lag, master);
 	if (!group) {
 		mutex_unlock(&lag->lock);
-		nfp_warn(priv->app->cpp, "untracked bond got unregistered %s\n",
-			 netdev_name(master));
-		return;
+		return -ENOENT;
 	}
 
 	group->to_remove = true;
@@ -500,6 +490,7 @@ nfp_fl_lag_schedule_group_delete(struct nfp_fl_lag *lag,
 	mutex_unlock(&lag->lock);
 
 	schedule_delayed_work(&lag->work, NFP_FL_LAG_DELAY);
+	return 0;
 }
 
 static int
@@ -584,7 +575,7 @@ nfp_fl_lag_changeupper_event(struct nfp_fl_lag *lag,
 	return 0;
 }
 
-static void
+static int
 nfp_fl_lag_changels_event(struct nfp_fl_lag *lag, struct net_device *netdev,
 			  struct netdev_notifier_changelowerstate_info *info)
 {
@@ -595,18 +586,18 @@ nfp_fl_lag_changels_event(struct nfp_fl_lag *lag, struct net_device *netdev,
 	unsigned long *flags;
 
 	if (!netif_is_lag_port(netdev) || !nfp_netdev_is_nfp_repr(netdev))
-		return;
+		return 0;
 
 	lag_lower_info = info->lower_state_info;
 	if (!lag_lower_info)
-		return;
+		return 0;
 
 	priv = container_of(lag, struct nfp_flower_priv, nfp_lag);
 	repr = netdev_priv(netdev);
 
 	/* Verify that the repr is associated with this app. */
 	if (repr->app != priv->app)
-		return;
+		return 0;
 
 	repr_priv = repr->app_priv;
 	flags = &repr_priv->lag_port_flags;
@@ -626,14 +617,19 @@ nfp_fl_lag_changels_event(struct nfp_fl_lag *lag, struct net_device *netdev,
 	mutex_unlock(&lag->lock);
 
 	schedule_delayed_work(&lag->work, NFP_FL_LAG_DELAY);
+	return 0;
 }
 
-int nfp_flower_lag_netdev_event(struct nfp_flower_priv *priv,
-				struct net_device *netdev,
-				unsigned long event, void *ptr)
+static int
+nfp_fl_lag_netdev_event(struct notifier_block *nb, unsigned long event,
+			void *ptr)
 {
-	struct nfp_fl_lag *lag = &priv->nfp_lag;
+	struct net_device *netdev;
+	struct nfp_fl_lag *lag;
 	int err;
+
+	netdev = netdev_notifier_info_to_dev(ptr);
+	lag = container_of(nb, struct nfp_fl_lag, lag_nb);
 
 	switch (event) {
 	case NETDEV_CHANGEUPPER:
@@ -642,11 +638,17 @@ int nfp_flower_lag_netdev_event(struct nfp_flower_priv *priv,
 			return NOTIFY_BAD;
 		return NOTIFY_OK;
 	case NETDEV_CHANGELOWERSTATE:
-		nfp_fl_lag_changels_event(lag, netdev, ptr);
+		err = nfp_fl_lag_changels_event(lag, netdev, ptr);
+		if (err)
+			return NOTIFY_BAD;
 		return NOTIFY_OK;
 	case NETDEV_UNREGISTER:
-		nfp_fl_lag_schedule_group_delete(lag, netdev);
-		return NOTIFY_OK;
+		if (netif_is_bond_master(netdev)) {
+			err = nfp_fl_lag_schedule_group_delete(lag, netdev);
+			if (err)
+				return NOTIFY_BAD;
+			return NOTIFY_OK;
+		}
 	}
 
 	return NOTIFY_DONE;
@@ -671,6 +673,8 @@ void nfp_flower_lag_init(struct nfp_fl_lag *lag)
 
 	/* 0 is a reserved batch version so increment to first valid value. */
 	nfp_fl_increment_version(lag);
+
+	lag->lag_nb.notifier_call = nfp_fl_lag_netdev_event;
 }
 
 void nfp_flower_lag_cleanup(struct nfp_fl_lag *lag)

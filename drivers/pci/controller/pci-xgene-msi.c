@@ -384,9 +384,13 @@ static int xgene_msi_hwirq_alloc(unsigned int cpu)
 		if (!msi_group->gic_irq)
 			continue;
 
-		irq_set_chained_handler_and_data(msi_group->gic_irq,
-			xgene_msi_isr, msi_group);
-
+		irq_set_chained_handler(msi_group->gic_irq,
+					xgene_msi_isr);
+		err = irq_set_handler_data(msi_group->gic_irq, msi_group);
+		if (err) {
+			pr_err("failed to register GIC IRQ handler\n");
+			return -EINVAL;
+		}
 		/*
 		 * Statically allocate MSI GIC IRQs to each CPU core.
 		 * With 8-core X-Gene v1, 2 MSI GIC IRQs are allocated
@@ -474,6 +478,8 @@ static int xgene_msi_probe(struct platform_device *pdev)
 	for (irq_index = 0; irq_index < NR_HW_IRQS; irq_index++) {
 		virt_msir = platform_get_irq(pdev, irq_index);
 		if (virt_msir < 0) {
+			dev_err(&pdev->dev, "Cannot translate IRQ index %d\n",
+				irq_index);
 			rc = virt_msir;
 			goto error;
 		}
@@ -489,8 +495,8 @@ static int xgene_msi_probe(struct platform_device *pdev)
 	 */
 	for (irq_index = 0; irq_index < NR_HW_IRQS; irq_index++) {
 		for (msi_idx = 0; msi_idx < IDX_PER_GROUP; msi_idx++)
-			xgene_msi_ir_read(xgene_msi, irq_index, msi_idx);
-
+			msi_val = xgene_msi_ir_read(xgene_msi, irq_index,
+						    msi_idx);
 		/* Read MSIINTn to confirm */
 		msi_val = xgene_msi_int_read(xgene_msi, irq_index);
 		if (msi_val) {

@@ -289,14 +289,6 @@ qcaspi_transmit(struct qcaspi *qca)
 
 	qcaspi_read_register(qca, SPI_REG_WRBUF_SPC_AVA, &available);
 
-	if (available > QCASPI_HW_BUF_LEN) {
-		/* This could only happen by interferences on the SPI line.
-		 * So retry later ...
-		 */
-		qca->stats.buf_avail_err++;
-		return -1;
-	}
-
 	while (qca->txr.skb[qca->txr.head]) {
 		pkt_len = qca->txr.skb[qca->txr.head]->len + QCASPI_HW_PKT_LEN;
 
@@ -363,13 +355,7 @@ qcaspi_receive(struct qcaspi *qca)
 	netdev_dbg(net_dev, "qcaspi_receive: SPI_REG_RDBUF_BYTE_AVA: Value: %08x\n",
 		   available);
 
-	if (available > QCASPI_HW_BUF_LEN + QCASPI_HW_PKT_LEN) {
-		/* This could only happen by interferences on the SPI line.
-		 * So retry later ...
-		 */
-		qca->stats.buf_avail_err++;
-		return -1;
-	} else if (available == 0) {
+	if (available == 0) {
 		netdev_dbg(net_dev, "qcaspi_receive called without any data being available!\n");
 		return -1;
 	}
@@ -434,7 +420,7 @@ qcaspi_receive(struct qcaspi *qca)
 				skb_put(qca->rx_skb, retcode);
 				qca->rx_skb->protocol = eth_type_trans(
 					qca->rx_skb, qca->rx_skb->dev);
-				skb_checksum_none_assert(qca->rx_skb);
+				qca->rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
 				netif_rx_ni(qca->rx_skb);
 				qca->rx_skb = netdev_alloc_skb_ip_align(net_dev,
 					net_dev->mtu + VLAN_ETH_HLEN);
@@ -496,6 +482,7 @@ qcaspi_qca7k_sync(struct qcaspi *qca, int event)
 	u16 signature = 0;
 	u16 spi_config;
 	u16 wrbuf_space = 0;
+	static u16 reset_count;
 
 	if (event == QCASPI_EVENT_CPUON) {
 		/* Read signature twice, if not valid
@@ -548,13 +535,13 @@ qcaspi_qca7k_sync(struct qcaspi *qca, int event)
 
 		qca->sync = QCASPI_SYNC_RESET;
 		qca->stats.trig_reset++;
-		qca->reset_count = 0;
+		reset_count = 0;
 		break;
 	case QCASPI_SYNC_RESET:
-		qca->reset_count++;
+		reset_count++;
 		netdev_dbg(qca->net_dev, "sync: waiting for CPU on, count %u.\n",
-			   qca->reset_count);
-		if (qca->reset_count >= QCASPI_RESET_TIMEOUT) {
+			   reset_count);
+		if (reset_count >= QCASPI_RESET_TIMEOUT) {
 			/* reset did not seem to take place, try again */
 			qca->sync = QCASPI_SYNC_UNKNOWN;
 			qca->stats.reset_timeout++;
@@ -785,7 +772,7 @@ qcaspi_netdev_xmit(struct sk_buff *skb, struct net_device *dev)
 }
 
 static void
-qcaspi_netdev_tx_timeout(struct net_device *dev, unsigned int txqueue)
+qcaspi_netdev_tx_timeout(struct net_device *dev)
 {
 	struct qcaspi *qca = netdev_priv(dev);
 
@@ -836,7 +823,8 @@ qcaspi_netdev_uninit(struct net_device *dev)
 
 	kfree(qca->rx_buffer);
 	qca->buffer_size = 0;
-	dev_kfree_skb(qca->rx_skb);
+	if (qca->rx_skb)
+		dev_kfree_skb(qca->rx_skb);
 }
 
 static const struct net_device_ops qcaspi_netdev_ops = {
@@ -964,7 +952,7 @@ qca_spi_probe(struct spi_device *spi)
 
 	mac = of_get_mac_address(spi->dev.of_node);
 
-	if (!IS_ERR(mac))
+	if (mac)
 		ether_addr_copy(qca->net_dev->dev_addr, mac);
 
 	if (!is_valid_ether_addr(qca->net_dev->dev_addr)) {

@@ -1,6 +1,14 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) 2012 Regents of the University of California
+ *
+ *   This program is free software; you can redistribute it and/or
+ *   modify it under the terms of the GNU General Public License
+ *   as published by the Free Software Foundation, version 2.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
  */
 
 #ifndef _ASM_RISCV_PTRACE_H
@@ -12,7 +20,7 @@
 #ifndef __ASSEMBLY__
 
 struct pt_regs {
-	unsigned long epc;
+	unsigned long sepc;
 	unsigned long ra;
 	unsigned long sp;
 	unsigned long gp;
@@ -44,10 +52,10 @@ struct pt_regs {
 	unsigned long t4;
 	unsigned long t5;
 	unsigned long t6;
-	/* Supervisor/Machine CSRs */
-	unsigned long status;
-	unsigned long badaddr;
-	unsigned long cause;
+	/* Supervisor CSRs */
+	unsigned long sstatus;
+	unsigned long sbadaddr;
+	unsigned long scause;
 	/* a0 value before the syscall */
 	unsigned long orig_a0;
 };
@@ -58,47 +66,51 @@ struct pt_regs {
 #define REG_FMT "%08lx"
 #endif
 
-#define user_mode(regs) (((regs)->status & SR_PP) == 0)
+#define user_mode(regs) (((regs)->sstatus & SR_SPP) == 0)
 
 
 /* Helpers for working with the instruction pointer */
+#define GET_IP(regs) ((regs)->sepc)
+#define SET_IP(regs, val) (GET_IP(regs) = (val))
+
 static inline unsigned long instruction_pointer(struct pt_regs *regs)
 {
-	return regs->epc;
+	return GET_IP(regs);
 }
 static inline void instruction_pointer_set(struct pt_regs *regs,
 					   unsigned long val)
 {
-	regs->epc = val;
+	SET_IP(regs, val);
 }
 
 #define profile_pc(regs) instruction_pointer(regs)
 
 /* Helpers for working with the user stack pointer */
+#define GET_USP(regs) ((regs)->sp)
+#define SET_USP(regs, val) (GET_USP(regs) = (val))
+
 static inline unsigned long user_stack_pointer(struct pt_regs *regs)
 {
-	return regs->sp;
+	return GET_USP(regs);
 }
 static inline void user_stack_pointer_set(struct pt_regs *regs,
 					  unsigned long val)
 {
-	regs->sp =  val;
+	SET_USP(regs, val);
 }
 
 /* Helpers for working with the frame pointer */
+#define GET_FP(regs) ((regs)->s0)
+#define SET_FP(regs, val) (GET_FP(regs) = (val))
+
 static inline unsigned long frame_pointer(struct pt_regs *regs)
 {
-	return regs->s0;
+	return GET_FP(regs);
 }
 static inline void frame_pointer_set(struct pt_regs *regs,
 				     unsigned long val)
 {
-	regs->s0 = val;
-}
-
-static inline unsigned long regs_return_value(struct pt_regs *regs)
-{
-	return regs->a0;
+	SET_FP(regs, val);
 }
 
 #endif /* __ASSEMBLY__ */

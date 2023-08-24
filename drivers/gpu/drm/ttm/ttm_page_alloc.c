@@ -730,10 +730,9 @@ static void ttm_put_pages(struct page **pages, unsigned npages, int flags,
 			}
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
-			if (!(flags & TTM_PAGE_FLAG_DMA32) &&
-			    (npages - i) >= HPAGE_PMD_NR) {
-				for (j = 1; j < HPAGE_PMD_NR; ++j)
-					if (++p != pages[i + j])
+			if (!(flags & TTM_PAGE_FLAG_DMA32)) {
+				for (j = 0; j < HPAGE_PMD_NR; ++j)
+					if (p++ != pages[i + j])
 					    break;
 
 				if (j == HPAGE_PMD_NR)
@@ -760,15 +759,15 @@ static void ttm_put_pages(struct page **pages, unsigned npages, int flags,
 		unsigned max_size, n2free;
 
 		spin_lock_irqsave(&huge->lock, irq_flags);
-		while ((npages - i) >= HPAGE_PMD_NR) {
+		while (i < npages) {
 			struct page *p = pages[i];
 			unsigned j;
 
 			if (!p)
 				break;
 
-			for (j = 1; j < HPAGE_PMD_NR; ++j)
-				if (++p != pages[i + j])
+			for (j = 0; j < HPAGE_PMD_NR; ++j)
+				if (p++ != pages[i + j])
 				    break;
 
 			if (j != HPAGE_PMD_NR)
@@ -1028,7 +1027,7 @@ void ttm_page_alloc_fini(void)
 static void
 ttm_pool_unpopulate_helper(struct ttm_tt *ttm, unsigned mem_count_update)
 {
-	struct ttm_mem_global *mem_glob = &ttm_mem_glob;
+	struct ttm_mem_global *mem_glob = ttm->bdev->glob->mem_glob;
 	unsigned i;
 
 	if (mem_count_update == 0)
@@ -1044,16 +1043,16 @@ ttm_pool_unpopulate_helper(struct ttm_tt *ttm, unsigned mem_count_update)
 put_pages:
 	ttm_put_pages(ttm->pages, ttm->num_pages, ttm->page_flags,
 		      ttm->caching_state);
-	ttm_tt_set_unpopulated(ttm);
+	ttm->state = tt_unpopulated;
 }
 
 int ttm_pool_populate(struct ttm_tt *ttm, struct ttm_operation_ctx *ctx)
 {
-	struct ttm_mem_global *mem_glob = &ttm_mem_glob;
+	struct ttm_mem_global *mem_glob = ttm->bdev->glob->mem_glob;
 	unsigned i;
 	int ret;
 
-	if (ttm_tt_is_populated(ttm))
+	if (ttm->state != tt_unpopulated)
 		return 0;
 
 	if (ttm_check_under_lowerlimit(mem_glob, ttm->num_pages, ctx))
@@ -1083,7 +1082,7 @@ int ttm_pool_populate(struct ttm_tt *ttm, struct ttm_operation_ctx *ctx)
 		}
 	}
 
-	ttm_tt_set_populated(ttm);
+	ttm->state = tt_unbound;
 	return 0;
 }
 EXPORT_SYMBOL(ttm_pool_populate);

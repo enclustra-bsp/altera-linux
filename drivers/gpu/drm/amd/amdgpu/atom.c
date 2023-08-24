@@ -27,8 +27,6 @@
 #include <linux/slab.h>
 #include <asm/unaligned.h>
 
-#include <drm/drm_util.h>
-
 #define ATOM_DEBUG
 
 #include "atom.h"
@@ -53,8 +51,6 @@
 
 #define PLL_INDEX	2
 #define PLL_DATA	3
-
-#define ATOM_CMD_TIMEOUT_SEC	20
 
 typedef struct {
 	struct atom_context *ctx;
@@ -746,9 +742,8 @@ static void atom_op_jump(atom_exec_context *ctx, int *ptr, int arg)
 			cjiffies = jiffies;
 			if (time_after(cjiffies, ctx->last_jump_jiffies)) {
 				cjiffies -= ctx->last_jump_jiffies;
-				if ((jiffies_to_msecs(cjiffies) > ATOM_CMD_TIMEOUT_SEC*1000)) {
-					DRM_ERROR("atombios stuck in loop for more than %dsecs aborting\n",
-						  ATOM_CMD_TIMEOUT_SEC);
+				if ((jiffies_to_msecs(cjiffies) > 5000)) {
+					DRM_ERROR("atombios stuck in loop for more than 5secs aborting\n");
 					ctx->abort = true;
 				}
 			} else {

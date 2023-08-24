@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/etherdevice.h>
 #include <linux/if_tap.h>
 #include <linux/if_vlan.h>
@@ -341,7 +340,6 @@ rx_handler_result_t tap_handle_frame(struct sk_buff **pskb)
 		features |= tap->tap_features;
 	if (netif_needs_gso(skb, features)) {
 		struct sk_buff *segs = __skb_gso_segment(skb, features, false);
-		struct sk_buff *next;
 
 		if (IS_ERR(segs))
 			goto drop;
@@ -353,13 +351,16 @@ rx_handler_result_t tap_handle_frame(struct sk_buff **pskb)
 		}
 
 		consume_skb(skb);
-		skb_list_walk_safe(segs, skb, next) {
-			skb_mark_not_on_list(skb);
-			if (ptr_ring_produce(&q->ring, skb)) {
-				kfree_skb(skb);
-				kfree_skb_list(next);
+		while (segs) {
+			struct sk_buff *nskb = segs->next;
+
+			segs->next = NULL;
+			if (ptr_ring_produce(&q->ring, segs)) {
+				kfree_skb(segs);
+				kfree_skb_list(nskb);
 				break;
 			}
+			segs = nskb;
 		}
 	} else {
 		/* If we receive a partial checksum and the tap side
@@ -518,7 +519,8 @@ static int tap_open(struct inode *inode, struct file *file)
 		goto err;
 	}
 
-	init_waitqueue_head(&q->sock.wq.wait);
+	RCU_INIT_POINTER(q->sock.wq, &q->wq);
+	init_waitqueue_head(&q->wq.wait);
 	q->sock.type = SOCK_RAW;
 	q->sock.state = SS_CONNECTED;
 	q->sock.file = file;
@@ -576,7 +578,7 @@ static __poll_t tap_poll(struct file *file, poll_table *wait)
 		goto out;
 
 	mask = 0;
-	poll_wait(file, &q->sock.wq.wait, wait);
+	poll_wait(file, &q->wq.wait, wait);
 
 	if (!ptr_ring_empty(&q->ring))
 		mask |= EPOLLIN | EPOLLRDNORM;
@@ -710,7 +712,7 @@ static ssize_t tap_get_user(struct tap_queue *q, void *msg_control,
 			goto err_kfree;
 	}
 
-	skb_probe_transport_header(skb);
+	skb_probe_transport_header(skb, ETH_HLEN);
 
 	/* Move network header to the right position for VLAN tagged packets */
 	if ((skb->protocol == htons(ETH_P_8021Q) ||
@@ -1093,9 +1095,10 @@ static long tap_ioctl(struct file *file, unsigned int cmd,
 			return -ENOLINK;
 		}
 		ret = 0;
-		dev_get_mac_address(&sa, dev_net(tap->dev), tap->dev->name);
+		u = tap->dev->type;
 		if (copy_to_user(&ifr->ifr_name, tap->dev->name, IFNAMSIZ) ||
-		    copy_to_user(&ifr->ifr_hwaddr, &sa, sizeof(sa)))
+		    copy_to_user(&ifr->ifr_hwaddr.sa_data, tap->dev->dev_addr, ETH_ALEN) ||
+		    put_user(u, &ifr->ifr_hwaddr.sa_family))
 			ret = -EFAULT;
 		tap_put_tap_dev(tap);
 		rtnl_unlock();
@@ -1110,7 +1113,7 @@ static long tap_ioctl(struct file *file, unsigned int cmd,
 			rtnl_unlock();
 			return -ENOLINK;
 		}
-		ret = dev_set_mac_address_user(tap->dev, &sa, NULL);
+		ret = dev_set_mac_address(tap->dev, &sa);
 		tap_put_tap_dev(tap);
 		rtnl_unlock();
 		return ret;
@@ -1119,6 +1122,14 @@ static long tap_ioctl(struct file *file, unsigned int cmd,
 		return -EINVAL;
 	}
 }
+
+#ifdef CONFIG_COMPAT
+static long tap_compat_ioctl(struct file *file, unsigned int cmd,
+			     unsigned long arg)
+{
+	return tap_ioctl(file, cmd, (unsigned long)compat_ptr(arg));
+}
+#endif
 
 static const struct file_operations tap_fops = {
 	.owner		= THIS_MODULE,
@@ -1129,7 +1140,9 @@ static const struct file_operations tap_fops = {
 	.poll		= tap_poll,
 	.llseek		= no_llseek,
 	.unlocked_ioctl	= tap_ioctl,
-	.compat_ioctl	= compat_ptr_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl	= tap_compat_ioctl,
+#endif
 };
 
 static int tap_get_user_xdp(struct tap_queue *q, struct xdp_buff *xdp)
@@ -1164,6 +1177,8 @@ static int tap_get_user_xdp(struct tap_queue *q, struct xdp_buff *xdp)
 			goto err_kfree;
 	}
 
+	skb_probe_transport_header(skb, ETH_HLEN);
+
 	/* Move network header to the right position for VLAN tagged packets */
 	if ((skb->protocol == htons(ETH_P_8021Q) ||
 	     skb->protocol == htons(ETH_P_8021AD)) &&
@@ -1174,7 +1189,6 @@ static int tap_get_user_xdp(struct tap_queue *q, struct xdp_buff *xdp)
 	tap = rcu_dereference(q->tap);
 	if (tap) {
 		skb->dev = tap->dev;
-		skb_probe_transport_header(skb);
 		dev_queue_xmit(skb);
 	} else {
 		kfree_skb(skb);
@@ -1187,7 +1201,7 @@ err_kfree:
 	kfree_skb(skb);
 err:
 	rcu_read_lock();
-	tap = rcu_dereference(q->tap);
+		tap = rcu_dereference(q->tap);
 	if (tap && tap->count_tx_dropped)
 		tap->count_tx_dropped(tap);
 	rcu_read_unlock();

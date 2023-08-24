@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Cryptographic API.
  *
@@ -11,18 +10,25 @@
  * Copyright (c) Alan Smithee.
  * Copyright (c) Andrew McDonald <andrew@mcdonald.org.uk>
  * Copyright (c) Jean-Francois Dive <jef@linuxbe.org>
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
  */
 #include <crypto/internal/hash.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/mm.h>
+#include <linux/cryptohash.h>
 #include <linux/types.h>
 #include <crypto/sha.h>
 #include <asm/byteorder.h>
 
-void powerpc_sha_transform(u32 *state, const u8 *src);
+extern void powerpc_sha_transform(u32 *state, const u8 *src, u32 *temp);
 
-static int powerpc_sha1_init(struct shash_desc *desc)
+static int sha1_init(struct shash_desc *desc)
 {
 	struct sha1_state *sctx = shash_desc_ctx(desc);
 
@@ -33,8 +39,8 @@ static int powerpc_sha1_init(struct shash_desc *desc)
 	return 0;
 }
 
-static int powerpc_sha1_update(struct shash_desc *desc, const u8 *data,
-			       unsigned int len)
+static int sha1_update(struct shash_desc *desc, const u8 *data,
+			unsigned int len)
 {
 	struct sha1_state *sctx = shash_desc_ctx(desc);
 	unsigned int partial, done;
@@ -46,6 +52,7 @@ static int powerpc_sha1_update(struct shash_desc *desc, const u8 *data,
 	src = data;
 
 	if ((partial + len) > 63) {
+		u32 temp[SHA_WORKSPACE_WORDS];
 
 		if (partial) {
 			done = -partial;
@@ -54,11 +61,12 @@ static int powerpc_sha1_update(struct shash_desc *desc, const u8 *data,
 		}
 
 		do {
-			powerpc_sha_transform(sctx->state, src);
+			powerpc_sha_transform(sctx->state, src, temp);
 			done += 64;
 			src = data + done;
 		} while (done + 63 < len);
 
+		memzero_explicit(temp, sizeof(temp));
 		partial = 0;
 	}
 	memcpy(sctx->buffer + partial, src, len - done);
@@ -68,7 +76,7 @@ static int powerpc_sha1_update(struct shash_desc *desc, const u8 *data,
 
 
 /* Add padding and return the message digest. */
-static int powerpc_sha1_final(struct shash_desc *desc, u8 *out)
+static int sha1_final(struct shash_desc *desc, u8 *out)
 {
 	struct sha1_state *sctx = shash_desc_ctx(desc);
 	__be32 *dst = (__be32 *)out;
@@ -81,10 +89,10 @@ static int powerpc_sha1_final(struct shash_desc *desc, u8 *out)
 	/* Pad out to 56 mod 64 */
 	index = sctx->count & 0x3f;
 	padlen = (index < 56) ? (56 - index) : ((64+56) - index);
-	powerpc_sha1_update(desc, padding, padlen);
+	sha1_update(desc, padding, padlen);
 
 	/* Append length */
-	powerpc_sha1_update(desc, (const u8 *)&bits, sizeof(bits));
+	sha1_update(desc, (const u8 *)&bits, sizeof(bits));
 
 	/* Store state in digest */
 	for (i = 0; i < 5; i++)
@@ -96,7 +104,7 @@ static int powerpc_sha1_final(struct shash_desc *desc, u8 *out)
 	return 0;
 }
 
-static int powerpc_sha1_export(struct shash_desc *desc, void *out)
+static int sha1_export(struct shash_desc *desc, void *out)
 {
 	struct sha1_state *sctx = shash_desc_ctx(desc);
 
@@ -104,7 +112,7 @@ static int powerpc_sha1_export(struct shash_desc *desc, void *out)
 	return 0;
 }
 
-static int powerpc_sha1_import(struct shash_desc *desc, const void *in)
+static int sha1_import(struct shash_desc *desc, const void *in)
 {
 	struct sha1_state *sctx = shash_desc_ctx(desc);
 
@@ -114,11 +122,11 @@ static int powerpc_sha1_import(struct shash_desc *desc, const void *in)
 
 static struct shash_alg alg = {
 	.digestsize	=	SHA1_DIGEST_SIZE,
-	.init		=	powerpc_sha1_init,
-	.update		=	powerpc_sha1_update,
-	.final		=	powerpc_sha1_final,
-	.export		=	powerpc_sha1_export,
-	.import		=	powerpc_sha1_import,
+	.init		=	sha1_init,
+	.update		=	sha1_update,
+	.final		=	sha1_final,
+	.export		=	sha1_export,
+	.import		=	sha1_import,
 	.descsize	=	sizeof(struct sha1_state),
 	.statesize	=	sizeof(struct sha1_state),
 	.base		=	{

@@ -1,8 +1,18 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Bt8xx based DVB adapter driver
  *
  * Copyright (C) 2002,2003 Florian Schirmer <jolt@tuxbox.org>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -39,10 +49,9 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
 #define IF_FREQUENCYx6 217    /* 6 * 36.16666666667MHz */
 
-static void dvb_bt8xx_task(struct tasklet_struct *t)
+static void dvb_bt8xx_task(unsigned long data)
 {
-	struct bt878 *bt = from_tasklet(bt, t, tasklet);
-	struct dvb_bt8xx_card *card = dev_get_drvdata(&bt->adapter->dev);
+	struct dvb_bt8xx_card *card = (struct dvb_bt8xx_card *)data;
 
 	dprintk("%d\n", card->bt->finished_block);
 
@@ -394,7 +403,7 @@ static struct mt352_config advbt771_samsung_tdtc9251dh0_config = {
 	.demod_init = advbt771_samsung_tdtc9251dh0_demod_init,
 };
 
-static const struct dst_config dst_config = {
+static struct dst_config dst_config = {
 	.demod_address = 0x55,
 };
 
@@ -778,7 +787,7 @@ static int dvb_bt8xx_load_card(struct dvb_bt8xx_card *card, u32 type)
 		goto err_disconnect_frontend;
 	}
 
-	tasklet_setup(&card->bt->tasklet, dvb_bt8xx_task);
+	tasklet_init(&card->bt->tasklet, dvb_bt8xx_task, (unsigned long) card);
 
 	frontend_init(card, type);
 

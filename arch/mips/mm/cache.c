@@ -14,9 +14,9 @@
 #include <linux/sched.h>
 #include <linux/syscalls.h>
 #include <linux/mm.h>
-#include <linux/highmem.h>
 
 #include <asm/cacheflush.h>
+#include <asm/highmem.h>
 #include <asm/processor.h>
 #include <asm/cpu.h>
 #include <asm/cpu-features.h>
@@ -36,6 +36,7 @@ EXPORT_SYMBOL_GPL(flush_icache_range);
 void (*local_flush_icache_range)(unsigned long start, unsigned long end);
 EXPORT_SYMBOL_GPL(local_flush_icache_range);
 void (*__flush_icache_user_range)(unsigned long start, unsigned long end);
+EXPORT_SYMBOL_GPL(__flush_icache_user_range);
 void (*__local_flush_icache_user_range)(unsigned long start, unsigned long end);
 EXPORT_SYMBOL_GPL(__local_flush_icache_user_range);
 
@@ -46,6 +47,7 @@ void (*__flush_kernel_vmap_range)(unsigned long vaddr, int size);
 EXPORT_SYMBOL_GPL(__flush_kernel_vmap_range);
 
 /* MIPS specific cache operations */
+void (*flush_cache_sigtramp)(unsigned long addr);
 void (*local_flush_data_cache_page)(void * addr);
 void (*flush_data_cache_page)(unsigned long addr);
 void (*flush_icache_all)(void);
@@ -61,6 +63,8 @@ void (*_dma_cache_wback_inv)(unsigned long start, unsigned long size);
 void (*_dma_cache_wback)(unsigned long start, unsigned long size);
 void (*_dma_cache_inv)(unsigned long start, unsigned long size);
 
+EXPORT_SYMBOL(_dma_cache_wback_inv);
+
 #endif /* CONFIG_DMA_NONCOHERENT */
 
 /*
@@ -72,7 +76,7 @@ SYSCALL_DEFINE3(cacheflush, unsigned long, addr, unsigned long, bytes,
 {
 	if (bytes == 0)
 		return 0;
-	if (!access_ok((void __user *) addr, bytes))
+	if (!access_ok(VERIFY_WRITE, (void __user *) addr, bytes))
 		return -EFAULT;
 
 	__flush_icache_user_range(addr, addr + bytes);
@@ -103,7 +107,7 @@ void __flush_dcache_page(struct page *page)
 	flush_data_cache_page(addr);
 
 	if (PageHighMem(page))
-		kunmap_atomic((void *)addr);
+		__kunmap_atomic((void *)addr);
 }
 
 EXPORT_SYMBOL(__flush_dcache_page);
@@ -146,7 +150,7 @@ void __update_cache(unsigned long address, pte_t pte)
 			flush_data_cache_page(addr);
 
 		if (PageHighMem(page))
-			kunmap_atomic((void *)addr);
+			__kunmap_atomic((void *)addr);
 
 		ClearPageDcacheDirty(page);
 	}

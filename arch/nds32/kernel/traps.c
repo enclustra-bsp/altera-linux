@@ -12,7 +12,6 @@
 
 #include <asm/proc-fns.h>
 #include <asm/unistd.h>
-#include <asm/fpu.h>
 
 #include <linux/ptrace.h>
 #include <nds32_intrinsic.h>
@@ -97,19 +96,18 @@ static void dump_instr(struct pt_regs *regs)
 }
 
 #define LOOP_TIMES (100)
-static void __dump(struct task_struct *tsk, unsigned long *base_reg,
-		   const char *loglvl)
+static void __dump(struct task_struct *tsk, unsigned long *base_reg)
 {
 	unsigned long ret_addr;
 	int cnt = LOOP_TIMES, graph = 0;
-	printk("%sCall Trace:\n", loglvl);
+	pr_emerg("Call Trace:\n");
 	if (!IS_ENABLED(CONFIG_FRAME_POINTER)) {
 		while (!kstack_end(base_reg)) {
 			ret_addr = *base_reg++;
 			if (__kernel_text_address(ret_addr)) {
 				ret_addr = ftrace_graph_ret_addr(
 						tsk, &graph, ret_addr, NULL);
-				print_ip_sym(loglvl, ret_addr);
+				print_ip_sym(ret_addr);
 			}
 			if (--cnt < 0)
 				break;
@@ -125,17 +123,17 @@ static void __dump(struct task_struct *tsk, unsigned long *base_reg,
 
 				ret_addr = ftrace_graph_ret_addr(
 						tsk, &graph, ret_addr, NULL);
-				print_ip_sym(loglvl, ret_addr);
+				print_ip_sym(ret_addr);
 			}
 			if (--cnt < 0)
 				break;
 			base_reg = (unsigned long *)next_fp;
 		}
 	}
-	printk("%s\n", loglvl);
+	pr_emerg("\n");
 }
 
-void show_stack(struct task_struct *tsk, unsigned long *sp, const char *loglvl)
+void show_stack(struct task_struct *tsk, unsigned long *sp)
 {
 	unsigned long *base_reg;
 
@@ -152,7 +150,7 @@ void show_stack(struct task_struct *tsk, unsigned long *sp, const char *loglvl)
 		else
 			__asm__ __volatile__("\tori\t%0, $fp, #0\n":"=r"(base_reg));
 	}
-	__dump(tsk, base_reg, loglvl);
+	__dump(tsk, base_reg);
 	barrier();
 }
 
@@ -206,7 +204,7 @@ int bad_syscall(int n, struct pt_regs *regs)
 	}
 
 	force_sig_fault(SIGILL, ILL_ILLTRP,
-			(void __user *)instruction_pointer(regs) - 4);
+			(void __user *)instruction_pointer(regs) - 4, current);
 	die_if_kernel("Oops - bad syscall", regs, n);
 	return regs->uregs[0];
 }
@@ -256,15 +254,14 @@ void __init early_trap_init(void)
 	cpu_cache_wbinval_page(base, true);
 }
 
-static void send_sigtrap(struct pt_regs *regs, int error_code, int si_code)
+void send_sigtrap(struct task_struct *tsk, struct pt_regs *regs,
+		  int error_code, int si_code)
 {
-	struct task_struct *tsk = current;
-
 	tsk->thread.trap_no = ENTRY_DEBUG_RELATED;
 	tsk->thread.error_code = error_code;
 
 	force_sig_fault(SIGTRAP, si_code,
-			(void __user *)instruction_pointer(regs));
+			(void __user *)instruction_pointer(regs), tsk);
 }
 
 void do_debug_trap(unsigned long entry, unsigned long addr,
@@ -276,7 +273,7 @@ void do_debug_trap(unsigned long entry, unsigned long addr,
 
 	if (user_mode(regs)) {
 		/* trap_signal */
-		send_sigtrap(regs, 0, TRAP_BRKPT);
+		send_sigtrap(current, regs, 0, TRAP_BRKPT);
 	} else {
 		/* kernel_trap */
 		if (!fixup_exception(regs))
@@ -290,7 +287,7 @@ void unhandled_interruption(struct pt_regs *regs)
 	show_regs(regs);
 	if (!user_mode(regs))
 		do_exit(SIGKILL);
-	force_sig(SIGKILL);
+	force_sig(SIGKILL, current);
 }
 
 void unhandled_exceptions(unsigned long entry, unsigned long addr,
@@ -301,7 +298,7 @@ void unhandled_exceptions(unsigned long entry, unsigned long addr,
 	show_regs(regs);
 	if (!user_mode(regs))
 		do_exit(SIGKILL);
-	force_sig(SIGKILL);
+	force_sig(SIGKILL, current);
 }
 
 extern int do_page_fault(unsigned long entry, unsigned long addr,
@@ -328,7 +325,7 @@ void do_revinsn(struct pt_regs *regs)
 	show_regs(regs);
 	if (!user_mode(regs))
 		do_exit(SIGILL);
-	force_sig(SIGILL);
+	force_sig(SIGILL, current);
 }
 
 #ifdef CONFIG_ALIGNMENT_TRAP
@@ -360,21 +357,6 @@ void do_dispatch_general(unsigned long entry, unsigned long addr,
 	} else if (type == ETYPE_RESERVED_INSTRUCTION) {
 		/* Reserved instruction */
 		do_revinsn(regs);
-	} else if (type == ETYPE_COPROCESSOR) {
-		/* Coprocessor */
-#if IS_ENABLED(CONFIG_FPU)
-		unsigned int fucop_exist = __nds32__mfsr(NDS32_SR_FUCOP_EXIST);
-		unsigned int cpid = ((itype & ITYPE_mskCPID) >> ITYPE_offCPID);
-
-		if ((cpid == FPU_CPID) &&
-		    (fucop_exist & FUCOP_EXIST_mskCP0ISFPU)) {
-			unsigned int subtype = (itype & ITYPE_mskSTYPE);
-
-			if (true == do_fpu_exception(subtype, regs))
-				return;
-		}
-#endif
-		unhandled_exceptions(entry, addr, type, regs);
 	} else if (type == ETYPE_TRAP && swid == SWID_RAISE_INTERRUPT_LEVEL) {
 		/* trap, used on v3 EDM target debugging workaround */
 		/*

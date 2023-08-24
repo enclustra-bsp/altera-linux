@@ -47,11 +47,7 @@
 };
 
 &cpu0 {
-	cpu-supply = <&vdd_arm>;
-};
-
-&cpu1 {
-	cpu-supply = <&vdd_arm>;
+	cpu0-supply = <&vdd_arm>;
 };
 
 &i2c1 {
@@ -172,7 +168,7 @@
 &pinctrl {
 	lan8720a {
 		phy_int: phy-int {
-			rockchip,pins = <1 RK_PD2 RK_FUNC_GPIO &pcfg_pull_none>;
+			rockchip,pins = <RK_GPIO1 26 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 };

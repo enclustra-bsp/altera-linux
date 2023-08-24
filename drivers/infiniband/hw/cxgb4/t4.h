@@ -35,7 +35,6 @@
 #include "t4_regs.h"
 #include "t4_values.h"
 #include "t4_msg.h"
-#include "t4_tcb.h"
 #include "t4fw_ri_api.h"
 
 #define T4_MAX_NUM_PD 65536

@@ -1,8 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Sally Floyd's High Speed TCP (RFC 3649) congestion control
  *
- * See https://www.icir.org/floyd/hstcp.html
+ * See http://www.icir.org/floyd/hstcp.html
  *
  * John Heffner <jheffner@psc.edu>
  */

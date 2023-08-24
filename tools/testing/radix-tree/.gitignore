@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 generated/map-shift.h
 idr.c
 idr-test

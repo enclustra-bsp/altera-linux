@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 obj-y				+= cacheflush.o
 obj-$(CONFIG_CPU_HAS_FPU)	+= fpu.o
 obj-y				+= memcmp.o
@@ -9,4 +8,3 @@ obj-y				+= strcmp.o
 obj-y				+= strcpy.o
 obj-y				+= strlen.o
 obj-y				+= strksyms.o
-obj-$(CONFIG_FUNCTION_TRACER)	+= mcount.o

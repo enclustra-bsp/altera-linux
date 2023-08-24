@@ -11,7 +11,6 @@
 	};
 
 	memory@10000000 {
-		device_type = "memory";
 		reg = <0x10000000 0xF0000000>;
 	};
 
@@ -316,7 +315,7 @@
 };
 
 &ecspi1 {
-	cs-gpios = <&gpio3 19 GPIO_ACTIVE_LOW>;
+	cs-gpios = <&gpio3 19 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_ecspi1>;
 	status = "okay";
@@ -736,14 +735,12 @@
 };
 
 &pwm1 {
-	#pwm-cells = <2>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm1>;
 	status = "okay";
 };
 
 &pwm2 {
-	#pwm-cells = <2>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm2>;
 	status = "okay";
@@ -756,7 +753,6 @@
 };
 
 &pwm4 {
-	#pwm-cells = <2>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm4>;
 	status = "okay";

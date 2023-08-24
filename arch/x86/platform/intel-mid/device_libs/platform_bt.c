@@ -1,9 +1,13 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Bluetooth platform data initialization file
  *
  * (C) Copyright 2017 Intel Corporation
  * Author: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; version 2
+ * of the License.
  */
 
 #include <linux/gpio/machine.h>
@@ -60,8 +64,11 @@ static struct bt_sfi_data tng_bt_sfi_data __initdata = {
 	.setup	= tng_bt_sfi_setup,
 };
 
+#define ICPU(model, ddata)	\
+	{ X86_VENDOR_INTEL, 6, model, X86_FEATURE_ANY, (kernel_ulong_t)&ddata }
+
 static const struct x86_cpu_id bt_sfi_cpu_ids[] = {
-	X86_MATCH_INTEL_FAM6_MODEL(ATOM_SILVERMONT_MID,	&tng_bt_sfi_data),
+	ICPU(INTEL_FAM6_ATOM_SILVERMONT_MID, tng_bt_sfi_data),
 	{}
 };
 

@@ -266,7 +266,8 @@ void __fprop_inc_percpu_max(struct fprop_global *p,
 		if (numerator >
 		    (((u64)denominator) * max_frac) >> FPROP_FRAC_SHIFT)
 			return;
-	}
-
-	__fprop_inc_percpu(p, pl);
+	} else
+		fprop_reflect_period_percpu(p, pl);
+	percpu_counter_add_batch(&pl->events, 1, PROP_BATCH);
+	percpu_counter_add(&p->events, 1);
 }

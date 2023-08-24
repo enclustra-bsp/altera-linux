@@ -47,7 +47,6 @@
 
 / {
 	memory@10000000 {
-		device_type = "memory";
 		reg = <0x10000000 0x40000000>;
 	};
 
@@ -134,7 +133,7 @@
 };
 
 &ecspi1 {
-	cs-gpios = <&gpio2 30 GPIO_ACTIVE_LOW>;
+	cs-gpios = <&gpio2 30 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_ecspi1>;
 	status = "okay";
@@ -171,7 +170,7 @@
 &fec {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_enet>;
-	phy-mode = "rgmii-id";
+	phy-mode = "rgmii";
 	status = "okay";
 };
 
@@ -334,7 +333,6 @@
 };
 
 &pwm1 {
-	#pwm-cells = <2>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm1>;
 	status = "okay";

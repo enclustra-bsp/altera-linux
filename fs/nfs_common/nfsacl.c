@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * fs/nfs_common/nfsacl.c
  *
@@ -237,7 +236,7 @@ posix_acl_from_nfsacl(struct posix_acl *acl)
 				break;
 			case ACL_MASK:
 				mask = pa;
-				fallthrough;
+				/* fall through */
 			case ACL_OTHER:
 				break;
 		}

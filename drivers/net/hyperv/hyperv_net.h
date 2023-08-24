@@ -1,12 +1,24 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *
  * Copyright (c) 2011, Microsoft Corporation.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Authors:
  *   Haiyang Zhang <haiyangz@microsoft.com>
  *   Hank Janssen  <hjanssen@microsoft.com>
  *   K. Y. Srinivasan <kys@microsoft.com>
+ *
  */
 
 #ifndef _HYPERV_NET_H
@@ -132,8 +144,6 @@ struct hv_netvsc_packet {
 	u32 total_data_buflen;
 };
 
-#define NETVSC_HASH_KEYLEN 40
-
 struct netvsc_device_info {
 	unsigned char mac_adr[ETH_ALEN];
 	u32  num_chn;
@@ -141,10 +151,6 @@ struct netvsc_device_info {
 	u32  recv_sections;
 	u32  send_section_size;
 	u32  recv_section_size;
-
-	struct bpf_prog *bprog;
-
-	u8 rss_key[NETVSC_HASH_KEYLEN];
 };
 
 enum rndis_device_state {
@@ -153,6 +159,8 @@ enum rndis_device_state {
 	RNDIS_DEV_INITIALIZED,
 	RNDIS_DEV_DATAINITIALIZED,
 };
+
+#define NETVSC_HASH_KEYLEN 40
 
 struct rndis_device {
 	struct net_device *ndev;
@@ -171,6 +179,7 @@ struct rndis_device {
 
 	u8 hw_mac_adr[ETH_ALEN];
 	u8 rss_key[NETVSC_HASH_KEYLEN];
+	u16 rx_table[ITAB_NUM];
 };
 
 
@@ -191,8 +200,7 @@ int netvsc_send(struct net_device *net,
 		struct hv_netvsc_packet *packet,
 		struct rndis_message *rndis_msg,
 		struct hv_page_buffer *page_buffer,
-		struct sk_buff *skb,
-		bool xdp_tx);
+		struct sk_buff *skb);
 void netvsc_linkstatus_callback(struct net_device *net,
 				struct rndis_message *resp);
 int netvsc_recv_callback(struct net_device *net,
@@ -201,19 +209,7 @@ int netvsc_recv_callback(struct net_device *net,
 void netvsc_channel_cb(void *context);
 int netvsc_poll(struct napi_struct *napi, int budget);
 
-u32 netvsc_run_xdp(struct net_device *ndev, struct netvsc_channel *nvchan,
-		   struct xdp_buff *xdp);
-unsigned int netvsc_xdp_fraglen(unsigned int len);
-struct bpf_prog *netvsc_xdp_get(struct netvsc_device *nvdev);
-int netvsc_xdp_set(struct net_device *dev, struct bpf_prog *prog,
-		   struct netlink_ext_ack *extack,
-		   struct netvsc_device *nvdev);
-int netvsc_vf_setxdp(struct net_device *vf_netdev, struct bpf_prog *prog);
-int netvsc_bpf(struct net_device *dev, struct netdev_bpf *bpf);
-
-int rndis_set_subchannel(struct net_device *ndev,
-			 struct netvsc_device *nvdev,
-			 struct netvsc_device_info *dev_info);
+int rndis_set_subchannel(struct net_device *ndev, struct netvsc_device *nvdev);
 int rndis_filter_open(struct netvsc_device *nvdev);
 int rndis_filter_close(struct netvsc_device *nvdev);
 struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
@@ -621,8 +617,7 @@ struct nvsp_5_send_indirect_table {
 	/* The number of entries in the send indirection table */
 	u32 count;
 
-	/* The offset of the send indirection table from the beginning of
-	 * struct nvsp_message.
+	/* The offset of the send indirection table from top of this struct.
 	 * The send indirection table tells which channel to put the send
 	 * traffic on. Each entry is a channel number.
 	 */
@@ -835,8 +830,7 @@ struct nvsp_message {
 
 #define NETVSC_SUPPORTED_HW_FEATURES (NETIF_F_RXCSUM | NETIF_F_IP_CSUM | \
 				      NETIF_F_TSO | NETIF_F_IPV6_CSUM | \
-				      NETIF_F_TSO6 | NETIF_F_LRO | \
-				      NETIF_F_SG | NETIF_F_RXHASH)
+				      NETIF_F_TSO6 | NETIF_F_LRO)
 
 #define VRSS_SEND_TAB_SIZE 16  /* must be power of 2 */
 #define VRSS_CHANNEL_MAX 64
@@ -844,12 +838,6 @@ struct nvsp_message {
 
 #define RNDIS_MAX_PKT_DEFAULT 8
 #define RNDIS_PKT_ALIGN_DEFAULT 8
-
-#define NETVSC_XDP_HDRM 256
-
-#define NETVSC_XFER_HEADER_SIZE(rng_cnt) \
-		(offsetof(struct vmtransfer_page_packet_header, ranges) + \
-		(rng_cnt) * sizeof(struct vmtransfer_page_range))
 
 struct multi_send_data {
 	struct sk_buff *skb; /* skb containing the pkt */
@@ -873,7 +861,6 @@ struct multi_recv_comp {
 struct nvsc_rsc {
 	const struct ndis_pkt_8021q_info *vlan;
 	const struct ndis_tcp_ip_checksum_info *csum_info;
-	const u32 *hash_info;
 	u8 is_last; /* last RNDIS msg in a vmtransfer_page */
 	u32 cnt; /* #fragments in an RSC packet */
 	u32 pktlen; /* Full packet length */
@@ -886,7 +873,6 @@ struct netvsc_stats {
 	u64 bytes;
 	u64 broadcast;
 	u64 multicast;
-	u64 xdp_drop;
 	struct u64_stats_sync syncp;
 };
 
@@ -901,7 +887,6 @@ struct netvsc_ethtool_stats {
 	unsigned long rx_no_memory;
 	unsigned long stop_queue;
 	unsigned long wake_queue;
-	unsigned long vlan_error;
 };
 
 struct netvsc_ethtool_pcpu_stats {
@@ -960,8 +945,6 @@ struct net_device_context {
 
 	u32 tx_table[VRSS_SEND_TAB_SIZE];
 
-	u16 rx_table[ITAB_NUM];
-
 	/* Ethtool settings */
 	u8 duplex;
 	u32 speed;
@@ -977,12 +960,6 @@ struct net_device_context {
 	u32 vf_alloc;
 	/* Serial number of the VF to team with */
 	u32 vf_serial;
-
-	/* Is the current data path through the VF NIC? */
-	bool  data_path_is_vf;
-
-	/* Used to temporarily save the config info across hibernation */
-	struct netvsc_device_info *saved_netvsc_dev_info;
 };
 
 /* Per channel data */
@@ -996,9 +973,6 @@ struct netvsc_channel {
 	atomic_t queue_sends;
 	struct nvsc_rsc rsc;
 
-	struct bpf_prog __rcu *bpf_prog;
-	struct xdp_rxq_info xdp_rxq;
-
 	struct netvsc_stats tx_stats;
 	struct netvsc_stats rx_stats;
 };
@@ -1009,7 +983,6 @@ struct netvsc_device {
 
 	wait_queue_head_t wait_drain;
 	bool destroy;
-	bool tx_disable; /* if true, do not wake up queue again */
 
 	/* Receive buffer allocated by us but manages by NetVSP */
 	void *recv_buf;
@@ -1204,7 +1177,7 @@ enum ndis_per_pkt_info_type {
 
 enum rndis_per_pkt_info_interal_type {
 	RNDIS_PKTINFO_ID = 1,
-	/* Add more members here */
+	/* Add more memebers here */
 
 	RNDIS_PKTINFO_MAX
 };

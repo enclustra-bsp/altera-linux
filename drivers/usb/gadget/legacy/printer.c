@@ -21,6 +21,7 @@ USB_GADGET_COMPOSITE_OPTIONS();
 #define DRIVER_VERSION		"2015 FEB 17"
 
 static const char shortname [] = "printer";
+static const char driver_desc [] = DRIVER_DESC;
 
 #include "u_printer.h"
 

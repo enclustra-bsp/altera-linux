@@ -4,7 +4,8 @@
 
 #include <uapi/asm/unistd.h>
 
-#define NR_syscalls	__NR_syscalls
+
+#define NR_syscalls		380
 
 #define __ARCH_WANT_NEW_STAT
 #define __ARCH_WANT_OLD_READDIR
@@ -15,8 +16,8 @@
 #define __ARCH_WANT_SYS_IPC
 #define __ARCH_WANT_SYS_PAUSE
 #define __ARCH_WANT_SYS_SIGNAL
-#define __ARCH_WANT_SYS_TIME32
-#define __ARCH_WANT_SYS_UTIME32
+#define __ARCH_WANT_SYS_TIME
+#define __ARCH_WANT_SYS_UTIME
 #define __ARCH_WANT_SYS_WAITPID
 #define __ARCH_WANT_SYS_SOCKETCALL
 #define __ARCH_WANT_SYS_FADVISE64
@@ -30,6 +31,5 @@
 #define __ARCH_WANT_SYS_SIGPROCMASK
 #define __ARCH_WANT_SYS_FORK
 #define __ARCH_WANT_SYS_VFORK
-#define __ARCH_WANT_SYS_CLONE3
 
 #endif /* _ASM_M68K_UNISTD_H_ */

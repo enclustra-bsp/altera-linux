@@ -1,7 +1,20 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * HID Sensors Driver
  * Copyright (c) 2012, Intel Corporation.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+ *
  */
 #include <linux/device.h>
 #include <linux/platform_device.h>
@@ -14,6 +27,8 @@
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
 #include <linux/iio/buffer.h>
+#include <linux/iio/trigger_consumer.h>
+#include <linux/iio/triggered_buffer.h>
 #include "../common/hid-sensors/hid-sensor-trigger.h"
 
 enum accel_3d_channel {
@@ -27,11 +42,8 @@ struct accel_3d_state {
 	struct hid_sensor_hub_callbacks callbacks;
 	struct hid_sensor_common common_attributes;
 	struct hid_sensor_hub_attribute_info accel[ACCEL_3D_CHANNEL_MAX];
-	/* Ensure timestamp is naturally aligned */
-	struct {
-		u32 accel_val[3];
-		s64 timestamp __aligned(8);
-	} scan;
+	/* Reserve for 3 channels + padding + timestamp */
+	u32 accel_val[ACCEL_3D_CHANNEL_MAX + 3];
 	int scale_pre_decml;
 	int scale_post_decml;
 	int scale_precision;
@@ -242,8 +254,8 @@ static int accel_3d_proc_event(struct hid_sensor_hub_device *hsdev,
 			accel_state->timestamp = iio_get_time_ns(indio_dev);
 
 		hid_sensor_push_data(indio_dev,
-				     &accel_state->scan,
-				     sizeof(accel_state->scan),
+				     accel_state->accel_val,
+				     sizeof(accel_state->accel_val),
 				     accel_state->timestamp);
 
 		accel_state->timestamp = 0;
@@ -268,7 +280,7 @@ static int accel_3d_capture_sample(struct hid_sensor_hub_device *hsdev,
 	case HID_USAGE_SENSOR_ACCEL_Y_AXIS:
 	case HID_USAGE_SENSOR_ACCEL_Z_AXIS:
 		offset = usage_id - HID_USAGE_SENSOR_ACCEL_X_AXIS;
-		accel_state->scan.accel_val[CHANNEL_SCAN_INDEX_X + offset] =
+		accel_state->accel_val[CHANNEL_SCAN_INDEX_X + offset] =
 						*(u32 *)raw_data;
 		ret = 0;
 	break;
@@ -387,17 +399,23 @@ static int hid_accel_3d_probe(struct platform_device *pdev)
 		goto error_free_dev_mem;
 	}
 
+	indio_dev->dev.parent = &pdev->dev;
 	indio_dev->info = &accel_3d_info;
 	indio_dev->name = name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
+	ret = iio_triggered_buffer_setup(indio_dev, &iio_pollfunc_store_time,
+		NULL, NULL);
+	if (ret) {
+		dev_err(&pdev->dev, "failed to initialize trigger buffer\n");
+		goto error_free_dev_mem;
+	}
 	atomic_set(&accel_state->common_attributes.data_ready, 0);
-
 	ret = hid_sensor_setup_trigger(indio_dev, name,
 					&accel_state->common_attributes);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "trigger setup failed\n");
-		goto error_free_dev_mem;
+		goto error_unreg_buffer_funcs;
 	}
 
 	ret = iio_device_register(indio_dev);
@@ -421,7 +439,9 @@ static int hid_accel_3d_probe(struct platform_device *pdev)
 error_iio_unreg:
 	iio_device_unregister(indio_dev);
 error_remove_trigger:
-	hid_sensor_remove_trigger(indio_dev, &accel_state->common_attributes);
+	hid_sensor_remove_trigger(&accel_state->common_attributes);
+error_unreg_buffer_funcs:
+	iio_triggered_buffer_cleanup(indio_dev);
 error_free_dev_mem:
 	kfree(indio_dev->channels);
 	return ret;
@@ -436,7 +456,8 @@ static int hid_accel_3d_remove(struct platform_device *pdev)
 
 	sensor_hub_remove_callback(hsdev, hsdev->usage);
 	iio_device_unregister(indio_dev);
-	hid_sensor_remove_trigger(indio_dev, &accel_state->common_attributes);
+	hid_sensor_remove_trigger(&accel_state->common_attributes);
+	iio_triggered_buffer_cleanup(indio_dev);
 	kfree(indio_dev->channels);
 
 	return 0;

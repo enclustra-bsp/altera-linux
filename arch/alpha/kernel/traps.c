@@ -121,10 +121,10 @@ dik_show_code(unsigned int *pc)
 }
 
 static void
-dik_show_trace(unsigned long *sp, const char *loglvl)
+dik_show_trace(unsigned long *sp)
 {
 	long i = 0;
-	printk("%sTrace:\n", loglvl);
+	printk("Trace:\n");
 	while (0x1ff8 & (unsigned long) sp) {
 		extern char _stext[], _etext[];
 		unsigned long tmp = *sp;
@@ -133,24 +133,24 @@ dik_show_trace(unsigned long *sp, const char *loglvl)
 			continue;
 		if (tmp >= (unsigned long) &_etext)
 			continue;
-		printk("%s[<%lx>] %pSR\n", loglvl, tmp, (void *)tmp);
+		printk("[<%lx>] %pSR\n", tmp, (void *)tmp);
 		if (i > 40) {
-			printk("%s ...", loglvl);
+			printk(" ...");
 			break;
 		}
 	}
-	printk("%s\n", loglvl);
+	printk("\n");
 }
 
 static int kstack_depth_to_print = 24;
 
-void show_stack(struct task_struct *task, unsigned long *sp, const char *loglvl)
+void show_stack(struct task_struct *task, unsigned long *sp)
 {
 	unsigned long *stack;
 	int i;
 
 	/*
-	 * debugging aid: "show_stack(NULL, NULL, KERN_EMERG);" prints the
+	 * debugging aid: "show_stack(NULL);" prints the
 	 * back trace for this cpu.
 	 */
 	if(sp==NULL)
@@ -163,14 +163,14 @@ void show_stack(struct task_struct *task, unsigned long *sp, const char *loglvl)
 		if ((i % 4) == 0) {
 			if (i)
 				pr_cont("\n");
-			printk("%s       ", loglvl);
+			printk("       ");
 		} else {
 			pr_cont(" ");
 		}
 		pr_cont("%016lx", *stack++);
 	}
 	pr_cont("\n");
-	dik_show_trace(sp, loglvl);
+	dik_show_trace(sp);
 }
 
 void
@@ -184,7 +184,7 @@ die_if_kernel(char * str, struct pt_regs *regs, long err, unsigned long *r9_15)
 	printk("%s(%d): %s %ld\n", current->comm, task_pid_nr(current), str, err);
 	dik_show_regs(regs, r9_15);
 	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
-	dik_show_trace((unsigned long *)(regs+1), KERN_DEFAULT);
+	dik_show_trace((unsigned long *)(regs+1));
 	dik_show_code((unsigned int *)regs->pc);
 
 	if (test_and_set_thread_flag (TIF_DIE_IF_KERNEL)) {
@@ -402,7 +402,7 @@ do_entDbg(struct pt_regs *regs)
 {
 	die_if_kernel("Instruction fault", regs, 0, NULL);
 
-	force_sig_fault(SIGILL, ILL_ILLOPC, (void __user *)regs->pc, 0);
+	force_sig_fault(SIGILL, ILL_ILLOPC, (void __user *)regs->pc, 0, current);
 }
 
 
@@ -625,7 +625,7 @@ got_exception:
 	printk("gp = %016lx  sp = %p\n", regs->gp, regs+1);
 
 	dik_show_code((unsigned int *)pc);
-	dik_show_trace((unsigned long *)(regs+1), KERN_DEFAULT);
+	dik_show_trace((unsigned long *)(regs+1));
 
 	if (test_and_set_thread_flag (TIF_DIE_IF_KERNEL)) {
 		printk("die_if_kernel recursion detected.\n");
@@ -883,7 +883,7 @@ do_entUnaUser(void __user * va, unsigned long opcode,
 
 	case 0x26: /* sts */
 		fake_reg = s_reg_to_mem(alpha_read_fp_reg(reg));
-		fallthrough;
+		/* FALLTHRU */
 
 	case 0x2c: /* stl */
 		__asm__ __volatile__(
@@ -911,7 +911,7 @@ do_entUnaUser(void __user * va, unsigned long opcode,
 
 	case 0x27: /* stt */
 		fake_reg = alpha_read_fp_reg(reg);
-		fallthrough;
+		/* FALLTHRU */
 
 	case 0x2d: /* stq */
 		__asm__ __volatile__(
@@ -957,12 +957,12 @@ give_sigsegv:
 		si_code = SEGV_ACCERR;
 	else {
 		struct mm_struct *mm = current->mm;
-		mmap_read_lock(mm);
+		down_read(&mm->mmap_sem);
 		if (find_vma(mm, (unsigned long)va))
 			si_code = SEGV_ACCERR;
 		else
 			si_code = SEGV_MAPERR;
-		mmap_read_unlock(mm);
+		up_read(&mm->mmap_sem);
 	}
 	send_sig_fault(SIGSEGV, si_code, va, 0, current);
 	return;

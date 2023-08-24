@@ -153,7 +153,7 @@ struct r10bio {
 		};
 		sector_t	addr;
 		int		devnum;
-	} devs[];
+	} devs[0];
 };
 
 /* bits for r10bio.state */

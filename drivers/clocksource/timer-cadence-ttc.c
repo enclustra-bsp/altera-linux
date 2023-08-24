@@ -1,10 +1,18 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * This file contains driver for the Cadence Triple Timer Counter Rev 06
  *
  *  Copyright (C) 2011-2013 Xilinx
  *
  * based on arch/mips/kernel/time.c timer driver
+ *
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  */
 
 #include <linux/clk.h>
@@ -15,8 +23,6 @@
 #include <linux/of_irq.h>
 #include <linux/slab.h>
 #include <linux/sched_clock.h>
-#include <linux/module.h>
-#include <linux/of_platform.h>
 
 /*
  * This driver configures the 2 16/32-bit count-up timers as follows:
@@ -309,7 +315,7 @@ static int ttc_rate_change_clocksource_cb(struct notifier_block *nb,
 		/* restore original register value */
 		writel_relaxed(ttccs->scale_clk_ctrl_reg_old,
 			       ttccs->ttc.base_addr + TTC_CLK_CNTRL_OFFSET);
-		fallthrough;
+		/* fall through */
 	default:
 		return NOTIFY_DONE;
 	}
@@ -392,7 +398,7 @@ static int ttc_rate_change_clockevent_cb(struct notifier_block *nb,
 
 		clockevents_update_freq(&ttcce->ce, ndata->new_rate / PRESCALE);
 
-		fallthrough;
+		/* fall through */
 	case PRE_RATE_CHANGE:
 	case ABORT_RATE_CHANGE:
 	default:
@@ -413,8 +419,10 @@ static int __init ttc_setup_clockevent(struct clk *clk,
 	ttcce->ttc.clk = clk;
 
 	err = clk_prepare_enable(ttcce->ttc.clk);
-	if (err)
-		goto out_kfree;
+	if (err) {
+		kfree(ttcce);
+		return err;
+	}
 
 	ttcce->ttc.clk_rate_change_nb.notifier_call =
 		ttc_rate_change_clockevent_cb;
@@ -424,7 +432,7 @@ static int __init ttc_setup_clockevent(struct clk *clk,
 				    &ttcce->ttc.clk_rate_change_nb);
 	if (err) {
 		pr_warn("Unable to register clock notifier.\n");
-		goto out_kfree;
+		return err;
 	}
 
 	ttcce->ttc.freq = clk_get_rate(ttcce->ttc.clk);
@@ -453,20 +461,24 @@ static int __init ttc_setup_clockevent(struct clk *clk,
 
 	err = request_irq(irq, ttc_clock_event_interrupt,
 			  IRQF_TIMER, ttcce->ce.name, ttcce);
-	if (err)
-		goto out_kfree;
+	if (err) {
+		kfree(ttcce);
+		return err;
+	}
 
 	clockevents_config_and_register(&ttcce->ce,
 			ttcce->ttc.freq / PRESCALE, 1, 0xfffe);
 
 	return 0;
-
-out_kfree:
-	kfree(ttcce);
-	return err;
 }
 
-static int __init ttc_timer_probe(struct platform_device *pdev)
+/**
+ * ttc_timer_init - Initialize the timer
+ *
+ * Initializes the timer hardware and register the clock source and clock event
+ * timers with Linux kernal timer framework
+ */
+static int __init ttc_timer_init(struct device_node *timer)
 {
 	unsigned int irq;
 	void __iomem *timer_baseaddr;
@@ -474,7 +486,6 @@ static int __init ttc_timer_probe(struct platform_device *pdev)
 	static int initialized;
 	int clksel, ret;
 	u32 timer_width = 16;
-	struct device_node *timer = pdev->dev.of_node;
 
 	if (initialized)
 		return 0;
@@ -529,17 +540,4 @@ static int __init ttc_timer_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct of_device_id ttc_timer_of_match[] = {
-	{.compatible = "cdns,ttc"},
-	{},
-};
-
-MODULE_DEVICE_TABLE(of, ttc_timer_of_match);
-
-static struct platform_driver ttc_timer_driver = {
-	.driver = {
-		.name	= "cdns_ttc_timer",
-		.of_match_table = ttc_timer_of_match,
-	},
-};
-builtin_platform_driver_probe(ttc_timer_driver, ttc_timer_probe);
+TIMER_OF_DECLARE(ttc, "cdns,ttc", ttc_timer_init);

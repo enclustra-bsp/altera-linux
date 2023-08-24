@@ -52,7 +52,6 @@
 #include <linux/kref.h>
 #include <linux/sched.h>
 #include <linux/kthread.h>
-#include <linux/xarray.h>
 #include <rdma/ib_hdrs.h>
 #include <rdma/rdma_vt.h>
 
@@ -619,11 +618,11 @@ struct qib_pportdata {
 	/* LID mask control */
 	u8 lmc;
 	u8 link_width_supported;
-	u16 link_speed_supported;
+	u8 link_speed_supported;
 	u8 link_width_enabled;
-	u16 link_speed_enabled;
+	u8 link_speed_enabled;
 	u8 link_width_active;
-	u16 link_speed_active;
+	u8 link_speed_active;
 	u8 vls_supported;
 	u8 vls_operational;
 	/* Rx Polarity inversion (compensate for ~tx on partner) */
@@ -1106,7 +1105,8 @@ struct qib_filedata {
 	int rec_cpu_num; /* for cpu affinity; -1 if none */
 };
 
-extern struct xarray qib_dev_table;
+extern struct list_head qib_dev_list;
+extern spinlock_t qib_devs_lock;
 extern struct qib_devdata *qib_lookup(int unit);
 extern u32 qib_cpulist_count;
 extern unsigned long *qib_cpulist;

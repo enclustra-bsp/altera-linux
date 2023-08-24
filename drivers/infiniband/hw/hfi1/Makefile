@@ -10,7 +10,6 @@ obj-$(CONFIG_INFINIBAND_HFI1) += hfi1.o
 
 hfi1-y := \
 	affinity.o \
-	aspm.o \
 	chip.o \
 	device.o \
 	driver.o \
@@ -22,14 +21,9 @@ hfi1-y := \
 	init.o \
 	intr.o \
 	iowait.o \
-	ipoib_main.o \
-	ipoib_rx.o \
-	ipoib_tx.o \
 	mad.o \
 	mmu_rb.o \
 	msix.o \
-	netdev_rx.o \
-	opfn.o \
 	pcie.o \
 	pio.o \
 	pio_copy.o \
@@ -40,7 +34,6 @@ hfi1-y := \
 	ruc.o \
 	sdma.o \
 	sysfs.o \
-	tid_rdma.o \
 	trace.o \
 	uc.o \
 	ud.o \

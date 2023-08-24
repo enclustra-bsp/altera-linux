@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Xtensa xtfpga SPI controller driver
  *
  * Copyright (c) 2014 Cadence Design Systems Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/delay.h>
@@ -80,6 +83,7 @@ static void xtfpga_spi_chipselect(struct spi_device *spi, int is_on)
 static int xtfpga_spi_probe(struct platform_device *pdev)
 {
 	struct xtfpga_spi *xspi;
+	struct resource *mem;
 	int ret;
 	struct spi_master *master;
 
@@ -96,7 +100,14 @@ static int xtfpga_spi_probe(struct platform_device *pdev)
 	xspi->bitbang.master = master;
 	xspi->bitbang.chipselect = xtfpga_spi_chipselect;
 	xspi->bitbang.txrx_word[SPI_MODE_0] = xtfpga_spi_txrx_word;
-	xspi->regs = devm_platform_ioremap_resource(pdev, 0);
+
+	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!mem) {
+		dev_err(&pdev->dev, "No memory resource\n");
+		ret = -ENODEV;
+		goto err;
+	}
+	xspi->regs = devm_ioremap_resource(&pdev->dev, mem);
 	if (IS_ERR(xspi->regs)) {
 		ret = PTR_ERR(xspi->regs);
 		goto err;

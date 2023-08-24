@@ -38,7 +38,6 @@
 #include "accel/ipsec.h"
 #include "fpga/sdk.h"
 #include "en_accel/ipsec.h"
-#include "fpga/ipsec.h"
 
 static const struct counter_desc mlx5e_ipsec_hw_stats_desc[] = {
 	{ MLX5E_DECLARE_STAT(struct mlx5e_ipsec_stats, ipsec_dec_in_packets) },
@@ -74,74 +73,61 @@ static const struct counter_desc mlx5e_ipsec_sw_stats_desc[] = {
 #define NUM_IPSEC_HW_COUNTERS ARRAY_SIZE(mlx5e_ipsec_hw_stats_desc)
 #define NUM_IPSEC_SW_COUNTERS ARRAY_SIZE(mlx5e_ipsec_sw_stats_desc)
 
-static MLX5E_DECLARE_STATS_GRP_OP_NUM_STATS(ipsec_sw)
+#define NUM_IPSEC_COUNTERS (NUM_IPSEC_HW_COUNTERS + NUM_IPSEC_SW_COUNTERS)
+
+int mlx5e_ipsec_get_count(struct mlx5e_priv *priv)
 {
-	return priv->ipsec ? NUM_IPSEC_SW_COUNTERS : 0;
+	if (!priv->ipsec)
+		return 0;
+
+	return NUM_IPSEC_COUNTERS;
 }
 
-static inline MLX5E_DECLARE_STATS_GRP_OP_UPDATE_STATS(ipsec_sw) {}
-
-static MLX5E_DECLARE_STATS_GRP_OP_FILL_STRS(ipsec_sw)
+int mlx5e_ipsec_get_strings(struct mlx5e_priv *priv, uint8_t *data)
 {
-	unsigned int i;
+	unsigned int i, idx = 0;
 
-	if (priv->ipsec)
-		for (i = 0; i < NUM_IPSEC_SW_COUNTERS; i++)
-			strcpy(data + (idx++) * ETH_GSTRING_LEN,
-			       mlx5e_ipsec_sw_stats_desc[i].format);
-	return idx;
+	if (!priv->ipsec)
+		return 0;
+
+	for (i = 0; i < NUM_IPSEC_HW_COUNTERS; i++)
+		strcpy(data + (idx++) * ETH_GSTRING_LEN,
+		       mlx5e_ipsec_hw_stats_desc[i].format);
+
+	for (i = 0; i < NUM_IPSEC_SW_COUNTERS; i++)
+		strcpy(data + (idx++) * ETH_GSTRING_LEN,
+		       mlx5e_ipsec_sw_stats_desc[i].format);
+
+	return NUM_IPSEC_COUNTERS;
 }
 
-static MLX5E_DECLARE_STATS_GRP_OP_FILL_STATS(ipsec_sw)
+void mlx5e_ipsec_update_stats(struct mlx5e_priv *priv)
 {
-	int i;
+	int ret;
 
-	if (priv->ipsec)
-		for (i = 0; i < NUM_IPSEC_SW_COUNTERS; i++)
-			data[idx++] = MLX5E_READ_CTR_ATOMIC64(&priv->ipsec->sw_stats,
-							      mlx5e_ipsec_sw_stats_desc, i);
-	return idx;
-}
+	if (!priv->ipsec)
+		return;
 
-static MLX5E_DECLARE_STATS_GRP_OP_NUM_STATS(ipsec_hw)
-{
-	return (priv->ipsec && mlx5_fpga_ipsec_device_caps(priv->mdev)) ? NUM_IPSEC_HW_COUNTERS : 0;
-}
-
-static MLX5E_DECLARE_STATS_GRP_OP_UPDATE_STATS(ipsec_hw)
-{
-	int ret = 0;
-
-	if (priv->ipsec)
-		ret = mlx5_accel_ipsec_counters_read(priv->mdev, (u64 *)&priv->ipsec->stats,
-						     NUM_IPSEC_HW_COUNTERS);
+	ret = mlx5_accel_ipsec_counters_read(priv->mdev, (u64 *)&priv->ipsec->stats,
+					     NUM_IPSEC_HW_COUNTERS);
 	if (ret)
 		memset(&priv->ipsec->stats, 0, sizeof(priv->ipsec->stats));
 }
 
-static MLX5E_DECLARE_STATS_GRP_OP_FILL_STRS(ipsec_hw)
+int mlx5e_ipsec_get_stats(struct mlx5e_priv *priv, u64 *data)
 {
-	unsigned int i;
+	int i, idx = 0;
 
-	if (priv->ipsec && mlx5_fpga_ipsec_device_caps(priv->mdev))
-		for (i = 0; i < NUM_IPSEC_HW_COUNTERS; i++)
-			strcpy(data + (idx++) * ETH_GSTRING_LEN,
-			       mlx5e_ipsec_hw_stats_desc[i].format);
+	if (!priv->ipsec)
+		return 0;
 
-	return idx;
+	for (i = 0; i < NUM_IPSEC_HW_COUNTERS; i++)
+		data[idx++] = MLX5E_READ_CTR64_CPU(&priv->ipsec->stats,
+						   mlx5e_ipsec_hw_stats_desc, i);
+
+	for (i = 0; i < NUM_IPSEC_SW_COUNTERS; i++)
+		data[idx++] = MLX5E_READ_CTR_ATOMIC64(&priv->ipsec->sw_stats,
+						      mlx5e_ipsec_sw_stats_desc, i);
+
+	return NUM_IPSEC_COUNTERS;
 }
-
-static MLX5E_DECLARE_STATS_GRP_OP_FILL_STATS(ipsec_hw)
-{
-	int i;
-
-	if (priv->ipsec && mlx5_fpga_ipsec_device_caps(priv->mdev))
-		for (i = 0; i < NUM_IPSEC_HW_COUNTERS; i++)
-			data[idx++] = MLX5E_READ_CTR64_CPU(&priv->ipsec->stats,
-							   mlx5e_ipsec_hw_stats_desc,
-							   i);
-	return idx;
-}
-
-MLX5E_DEFINE_STATS_GRP(ipsec_sw, 0);
-MLX5E_DEFINE_STATS_GRP(ipsec_hw, 0);

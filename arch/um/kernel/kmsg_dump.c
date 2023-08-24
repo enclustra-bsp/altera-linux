@@ -9,19 +9,20 @@ static void kmsg_dumper_stdout(struct kmsg_dumper *dumper,
 				enum kmsg_dump_reason reason)
 {
 	static char line[1024];
-	struct console *con;
+
 	size_t len = 0;
+	bool con_available = false;
 
 	/* only dump kmsg when no console is available */
 	if (!console_trylock())
 		return;
 
-	for_each_console(con)
-		break;
+	if (console_drivers != NULL)
+		con_available = true;
 
 	console_unlock();
 
-	if (con)
+	if (con_available == true)
 		return;
 
 	printf("kmsg_dump:\n");

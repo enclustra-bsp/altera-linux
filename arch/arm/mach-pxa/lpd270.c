@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/arch/arm/mach-pxa/lpd270.c
  *
@@ -8,6 +7,10 @@
  * Author:	Nicolas Pitre
  * Created:	Nov 05, 2002
  * Copyright:	MontaVista Software Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 #include <linux/gpio.h>
 #include <linux/init.h>
@@ -30,7 +33,7 @@
 #include <asm/mach-types.h>
 #include <mach/hardware.h>
 #include <asm/irq.h>
-#include <linux/sizes.h>
+#include <asm/sizes.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
@@ -277,6 +280,7 @@ static struct pwm_lookup lpd270_pwm_lookup[] = {
 static struct platform_pwm_backlight_data lpd270_backlight_data = {
 	.max_brightness	= 1,
 	.dft_brightness	= 1,
+	.enable_gpio	= -1,
 };
 
 static struct platform_device lpd270_backlight_device = {

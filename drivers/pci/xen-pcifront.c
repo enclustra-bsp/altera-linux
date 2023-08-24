@@ -22,7 +22,6 @@
 #include <linux/bitops.h>
 #include <linux/time.h>
 #include <linux/ktime.h>
-#include <linux/swiotlb.h>
 #include <xen/platform_pci.h>
 
 #include <asm/xen/swiotlb-xen.h>
@@ -77,6 +76,9 @@ static inline void pcifront_init_sd(struct pcifront_sd *sd,
 
 static DEFINE_SPINLOCK(pcifront_dev_lock);
 static struct pcifront_device *pcifront_dev;
+
+static int verbose_request;
+module_param(verbose_request, int, 0644);
 
 static int errno_to_pcibios_err(int errno)
 {
@@ -188,16 +190,18 @@ static int pcifront_bus_read(struct pci_bus *bus, unsigned int devfn,
 	struct pcifront_sd *sd = bus->sysdata;
 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
 
-	dev_dbg(&pdev->xdev->dev,
-		"read dev=%04x:%02x:%02x.%d - offset %x size %d\n",
-		pci_domain_nr(bus), bus->number, PCI_SLOT(devfn),
-		PCI_FUNC(devfn), where, size);
+	if (verbose_request)
+		dev_info(&pdev->xdev->dev,
+			 "read dev=%04x:%02x:%02x.%d - offset %x size %d\n",
+			 pci_domain_nr(bus), bus->number, PCI_SLOT(devfn),
+			 PCI_FUNC(devfn), where, size);
 
 	err = do_pci_op(pdev, &op);
 
 	if (likely(!err)) {
-		dev_dbg(&pdev->xdev->dev, "read got back value %x\n",
-			op.value);
+		if (verbose_request)
+			dev_info(&pdev->xdev->dev, "read got back value %x\n",
+				 op.value);
 
 		*val = op.value;
 	} else if (err == -ENODEV) {
@@ -225,10 +229,12 @@ static int pcifront_bus_write(struct pci_bus *bus, unsigned int devfn,
 	struct pcifront_sd *sd = bus->sysdata;
 	struct pcifront_device *pdev = pcifront_get_pdev(sd);
 
-	dev_dbg(&pdev->xdev->dev,
-		"write dev=%04x:%02x:%02x.%d - offset %x size %d val %x\n",
-		pci_domain_nr(bus), bus->number,
-		PCI_SLOT(devfn), PCI_FUNC(devfn), where, size, val);
+	if (verbose_request)
+		dev_info(&pdev->xdev->dev,
+			 "write dev=%04x:%02x:%02x.%d - "
+			 "offset %x size %d val %x\n",
+			 pci_domain_nr(bus), bus->number,
+			 PCI_SLOT(devfn), PCI_FUNC(devfn), where, size, val);
 
 	return errno_to_pcibios_err(do_pci_op(pdev, &op));
 }
@@ -285,7 +291,8 @@ static int pci_frontend_enable_msix(struct pci_dev *dev,
 				vector[i] = op.msix_entries[i].vector;
 			}
 		} else {
-			pr_info("enable msix get value %x\n", op.value);
+			printk(KERN_DEBUG "enable msix get value %x\n",
+				op.value);
 			err = op.value;
 		}
 	} else {
@@ -357,12 +364,12 @@ static void pci_frontend_disable_msi(struct pci_dev *dev)
 	err = do_pci_op(pdev, &op);
 	if (err == XEN_PCI_ERR_dev_not_found) {
 		/* XXX No response from backend, what shall we do? */
-		pr_info("get no response from backend for disable MSI\n");
+		printk(KERN_DEBUG "get no response from backend for disable MSI\n");
 		return;
 	}
 	if (err)
 		/* how can pciback notify us fail? */
-		pr_info("get fake response from backend\n");
+		printk(KERN_DEBUG "get fake response frombackend\n");
 }
 
 static struct xen_pci_frontend_ops pci_frontend_ops = {
@@ -1097,7 +1104,7 @@ static void __ref pcifront_backend_changed(struct xenbus_device *xdev,
 	case XenbusStateClosed:
 		if (xdev->state == XenbusStateClosed)
 			break;
-		fallthrough;	/* Missed the backend's CLOSING state */
+		/* Missed the backend's CLOSING state -- fallthrough */
 	case XenbusStateClosing:
 		dev_warn(&xdev->dev, "backend going away!\n");
 		pcifront_try_disconnect(pdev);

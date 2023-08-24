@@ -147,9 +147,9 @@ static void usb_write_mem_complete(struct urb *purb)
 
 	if (purb->status != 0) {
 		if (purb->status == (-ESHUTDOWN))
-			padapter->driver_stopped = true;
+			padapter->bDriverStopped = true;
 		else
-			padapter->surprise_removed = true;
+			padapter->bSurpriseRemoved = true;
 	}
 	complete(&pintfpriv->io_retevt_comp);
 }
@@ -164,7 +164,7 @@ void r8712_usb_write_mem(struct intf_hdl *pintfhdl, u32 addr, u32 cnt, u8 *wmem)
 	struct usb_device *pusbd = pdvobj->pusbdev;
 	struct urb *piorw_urb = pintfpriv->piorw_urb;
 
-	if ((padapter->driver_stopped) || (padapter->surprise_removed) ||
+	if ((padapter->bDriverStopped) || (padapter->bSurpriseRemoved) ||
 	    (padapter->pwrctrlpriv.pnp_bstop_trx))
 		return;
 	/* translate DMA FIFO addr to pipehandle */
@@ -186,7 +186,7 @@ static void r8712_usb_read_port_complete(struct urb *purb)
 	struct _adapter *padapter = (struct _adapter *)precvbuf->adapter;
 	struct recv_priv *precvpriv = &padapter->recvpriv;
 
-	if (padapter->surprise_removed || padapter->driver_stopped)
+	if (padapter->bSurpriseRemoved || padapter->bDriverStopped)
 		return;
 	if (purb->status == 0) { /* SUCCESS */
 		if ((purb->actual_length > (MAX_RECVBUF_SZ)) ||
@@ -218,14 +218,14 @@ static void r8712_usb_read_port_complete(struct urb *purb)
 		case -EPIPE:
 		case -ENODEV:
 		case -ESHUTDOWN:
-			padapter->driver_stopped = true;
+			padapter->bDriverStopped = true;
 			break;
 		case -ENOENT:
-			if (!padapter->suspended) {
-				padapter->driver_stopped = true;
+			if (!padapter->bSuspended) {
+				padapter->bDriverStopped = true;
 				break;
 			}
-			fallthrough;
+			/* Fall through. */
 		case -EPROTO:
 			r8712_read_port(padapter, precvpriv->ff_hwaddr, 0,
 				  (unsigned char *)precvbuf);
@@ -254,7 +254,7 @@ u32 r8712_usb_read_port(struct intf_hdl *pintfhdl, u32 addr, u32 cnt, u8 *rmem)
 	struct recv_priv *precvpriv = &adapter->recvpriv;
 	struct usb_device *pusbd = pdvobj->pusbdev;
 
-	if (adapter->driver_stopped || adapter->surprise_removed ||
+	if (adapter->bDriverStopped || adapter->bSurpriseRemoved ||
 	    adapter->pwrctrlpriv.pnp_bstop_trx || !precvbuf)
 		return _FAIL;
 	r8712_init_recvbuf(adapter, precvbuf);
@@ -308,16 +308,15 @@ void r8712_usb_read_port_cancel(struct _adapter *padapter)
 	}
 }
 
-void r8712_xmit_bh(struct tasklet_struct *t)
+void r8712_xmit_bh(void *priv)
 {
 	int ret = false;
-	struct _adapter *padapter = from_tasklet(padapter, t,
-						 xmitpriv.xmit_tasklet);
+	struct _adapter *padapter = priv;
 	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
 
-	if (padapter->driver_stopped ||
-	    padapter->surprise_removed) {
-		netdev_err(padapter->pnetdev, "xmit_bh => driver_stopped or surprise_removed\n");
+	if (padapter->bDriverStopped ||
+	    padapter->bSurpriseRemoved) {
+		netdev_err(padapter->pnetdev, "xmit_bh => bDriverStopped or bSurpriseRemoved\n");
 		return;
 	}
 	ret = r8712_xmitframe_complete(padapter, pxmitpriv, NULL);
@@ -361,7 +360,7 @@ static void usb_write_port_complete(struct urb *purb)
 			break;
 		}
 	}
-	if (padapter->surprise_removed)
+	if (padapter->bSurpriseRemoved)
 		return;
 	switch (purb->status) {
 	case 0:
@@ -391,7 +390,7 @@ u32 r8712_usb_write_port(struct intf_hdl *pintfhdl, u32 addr, u32 cnt, u8 *wmem)
 	struct usb_device *pusbd = pdvobj->pusbdev;
 	struct pkt_attrib *pattrib = &pxmitframe->attrib;
 
-	if ((padapter->driver_stopped) || (padapter->surprise_removed) ||
+	if ((padapter->bDriverStopped) || (padapter->bSurpriseRemoved) ||
 	    (padapter->pwrctrlpriv.pnp_bstop_trx))
 		return _FAIL;
 	for (i = 0; i < 8; i++) {
@@ -494,7 +493,7 @@ int r8712_usbctrl_vendorreq(struct intf_priv *pintfpriv, u8 request, u16 value,
 		memcpy(pIo_buf, pdata, len);
 	}
 	status = usb_control_msg(udev, pipe, request, reqtype, value, index,
-				 pIo_buf, len, 500);
+				 pIo_buf, len, HZ / 2);
 	if (status > 0) {  /* Success this control transfer. */
 		if (requesttype == 0x01) {
 			/* For Control read transfer, we have to copy the read

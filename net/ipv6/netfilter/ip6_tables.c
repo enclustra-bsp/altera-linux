@@ -1,10 +1,13 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Packet matching code.
  *
  * Copyright (C) 1999 Paul `Rusty' Russell & Michael J. Neuling
  * Copyright (C) 2000-2005 Netfilter Core Team <coreteam@netfilter.org>
  * Copyright (c) 2006-2010 Patrick McHardy <kaber@trash.net>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -273,7 +276,6 @@ ip6t_do_table(struct sk_buff *skb,
 	 * things we don't know, ie. tcp syn flag or ports).  If the
 	 * rule is also a fragment-specific rule, non-fragments won't
 	 * match it. */
-	acpar.fragoff = 0;
 	acpar.hotdrop = false;
 	acpar.state   = state;
 
@@ -961,7 +963,8 @@ static int compat_table_info(const struct xt_table_info *info,
 }
 #endif
 
-static int get_info(struct net *net, void __user *user, const int *len)
+static int get_info(struct net *net, void __user *user,
+		    const int *len, int compat)
 {
 	char name[XT_TABLE_MAXNAMELEN];
 	struct xt_table *t;
@@ -975,7 +978,7 @@ static int get_info(struct net *net, void __user *user, const int *len)
 
 	name[XT_TABLE_MAXNAMELEN-1] = '\0';
 #ifdef CONFIG_COMPAT
-	if (in_compat_syscall())
+	if (compat)
 		xt_compat_lock(AF_INET6);
 #endif
 	t = xt_request_find_table_lock(net, AF_INET6, name);
@@ -985,7 +988,7 @@ static int get_info(struct net *net, void __user *user, const int *len)
 #ifdef CONFIG_COMPAT
 		struct xt_table_info tmp;
 
-		if (in_compat_syscall()) {
+		if (compat) {
 			ret = compat_table_info(private, &tmp);
 			xt_compat_flush_offsets(AF_INET6);
 			private = &tmp;
@@ -1011,7 +1014,7 @@ static int get_info(struct net *net, void __user *user, const int *len)
 	} else
 		ret = PTR_ERR(t);
 #ifdef CONFIG_COMPAT
-	if (in_compat_syscall())
+	if (compat)
 		xt_compat_unlock(AF_INET6);
 #endif
 	return ret;
@@ -1120,7 +1123,7 @@ __do_replace(struct net *net, const char *name, unsigned int valid_hooks,
 }
 
 static int
-do_replace(struct net *net, sockptr_t arg, unsigned int len)
+do_replace(struct net *net, const void __user *user, unsigned int len)
 {
 	int ret;
 	struct ip6t_replace tmp;
@@ -1128,7 +1131,7 @@ do_replace(struct net *net, sockptr_t arg, unsigned int len)
 	void *loc_cpu_entry;
 	struct ip6t_entry *iter;
 
-	if (copy_from_sockptr(&tmp, arg, sizeof(tmp)) != 0)
+	if (copy_from_user(&tmp, user, sizeof(tmp)) != 0)
 		return -EFAULT;
 
 	/* overflow check */
@@ -1144,8 +1147,8 @@ do_replace(struct net *net, sockptr_t arg, unsigned int len)
 		return -ENOMEM;
 
 	loc_cpu_entry = newinfo->entries;
-	if (copy_from_sockptr_offset(loc_cpu_entry, arg, sizeof(tmp),
-			tmp.size) != 0) {
+	if (copy_from_user(loc_cpu_entry, user + sizeof(tmp),
+			   tmp.size) != 0) {
 		ret = -EFAULT;
 		goto free_newinfo;
 	}
@@ -1169,7 +1172,8 @@ do_replace(struct net *net, sockptr_t arg, unsigned int len)
 }
 
 static int
-do_add_counters(struct net *net, sockptr_t arg, unsigned int len)
+do_add_counters(struct net *net, const void __user *user, unsigned int len,
+		int compat)
 {
 	unsigned int i;
 	struct xt_counters_info tmp;
@@ -1180,7 +1184,7 @@ do_add_counters(struct net *net, sockptr_t arg, unsigned int len)
 	struct ip6t_entry *iter;
 	unsigned int addend;
 
-	paddc = xt_copy_counters(arg, len, &tmp);
+	paddc = xt_copy_counters_from_user(user, len, &tmp, compat);
 	if (IS_ERR(paddc))
 		return PTR_ERR(paddc);
 	t = xt_find_table_lock(net, AF_INET6, tmp.name);
@@ -1226,7 +1230,7 @@ struct compat_ip6t_replace {
 	u32			underflow[NF_INET_NUMHOOKS];
 	u32			num_counters;
 	compat_uptr_t		counters;	/* struct xt_counters * */
-	struct compat_ip6t_entry entries[];
+	struct compat_ip6t_entry entries[0];
 };
 
 static int
@@ -1444,8 +1448,6 @@ translate_compat_table(struct net *net,
 	if (!newinfo)
 		goto out_unlock;
 
-	memset(newinfo->entries, 0, size);
-
 	newinfo->number = compatr->num_entries;
 	for (i = 0; i < NF_INET_NUMHOOKS; i++) {
 		newinfo->hook_entry[i] = compatr->hook_entry[i];
@@ -1496,7 +1498,7 @@ out_unlock:
 }
 
 static int
-compat_do_replace(struct net *net, sockptr_t arg, unsigned int len)
+compat_do_replace(struct net *net, void __user *user, unsigned int len)
 {
 	int ret;
 	struct compat_ip6t_replace tmp;
@@ -1504,7 +1506,7 @@ compat_do_replace(struct net *net, sockptr_t arg, unsigned int len)
 	void *loc_cpu_entry;
 	struct ip6t_entry *iter;
 
-	if (copy_from_sockptr(&tmp, arg, sizeof(tmp)) != 0)
+	if (copy_from_user(&tmp, user, sizeof(tmp)) != 0)
 		return -EFAULT;
 
 	/* overflow check */
@@ -1520,8 +1522,8 @@ compat_do_replace(struct net *net, sockptr_t arg, unsigned int len)
 		return -ENOMEM;
 
 	loc_cpu_entry = newinfo->entries;
-	if (copy_from_sockptr_offset(loc_cpu_entry, arg, sizeof(tmp),
-			tmp.size) != 0) {
+	if (copy_from_user(loc_cpu_entry, user + sizeof(tmp),
+			   tmp.size) != 0) {
 		ret = -EFAULT;
 		goto free_newinfo;
 	}
@@ -1544,10 +1546,35 @@ compat_do_replace(struct net *net, sockptr_t arg, unsigned int len)
 	return ret;
 }
 
+static int
+compat_do_ip6t_set_ctl(struct sock *sk, int cmd, void __user *user,
+		       unsigned int len)
+{
+	int ret;
+
+	if (!ns_capable(sock_net(sk)->user_ns, CAP_NET_ADMIN))
+		return -EPERM;
+
+	switch (cmd) {
+	case IP6T_SO_SET_REPLACE:
+		ret = compat_do_replace(sock_net(sk), user, len);
+		break;
+
+	case IP6T_SO_SET_ADD_COUNTERS:
+		ret = do_add_counters(sock_net(sk), user, len, 1);
+		break;
+
+	default:
+		ret = -EINVAL;
+	}
+
+	return ret;
+}
+
 struct compat_ip6t_get_entries {
 	char name[XT_TABLE_MAXNAMELEN];
 	compat_uint_t size;
-	struct compat_ip6t_entry entrytable[];
+	struct compat_ip6t_entry entrytable[0];
 };
 
 static int
@@ -1619,10 +1646,33 @@ compat_get_entries(struct net *net, struct compat_ip6t_get_entries __user *uptr,
 	xt_compat_unlock(AF_INET6);
 	return ret;
 }
+
+static int do_ip6t_get_ctl(struct sock *, int, void __user *, int *);
+
+static int
+compat_do_ip6t_get_ctl(struct sock *sk, int cmd, void __user *user, int *len)
+{
+	int ret;
+
+	if (!ns_capable(sock_net(sk)->user_ns, CAP_NET_ADMIN))
+		return -EPERM;
+
+	switch (cmd) {
+	case IP6T_SO_GET_INFO:
+		ret = get_info(sock_net(sk), user, len, 1);
+		break;
+	case IP6T_SO_GET_ENTRIES:
+		ret = compat_get_entries(sock_net(sk), user, len);
+		break;
+	default:
+		ret = do_ip6t_get_ctl(sk, cmd, user, len);
+	}
+	return ret;
+}
 #endif
 
 static int
-do_ip6t_set_ctl(struct sock *sk, int cmd, sockptr_t arg, unsigned int len)
+do_ip6t_set_ctl(struct sock *sk, int cmd, void __user *user, unsigned int len)
 {
 	int ret;
 
@@ -1631,16 +1681,11 @@ do_ip6t_set_ctl(struct sock *sk, int cmd, sockptr_t arg, unsigned int len)
 
 	switch (cmd) {
 	case IP6T_SO_SET_REPLACE:
-#ifdef CONFIG_COMPAT
-		if (in_compat_syscall())
-			ret = compat_do_replace(sock_net(sk), arg, len);
-		else
-#endif
-			ret = do_replace(sock_net(sk), arg, len);
+		ret = do_replace(sock_net(sk), user, len);
 		break;
 
 	case IP6T_SO_SET_ADD_COUNTERS:
-		ret = do_add_counters(sock_net(sk), arg, len);
+		ret = do_add_counters(sock_net(sk), user, len, 0);
 		break;
 
 	default:
@@ -1660,16 +1705,11 @@ do_ip6t_get_ctl(struct sock *sk, int cmd, void __user *user, int *len)
 
 	switch (cmd) {
 	case IP6T_SO_GET_INFO:
-		ret = get_info(sock_net(sk), user, len);
+		ret = get_info(sock_net(sk), user, len, 0);
 		break;
 
 	case IP6T_SO_GET_ENTRIES:
-#ifdef CONFIG_COMPAT
-		if (in_compat_syscall())
-			ret = compat_get_entries(sock_net(sk), user, len);
-		else
-#endif
-			ret = get_entries(sock_net(sk), user, len);
+		ret = get_entries(sock_net(sk), user, len);
 		break;
 
 	case IP6T_SO_GET_REVISION_MATCH:
@@ -1770,22 +1810,11 @@ out_free:
 	return ret;
 }
 
-void ip6t_unregister_table_pre_exit(struct net *net, struct xt_table *table,
-				    const struct nf_hook_ops *ops)
-{
-	nf_unregister_net_hooks(net, ops, hweight32(table->valid_hooks));
-}
-
-void ip6t_unregister_table_exit(struct net *net, struct xt_table *table)
-{
-	__ip6t_unregister_table(net, table);
-}
-
 void ip6t_unregister_table(struct net *net, struct xt_table *table,
 			   const struct nf_hook_ops *ops)
 {
 	if (ops)
-		ip6t_unregister_table_pre_exit(net, table, ops);
+		nf_unregister_net_hooks(net, ops, hweight32(table->valid_hooks));
 	__ip6t_unregister_table(net, table);
 }
 
@@ -1860,9 +1889,15 @@ static struct nf_sockopt_ops ip6t_sockopts = {
 	.set_optmin	= IP6T_BASE_CTL,
 	.set_optmax	= IP6T_SO_SET_MAX+1,
 	.set		= do_ip6t_set_ctl,
+#ifdef CONFIG_COMPAT
+	.compat_set	= compat_do_ip6t_set_ctl,
+#endif
 	.get_optmin	= IP6T_BASE_CTL,
 	.get_optmax	= IP6T_SO_GET_MAX+1,
 	.get		= do_ip6t_get_ctl,
+#ifdef CONFIG_COMPAT
+	.compat_get	= compat_do_ip6t_get_ctl,
+#endif
 	.owner		= THIS_MODULE,
 };
 
@@ -1937,8 +1972,6 @@ static void __exit ip6_tables_fini(void)
 
 EXPORT_SYMBOL(ip6t_register_table);
 EXPORT_SYMBOL(ip6t_unregister_table);
-EXPORT_SYMBOL(ip6t_unregister_table_pre_exit);
-EXPORT_SYMBOL(ip6t_unregister_table_exit);
 EXPORT_SYMBOL(ip6t_do_table);
 
 module_init(ip6_tables_init);

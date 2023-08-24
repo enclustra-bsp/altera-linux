@@ -52,6 +52,7 @@
 #endif
 #include <linux/uaccess.h>
 
+#include <asm/pgtable.h>
 #include <asm/irq.h>
 
 #ifdef CONFIG_PCI
@@ -1961,7 +1962,7 @@ static void happy_meal_tx(struct happy_meal *hp)
 			this = &txbase[elem];
 		}
 
-		dev_consume_skb_irq(skb);
+		dev_kfree_skb_irq(skb);
 		dev->stats.tx_packets++;
 	}
 	hp->tx_old = elem;
@@ -2245,7 +2246,7 @@ static int happy_meal_close(struct net_device *dev)
 #define SXD(x)
 #endif
 
-static void happy_meal_tx_timeout(struct net_device *dev, unsigned int txqueue)
+static void happy_meal_tx_timeout(struct net_device *dev)
 {
 	struct happy_meal *hp = netdev_priv(dev);
 
@@ -2690,7 +2691,7 @@ static int happy_meal_sbus_probe_one(struct platform_device *op, int is_qfe)
 	sbus_dp = op->dev.parent->of_node;
 
 	/* We can match PCI devices too, do not accept those here. */
-	if (!of_node_name_eq(sbus_dp, "sbus") && !of_node_name_eq(sbus_dp, "sbi"))
+	if (strcmp(sbus_dp->name, "sbus") && strcmp(sbus_dp->name, "sbi"))
 		return err;
 
 	if (is_qfe) {

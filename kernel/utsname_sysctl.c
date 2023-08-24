@@ -1,8 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  Copyright (C) 2007
  *
  *  Author: Eric Biederman <ebiederm@xmision.com>
+ *
+ *  This program is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU General Public License as
+ *  published by the Free Software Foundation, version 2 of the
+ *  License.
  */
 
 #include <linux/export.h>
@@ -30,7 +34,7 @@ static void *get_uts(struct ctl_table *table)
  *	to observe. Should this be in kernel/sys.c ????
  */
 static int proc_do_uts_string(struct ctl_table *table, int write,
-		  void *buffer, size_t *lenp, loff_t *ppos)
+		  void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	struct ctl_table uts_table;
 	int r;

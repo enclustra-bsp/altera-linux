@@ -799,6 +799,7 @@ static int at91_wakeup(struct usb_gadget *gadget)
 {
 	struct at91_udc	*udc = to_udc(gadget);
 	u32		glbstate;
+	int		status = -EINVAL;
 	unsigned long	flags;
 
 	DBG("%s\n", __func__ );
@@ -817,7 +818,7 @@ static int at91_wakeup(struct usb_gadget *gadget)
 
 done:
 	spin_unlock_irqrestore(&udc->lock, flags);
-	return 0;
+	return status;
 }
 
 /* reinit == restore initial software state */
@@ -1808,6 +1809,7 @@ static int at91udc_probe(struct platform_device *pdev)
 	struct device	*dev = &pdev->dev;
 	struct at91_udc	*udc;
 	int		retval;
+	struct resource	*res;
 	struct at91_ep	*ep;
 	int		i;
 
@@ -1838,7 +1840,8 @@ static int at91udc_probe(struct platform_device *pdev)
 			ep->is_pingpong = 1;
 	}
 
-	udc->udp_baseaddr = devm_platform_ioremap_resource(pdev, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	udc->udp_baseaddr = devm_ioremap_resource(dev, res);
 	if (IS_ERR(udc->udp_baseaddr))
 		return PTR_ERR(udc->udp_baseaddr);
 
@@ -1876,9 +1879,7 @@ static int at91udc_probe(struct platform_device *pdev)
 	clk_disable(udc->iclk);
 
 	/* request UDC and maybe VBUS irqs */
-	udc->udp_irq = retval = platform_get_irq(pdev, 0);
-	if (retval < 0)
-		goto err_unprepare_iclk;
+	udc->udp_irq = platform_get_irq(pdev, 0);
 	retval = devm_request_irq(dev, udc->udp_irq, at91_udc_irq, 0,
 				  driver_name, udc);
 	if (retval) {
@@ -2023,7 +2024,7 @@ static struct platform_driver at91_udc_driver = {
 	.suspend	= at91udc_suspend,
 	.resume		= at91udc_resume,
 	.driver		= {
-		.name	= driver_name,
+		.name	= (char *) driver_name,
 		.of_match_table	= at91_udc_dt_ids,
 	},
 };

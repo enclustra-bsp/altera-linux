@@ -73,7 +73,6 @@ struct i40iw_pd_ops;
 struct i40iw_priv_qp_ops;
 struct i40iw_priv_cq_ops;
 struct i40iw_hmc_ops;
-struct pci_dev;
 
 enum i40iw_page_size {
 	I40IW_PAGE_SIZE_4K,
@@ -235,11 +234,6 @@ enum i40iw_hw_stats_index_64b {
 	I40IW_HW_STAT_INDEX_MAX_64
 };
 
-enum i40iw_feature_type {
-	I40IW_FEATURE_FW_INFO = 0,
-	I40IW_MAX_FEATURES
-};
-
 struct i40iw_dev_hw_stats_offsets {
 	u32 stats_offset_32[I40IW_HW_STAT_INDEX_MAX_32];
 	u32 stats_offset_64[I40IW_HW_STAT_INDEX_MAX_64];
@@ -262,7 +256,7 @@ struct i40iw_vsi_pestat {
 
 struct i40iw_hw {
 	u8 __iomem *hw_addr;
-	struct pci_dev *pcidev;
+	void *dev_context;
 	struct i40iw_hmc_info hmc;
 };
 
@@ -507,7 +501,6 @@ struct i40iw_sc_dev {
 	const struct i40iw_vf_cqp_ops *iw_vf_cqp_ops;
 
 	struct i40iw_hmc_fpm_misc hmc_fpm_misc;
-	u64 feature_info[I40IW_MAX_FEATURES];
 	u32 debug_mask;
 	u8 hmc_fn_id;
 	bool is_pf;
@@ -1347,12 +1340,6 @@ struct cqp_info {
 			struct i40iw_sc_qp *qp;
 			u64 scratch;
 		} suspend_resume;
-		struct {
-			struct i40iw_sc_cqp *cqp;
-			void *cap_va;
-			u64 cap_pa;
-			u64 scratch;
-		} query_rdma_features;
 	} u;
 };
 

@@ -47,6 +47,7 @@
 #
 ########################################################################
 
+#ifdef CONFIG_AS_AVX
 #include <linux/linkage.h>
 
 .text
@@ -270,14 +271,13 @@ frame_size = frame_GPRSAVE + GPRSAVE_SIZE
 .endm
 
 ########################################################################
-# void sha512_transform_avx(sha512_state *state, const u8 *data, int blocks)
-# Purpose: Updates the SHA512 digest stored at "state" with the message
-# stored in "data".
-# The size of the message pointed to by "data" must be an integer multiple
-# of SHA512 message blocks.
-# "blocks" is the message length in SHA512 blocks
+# void sha512_transform_avx(void* D, const void* M, u64 L)
+# Purpose: Updates the SHA512 digest stored at D with the message stored in M.
+# The size of the message pointed to by M must be an integer multiple of SHA512
+# message blocks.
+# L is the message length in SHA512 blocks
 ########################################################################
-SYM_FUNC_START(sha512_transform_avx)
+ENTRY(sha512_transform_avx)
 	cmp $0, msglen
 	je nowork
 
@@ -365,7 +365,7 @@ updateblock:
 
 nowork:
 	ret
-SYM_FUNC_END(sha512_transform_avx)
+ENDPROC(sha512_transform_avx)
 
 ########################################################################
 ### Binary Data
@@ -423,3 +423,4 @@ K512:
 	.quad 0x3c9ebe0a15c9bebc,0x431d67c49c100d4c
 	.quad 0x4cc5d4becb3e42b6,0x597f299cfc657e2a
 	.quad 0x5fcb6fab3ad6faec,0x6c44198c4a475817
+#endif

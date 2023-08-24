@@ -5,8 +5,8 @@ Submitting Drivers For The Linux Kernel
 
 This document is intended to explain how to submit device drivers to the
 various kernel trees. Note that if you are interested in video card drivers
-you should probably talk to XFree86 (https://www.xfree86.org/) and/or X.Org
-(https://x.org/) instead.
+you should probably talk to XFree86 (http://www.xfree86.org/) and/or X.Org
+(http://x.org/) instead.
 
 .. note::
 
@@ -16,8 +16,7 @@ you should probably talk to XFree86 (https://www.xfree86.org/) and/or X.Org
 
    Oh, and we don't really recommend submitting changes to XFree86 :)
 
-Also read the :ref:`Documentation/process/submitting-patches.rst <submittingpatches>`
-document.
+Also read the Documentation/process/submitting-patches.rst document.
 
 
 Allocating Device Numbers
@@ -25,11 +24,10 @@ Allocating Device Numbers
 
 Major and minor numbers for block and character devices are allocated
 by the Linux assigned name and number authority (currently this is
-Torben Mathiasen). The site is https://www.lanana.org/. This
+Torben Mathiasen). The site is http://www.lanana.org/. This
 also deals with allocating numbers for devices that are not going to
 be submitted to the mainstream kernel.
-See :ref:`Documentation/admin-guide/devices.rst <admin_devices>`
-for more information on this.
+See Documentation/admin-guide/devices.rst for more information on this.
 
 If you don't use assigned numbers then when your device is submitted it will
 be given an assigned number even if that is different from values you may
@@ -60,11 +58,10 @@ What Criteria Determine Acceptance
 
 Licensing:
 		The code must be released to us under the
-		GNU General Public License. If you wish the driver to be
-		useful to other communities such as BSD you may release
-		under multiple licenses. If you choose to release under
-		licenses other than the GPL, you should include your
-		rationale for your license choices in your cover letter.
+		GNU General Public License. We don't insist on any kind
+		of exclusive GPL licensing, and if you wish the driver
+		to be useful to other communities such as BSD you may well
+		wish to release under multiple licenses.
 		See accepted licenses at include/linux/module.h
 
 Copyright:
@@ -118,9 +115,9 @@ PM support:
 		implemented") error.  You should also try to make sure that your
 		driver uses as little power as possible when it's not doing
 		anything.  For the driver testing instructions see
-		Documentation/power/drivers-testing.rst and for a relatively
+		Documentation/power/drivers-testing.txt and for a relatively
 		complete overview of the power management issues related to
-		drivers see :ref:`Documentation/driver-api/pm/devices.rst <driverapi_pm_devices>`.
+		drivers see Documentation/driver-api/pm/devices.rst.
 
 Control:
 		In general if there is active maintenance of a driver by
@@ -156,30 +153,30 @@ Linux kernel master tree:
 	where *country_code* == your country code, such as
 	**us**, **uk**, **fr**, etc.
 
-	https://git.kernel.org/?p=linux/kernel/git/torvalds/linux.git
+	http://git.kernel.org/?p=linux/kernel/git/torvalds/linux.git
 
 Linux kernel mailing list:
 	linux-kernel@vger.kernel.org
 	[mail majordomo@vger.kernel.org to subscribe]
 
 Linux Device Drivers, Third Edition (covers 2.6.10):
-	https://lwn.net/Kernel/LDD3/  (free version)
+	http://lwn.net/Kernel/LDD3/  (free version)
 
 LWN.net:
-	Weekly summary of kernel development activity - https://lwn.net/
+	Weekly summary of kernel development activity - http://lwn.net/
 
 	2.6 API changes:
 
-		https://lwn.net/Articles/2.6-kernel-api/
+		http://lwn.net/Articles/2.6-kernel-api/
 
 	Porting drivers from prior kernels to 2.6:
 
-		https://lwn.net/Articles/driver-porting/
+		http://lwn.net/Articles/driver-porting/
 
 KernelNewbies:
 	Documentation and assistance for new kernel programmers
 
-		https://kernelnewbies.org/
+		http://kernelnewbies.org/
 
 Linux USB project:
 	http://www.linux-usb.org/
@@ -188,7 +185,7 @@ How to NOT write kernel driver by Arjan van de Ven:
 	http://www.fenrus.org/how-to-not-write-a-device-driver-paper.pdf
 
 Kernel Janitor:
-	https://kernelnewbies.org/KernelJanitors
+	http://kernelnewbies.org/KernelJanitors
 
 GIT, Fast Version Control System:
-	https://git-scm.com/
+	http://git-scm.com/

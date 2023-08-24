@@ -10,8 +10,6 @@
 
 #include <asm/hw_irq.h>
 #include <asm/desc.h>
-#include <asm/trace/exceptions.h>
-#include <asm/trace/irq_vectors.h>
 
 DEFINE_STATIC_KEY_FALSE(trace_pagefault_key);
 
@@ -25,3 +23,20 @@ void trace_pagefault_unreg(void)
 {
 	static_branch_dec(&trace_pagefault_key);
 }
+
+#ifdef CONFIG_SMP
+
+DEFINE_STATIC_KEY_FALSE(trace_resched_ipi_key);
+
+int trace_resched_ipi_reg(void)
+{
+	static_branch_inc(&trace_resched_ipi_key);
+	return 0;
+}
+
+void trace_resched_ipi_unreg(void)
+{
+	static_branch_dec(&trace_resched_ipi_key);
+}
+
+#endif

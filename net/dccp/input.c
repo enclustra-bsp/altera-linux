@@ -1,9 +1,13 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  net/dccp/input.c
  *
  *  An implementation of the DCCP protocol
  *  Arnaldo Carvalho de Melo <acme@conectiva.com.br>
+ *
+ *	This program is free software; you can redistribute it and/or
+ *	modify it under the terms of the GNU General Public License
+ *	as published by the Free Software Foundation; either version
+ *	2 of the License, or (at your option) any later version.
  */
 
 #include <linux/dccp.h>
@@ -64,7 +68,7 @@ static int dccp_rcv_close(struct sock *sk, struct sk_buff *skb)
 		 */
 		if (dccp_sk(sk)->dccps_role != DCCP_ROLE_CLIENT)
 			break;
-		fallthrough;
+		/* fall through */
 	case DCCP_REQUESTING:
 	case DCCP_ACTIVE_CLOSEREQ:
 		dccp_send_reset(sk, DCCP_RESET_CODE_CLOSED);
@@ -76,7 +80,7 @@ static int dccp_rcv_close(struct sock *sk, struct sk_buff *skb)
 		queued = 1;
 		dccp_fin(sk, skb);
 		dccp_set_state(sk, DCCP_PASSIVE_CLOSE);
-		fallthrough;
+		/* fall through */
 	case DCCP_PASSIVE_CLOSE:
 		/*
 		 * Retransmitted Close: we have already enqueued the first one.
@@ -113,7 +117,7 @@ static int dccp_rcv_closereq(struct sock *sk, struct sk_buff *skb)
 		queued = 1;
 		dccp_fin(sk, skb);
 		dccp_set_state(sk, DCCP_PASSIVE_CLOSEREQ);
-		fallthrough;
+		/* fall through */
 	case DCCP_PASSIVE_CLOSEREQ:
 		sk_wake_async(sk, SOCK_WAKE_WAITD, POLL_HUP);
 	}
@@ -476,7 +480,7 @@ static int dccp_rcv_request_sent_state_process(struct sock *sk,
 			sk_wake_async(sk, SOCK_WAKE_IO, POLL_OUT);
 		}
 
-		if (sk->sk_write_pending || inet_csk_in_pingpong_mode(sk) ||
+		if (sk->sk_write_pending || icsk->icsk_ack.pingpong ||
 		    icsk->icsk_accept_queue.rskq_defer_accept) {
 			/* Save one ACK. Data will be ready after
 			 * several ticks, if write_pending is set.
@@ -530,7 +534,7 @@ static int dccp_rcv_respond_partopen_state_process(struct sock *sk,
 	case DCCP_PKT_DATA:
 		if (sk->sk_state == DCCP_RESPOND)
 			break;
-		fallthrough;
+		/* fall through */
 	case DCCP_PKT_DATAACK:
 	case DCCP_PKT_ACK:
 		/*
@@ -684,7 +688,7 @@ int dccp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		/* Step 8: if using Ack Vectors, mark packet acknowledgeable */
 		dccp_handle_ackvec_processing(sk, skb);
 		dccp_deliver_input_to_ccids(sk, skb);
-		fallthrough;
+		/* fall through */
 	case DCCP_RESPOND:
 		queued = dccp_rcv_respond_partopen_state_process(sk, skb,
 								 dh, len);
@@ -715,7 +719,6 @@ EXPORT_SYMBOL_GPL(dccp_rcv_state_process);
 
 /**
  *  dccp_sample_rtt  -  Validate and finalise computation of RTT sample
- *  @sk:	socket structure
  *  @delta:	number of microseconds between packet and acknowledgment
  *
  *  The routine is kept generic to work in different contexts. It should be

@@ -10,8 +10,10 @@
 #ifndef __RCAR_DU_ENCODER_H__
 #define __RCAR_DU_ENCODER_H__
 
+#include <drm/drm_crtc.h>
 #include <drm/drm_encoder.h>
 
+struct drm_panel;
 struct rcar_du_device;
 
 struct rcar_du_encoder {
@@ -26,6 +28,7 @@ struct rcar_du_encoder {
 
 int rcar_du_encoder_init(struct rcar_du_device *rcdu,
 			 enum rcar_du_output output,
-			 struct device_node *enc_node);
+			 struct device_node *enc_node,
+			 struct device_node *con_node);
 
 #endif /* __RCAR_DU_ENCODER_H__ */

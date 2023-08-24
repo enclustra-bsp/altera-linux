@@ -1,6 +1,9 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright © 2011 Ivan Djelic <ivan.djelic@parrot.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  *
  * This file is the header for the NAND BCH ECC implementation.
  */
@@ -12,7 +15,7 @@ struct mtd_info;
 struct nand_chip;
 struct nand_bch_control;
 
-#if IS_ENABLED(CONFIG_MTD_NAND_ECC_SW_BCH)
+#if defined(CONFIG_MTD_NAND_ECC_BCH)
 
 static inline int mtd_nand_has_bch(void) { return 1; }
 
@@ -36,7 +39,7 @@ struct nand_bch_control *nand_bch_init(struct mtd_info *mtd);
  */
 void nand_bch_free(struct nand_bch_control *nbc);
 
-#else /* !CONFIG_MTD_NAND_ECC_SW_BCH */
+#else /* !CONFIG_MTD_NAND_ECC_BCH */
 
 static inline int mtd_nand_has_bch(void) { return 0; }
 
@@ -61,6 +64,6 @@ static inline struct nand_bch_control *nand_bch_init(struct mtd_info *mtd)
 
 static inline void nand_bch_free(struct nand_bch_control *nbc) {}
 
-#endif /* CONFIG_MTD_NAND_ECC_SW_BCH */
+#endif /* CONFIG_MTD_NAND_ECC_BCH */
 
 #endif /* __MTD_NAND_BCH_H__ */

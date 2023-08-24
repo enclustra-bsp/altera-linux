@@ -43,8 +43,9 @@ Efuse_Read1ByteFromFakeContent(
 	u16 	Offset,
 	u8 *Value)
 {
-	if (Offset >= EFUSE_MAX_HW_SIZE)
+	if (Offset >= EFUSE_MAX_HW_SIZE) {
 		return false;
+	}
 	/* DbgPrint("Read fake content, offset = %d\n", Offset); */
 	if (fakeEfuseBank == 0)
 		*Value = fakeEfuseContent[Offset];
@@ -64,12 +65,14 @@ Efuse_Write1ByteToFakeContent(
 	u16 	Offset,
 	u8 Value)
 {
-	if (Offset >= EFUSE_MAX_HW_SIZE)
+	if (Offset >= EFUSE_MAX_HW_SIZE) {
 		return false;
+	}
 	if (fakeEfuseBank == 0)
 		fakeEfuseContent[Offset] = Value;
-	else
+	else{
 		fakeBTEfuseContent[fakeEfuseBank-1][Offset] = Value;
+	}
 	return true;
 }
 
@@ -122,8 +125,11 @@ Efuse_GetCurrentSize(
 	u8 	efuseType,
 	bool		bPseudoTest)
 {
-	return padapter->HalFunc.EfuseGetCurrentSize(padapter, efuseType,
-						     bPseudoTest);
+	u16 ret = 0;
+
+	ret = padapter->HalFunc.EfuseGetCurrentSize(padapter, efuseType, bPseudoTest);
+
+	return ret;
 }
 
 /*  11/16/2008 MH Add description. Get current efuse area enabled word!!. */
@@ -215,6 +221,7 @@ EFUSE_Read1Byte(
 struct adapter *Adapter,
 u16 	Address)
 {
+	u8 data;
 	u8 Bytetemp = {0x00};
 	u8 temp = {0x00};
 	u32 k = 0;
@@ -241,10 +248,13 @@ u16 	Address)
 		while (!(Bytetemp & 0x80)) {
 			Bytetemp = rtw_read8(Adapter, EFUSE_CTRL+3);
 			k++;
-			if (k == 1000)
+			if (k == 1000) {
+				k = 0;
 				break;
+			}
 		}
-		return rtw_read8(Adapter, EFUSE_CTRL);
+		data = rtw_read8(Adapter, EFUSE_CTRL);
+		return data;
 	} else
 		return 0xFF;
 
@@ -266,7 +276,8 @@ bool		bPseudoTest)
 	/* DBG_871X("===> EFUSE_OneByteRead() start, 0x34 = 0x%X\n", rtw_read32(padapter, EFUSE_TEST)); */
 
 	if (bPseudoTest) {
-		return Efuse_Read1ByteFromFakeContent(padapter, addr, data);
+		bResult = Efuse_Read1ByteFromFakeContent(padapter, addr, data);
+		return bResult;
 	}
 
 	/*  <20130121, Kordan> For SMIC EFUSE specificatoin. */
@@ -292,7 +303,7 @@ bool		bPseudoTest)
 	if (tmpidx < 100) {
 		*data = rtw_read8(padapter, EFUSE_CTRL);
 		bResult = true;
-	} else {
+	} else{
 		*data = 0xff;
 		bResult = false;
 		DBG_871X("%s: [ERROR] addr = 0x%x bResult =%d time out 1s !!!\n", __func__, addr, bResult);
@@ -318,7 +329,8 @@ bool		bPseudoTest)
 	/* DBG_871X("===> EFUSE_OneByteWrite() start, 0x34 = 0x%X\n", rtw_read32(padapter, EFUSE_TEST)); */
 
 	if (bPseudoTest) {
-		return Efuse_Write1ByteToFakeContent(padapter, addr, data);
+		bResult = Efuse_Write1ByteToFakeContent(padapter, addr, data);
+		return bResult;
 	}
 
 
@@ -347,7 +359,7 @@ bool		bPseudoTest)
 
 	if (tmpidx < 100) {
 		bResult = true;
-	} else {
+	} else{
 		bResult = false;
 		DBG_871X("%s: [ERROR] addr = 0x%x , efuseValue = 0x%x , bResult =%d time out 1s !!!\n",
 					__func__, addr, efuseValue, bResult);
@@ -366,8 +378,11 @@ Efuse_PgPacketRead(struct adapter *padapter,
 				u8 	*data,
 				bool		bPseudoTest)
 {
-	return padapter->HalFunc.Efuse_PgPacketRead(padapter, offset, data,
-						    bPseudoTest);
+	int	ret = 0;
+
+	ret =  padapter->HalFunc.Efuse_PgPacketRead(padapter, offset, data, bPseudoTest);
+
+	return ret;
 }
 
 int
@@ -377,8 +392,11 @@ Efuse_PgPacketWrite(struct adapter *padapter,
 				u8 	*data,
 				bool		bPseudoTest)
 {
-	return padapter->HalFunc.Efuse_PgPacketWrite(padapter, offset, word_en,
-						     data, bPseudoTest);
+	int ret;
+
+	ret =  padapter->HalFunc.Efuse_PgPacketWrite(padapter, offset, word_en, data, bPseudoTest);
+
+	return ret;
 }
 
 /*-----------------------------------------------------------------------------
@@ -429,9 +447,11 @@ Efuse_WordEnableDataWrite(struct adapter *padapter,
 						u8 *data,
 						bool		bPseudoTest)
 {
-	return padapter->HalFunc.Efuse_WordEnableDataWrite(padapter, efuse_addr,
-							   word_en, data,
-							   bPseudoTest);
+	u8 ret = 0;
+
+	ret =  padapter->HalFunc.Efuse_WordEnableDataWrite(padapter, efuse_addr, word_en, data, bPseudoTest);
+
+	return ret;
 }
 
 /*-----------------------------------------------------------------------------

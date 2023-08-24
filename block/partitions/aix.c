@@ -6,6 +6,7 @@
  */
 
 #include "check.h"
+#include "aix.h"
 
 struct lvm_rec {
 	char lvm_id[4]; /* "_LVM" */

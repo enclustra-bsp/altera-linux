@@ -115,7 +115,7 @@ void die(const char *str, struct pt_regs *fp, unsigned long err)
 
 static int kstack_depth_to_print = 24;
 
-void show_stack(struct task_struct *task, unsigned long *esp, const char *loglvl)
+void show_stack(struct task_struct *task, unsigned long *esp)
 {
 	unsigned long *stack,  addr;
 	int i;
@@ -125,17 +125,17 @@ void show_stack(struct task_struct *task, unsigned long *esp, const char *loglvl
 
 	stack = esp;
 
-	printk("%sStack from %08lx:", loglvl, (unsigned long)stack);
+	pr_info("Stack from %08lx:", (unsigned long)stack);
 	for (i = 0; i < kstack_depth_to_print; i++) {
 		if (((unsigned long)stack & (THREAD_SIZE - 1)) >=
 		    THREAD_SIZE-4)
 			break;
 		if (i % 8 == 0)
-			printk("%s ", loglvl);
+			pr_info(" ");
 		pr_cont(" %08lx", *stack++);
 	}
 
-	printk("%s\nCall Trace:\n", loglvl);
+	pr_info("\nCall Trace:\n");
 	i = 0;
 	stack = esp;
 	while (((unsigned long)stack & (THREAD_SIZE - 1)) < THREAD_SIZE-4) {
@@ -150,10 +150,10 @@ void show_stack(struct task_struct *task, unsigned long *esp, const char *loglvl
 		 */
 		if (check_kernel_text(addr)) {
 			if (i % 4 == 0)
-				printk("%s       ", loglvl);
+				pr_info("       ");
 			pr_cont(" [<%08lx>]", addr);
 			i++;
 		}
 	}
-	printk("%s\n", loglvl);
+	pr_info("\n");
 }

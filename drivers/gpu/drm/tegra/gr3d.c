@@ -1,7 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2013 Avionic Design GmbH
  * Copyright (C) 2013 NVIDIA Corporation
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/clk.h>
@@ -23,6 +26,7 @@ struct gr3d_soc {
 };
 
 struct gr3d {
+	struct iommu_group *group;
 	struct tegra_drm_client client;
 	struct host1x_channel *channel;
 	struct clk *clk_secondary;
@@ -43,12 +47,12 @@ static inline struct gr3d *to_gr3d(struct tegra_drm_client *client)
 static int gr3d_init(struct host1x_client *client)
 {
 	struct tegra_drm_client *drm = host1x_to_drm_client(client);
-	struct drm_device *dev = dev_get_drvdata(client->host);
+	struct drm_device *dev = dev_get_drvdata(client->parent);
 	unsigned long flags = HOST1X_SYNCPT_HAS_BASE;
 	struct gr3d *gr3d = to_gr3d(drm);
 	int err;
 
-	gr3d->channel = host1x_channel_request(client);
+	gr3d->channel = host1x_channel_request(client->dev);
 	if (!gr3d->channel)
 		return -ENOMEM;
 
@@ -59,8 +63,9 @@ static int gr3d_init(struct host1x_client *client)
 		goto put;
 	}
 
-	err = host1x_client_iommu_attach(client);
-	if (err < 0) {
+	gr3d->group = host1x_client_iommu_attach(client, false);
+	if (IS_ERR(gr3d->group)) {
+		err = PTR_ERR(gr3d->group);
 		dev_err(client->dev, "failed to attach to domain: %d\n", err);
 		goto free;
 	}
@@ -74,7 +79,7 @@ static int gr3d_init(struct host1x_client *client)
 	return 0;
 
 detach:
-	host1x_client_iommu_detach(client);
+	host1x_client_iommu_detach(client, gr3d->group);
 free:
 	host1x_syncpt_free(client->syncpts[0]);
 put:
@@ -85,7 +90,7 @@ put:
 static int gr3d_exit(struct host1x_client *client)
 {
 	struct tegra_drm_client *drm = host1x_to_drm_client(client);
-	struct drm_device *dev = dev_get_drvdata(client->host);
+	struct drm_device *dev = dev_get_drvdata(client->parent);
 	struct gr3d *gr3d = to_gr3d(drm);
 	int err;
 
@@ -93,7 +98,7 @@ static int gr3d_exit(struct host1x_client *client)
 	if (err < 0)
 		return err;
 
-	host1x_client_iommu_detach(client);
+	host1x_client_iommu_detach(client, gr3d->group);
 	host1x_syncpt_free(client->syncpts[0]);
 	host1x_channel_put(gr3d->channel);
 
@@ -381,12 +386,10 @@ static int gr3d_remove(struct platform_device *pdev)
 	}
 
 	if (gr3d->clk_secondary) {
-		reset_control_assert(gr3d->rst_secondary);
 		tegra_powergate_power_off(TEGRA_POWERGATE_3D1);
 		clk_disable_unprepare(gr3d->clk_secondary);
 	}
 
-	reset_control_assert(gr3d->rst);
 	tegra_powergate_power_off(TEGRA_POWERGATE_3D);
 	clk_disable_unprepare(gr3d->clk);
 

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (c) 1998-2005 Vojtech Pavlik
  */
@@ -8,6 +7,19 @@
  */
 
 /*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
 #include <linux/delay.h>
@@ -223,7 +235,7 @@ static __u64 sw_get_bits(unsigned char *buf, int pos, int num, char bits)
 
 static void sw_init_digital(struct gameport *gameport)
 {
-	static const int seq[] = { 140, 140+725, 140+300, 0 };
+	int seq[] = { 140, 140+725, 140+300, 0 };
 	unsigned long flags;
 	int i, t;
 
@@ -656,19 +668,16 @@ static int sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 
 			switch (i * m) {
 				case 60:
-					sw->number++;
-					fallthrough;
+					sw->number++;			/* fall through */
 				case 45:				/* Ambiguous packet length */
 					if (j <= 40) {			/* ID length less or eq 40 -> FSP */
 				case 43:
 						sw->type = SW_ID_FSP;
 						break;
 					}
-					sw->number++;
-					fallthrough;
+					sw->number++;			/* fall through */
 				case 30:
-					sw->number++;
-					fallthrough;
+					sw->number++;			/* fall through */
 				case 15:
 					sw->type = SW_ID_GP;
 					break;
@@ -684,11 +693,9 @@ static int sw_connect(struct gameport *gameport, struct gameport_driver *drv)
 						sw->type = SW_ID_PP;
 					break;
 				case 66:
-					sw->bits = 3;
-					fallthrough;
+					sw->bits = 3;			/* fall through */
 				case 198:
-					sw->length = 22;
-					fallthrough;
+					sw->length = 22;		/* fall through */
 				case 64:
 					sw->type = SW_ID_3DP;
 					if (j == 160)

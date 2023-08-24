@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * MPC8610 HPCD board specific routines
  *
@@ -10,6 +9,11 @@
  * All the integrated device in ULI use sideband interrupt.
  *
  * Copyright 2008 Freescale Semiconductor Inc.
+ *
+ * This program is free software; you can redistribute  it and/or modify it
+ * under  the terms of  the GNU General  Public License as published by the
+ * Free Software Foundation;  either version 2 of the  License, or (at your
+ * option) any later version.
  */
 
 #include <linux/stddef.h>
@@ -34,6 +38,7 @@
 #include <linux/of_platform.h>
 #include <sysdev/fsl_pci.h>
 #include <sysdev/fsl_soc.h>
+#include <sysdev/simple_gpio.h>
 
 #include "mpc86xx.h"
 
@@ -92,6 +97,9 @@ static const struct of_device_id mpc8610_ids[] __initconst = {
 
 static int __init mpc8610_declare_of_platform_devices(void)
 {
+	/* Firstly, register PIXIS GPIOs. */
+	simple_gpiochip_init("fsl,fpga-pixis-gpio-bank");
+
 	/* Enable wakeup on PIXIS' event IRQ. */
 	mpc8610_suspend_init();
 

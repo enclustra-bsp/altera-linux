@@ -1,6 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2016 Robert Jarzmik <robert.jarzmik@free.fr>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/module.h>
@@ -81,7 +84,7 @@ ac97_of_get_child_device(struct ac97_controller *ac97_ctrl, int idx,
 		if ((idx != of_property_read_u32(node, "reg", &reg)) ||
 		    !of_device_is_compatible(node, compat))
 			continue;
-		return node;
+		return of_node_get(node);
 	}
 
 	return NULL;
@@ -122,12 +125,17 @@ static int ac97_codec_add(struct ac97_controller *ac97_ctrl, int idx,
 						      vendor_id);
 
 	ret = device_add(&codec->dev);
-	if (ret) {
-		put_device(&codec->dev);
-		return ret;
-	}
+	if (ret)
+		goto err_free_codec;
 
 	return 0;
+err_free_codec:
+	of_node_put(codec->dev.of_node);
+	put_device(&codec->dev);
+	kfree(codec);
+	ac97_ctrl->codecs[idx] = NULL;
+
+	return ret;
 }
 
 unsigned int snd_ac97_bus_scan_one(struct ac97_controller *adrv,
@@ -520,7 +528,7 @@ static int ac97_bus_remove(struct device *dev)
 	struct ac97_codec_driver *adrv = to_ac97_driver(dev->driver);
 	int ret;
 
-	ret = pm_runtime_resume_and_get(dev);
+	ret = pm_runtime_get_sync(dev);
 	if (ret < 0)
 		return ret;
 

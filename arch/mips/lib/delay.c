@@ -24,8 +24,6 @@
 #define GCC_DADDI_IMM_ASM() "r"
 #endif
 
-#ifndef CONFIG_HAVE_PLAT_DELAY
-
 void __delay(unsigned long loops)
 {
 	__asm__ __volatile__ (
@@ -65,5 +63,3 @@ void __ndelay(unsigned long ns)
 	__delay((ns * 0x00000005ull * HZ * lpj) >> 32);
 }
 EXPORT_SYMBOL(__ndelay);
-
-#endif

@@ -95,8 +95,6 @@ static const struct vmw_res_func vmw_gb_shader_func = {
 	.res_type = vmw_res_shader,
 	.needs_backup = true,
 	.may_evict = true,
-	.prio = 3,
-	.dirty_prio = 3,
 	.type_name = "guest backed shaders",
 	.backup_placement = &vmw_mob_placement,
 	.create = vmw_gb_shader_create,
@@ -108,9 +106,7 @@ static const struct vmw_res_func vmw_gb_shader_func = {
 static const struct vmw_res_func vmw_dx_shader_func = {
 	.res_type = vmw_res_shader,
 	.needs_backup = true,
-	.may_evict = true,
-	.prio = 3,
-	.dirty_prio = 3,
+	.may_evict = false,
 	.type_name = "dx shaders",
 	.backup_placement = &vmw_mob_placement,
 	.create = vmw_dx_shader_create,
@@ -222,8 +218,10 @@ static int vmw_gb_shader_create(struct vmw_resource *res)
 		goto out_no_fifo;
 	}
 
-	cmd = VMW_FIFO_RESERVE(dev_priv, sizeof(*cmd));
+	cmd = vmw_fifo_reserve(dev_priv, sizeof(*cmd));
 	if (unlikely(cmd == NULL)) {
+		DRM_ERROR("Failed reserving FIFO space for shader "
+			  "creation.\n");
 		ret = -ENOMEM;
 		goto out_no_fifo;
 	}
@@ -256,9 +254,12 @@ static int vmw_gb_shader_bind(struct vmw_resource *res,
 
 	BUG_ON(bo->mem.mem_type != VMW_PL_MOB);
 
-	cmd = VMW_FIFO_RESERVE(dev_priv, sizeof(*cmd));
-	if (unlikely(cmd == NULL))
+	cmd = vmw_fifo_reserve(dev_priv, sizeof(*cmd));
+	if (unlikely(cmd == NULL)) {
+		DRM_ERROR("Failed reserving FIFO space for shader "
+			  "binding.\n");
 		return -ENOMEM;
+	}
 
 	cmd->header.id = SVGA_3D_CMD_BIND_GB_SHADER;
 	cmd->header.size = sizeof(cmd->body);
@@ -284,9 +285,12 @@ static int vmw_gb_shader_unbind(struct vmw_resource *res,
 
 	BUG_ON(res->backup->base.mem.mem_type != VMW_PL_MOB);
 
-	cmd = VMW_FIFO_RESERVE(dev_priv, sizeof(*cmd));
-	if (unlikely(cmd == NULL))
+	cmd = vmw_fifo_reserve(dev_priv, sizeof(*cmd));
+	if (unlikely(cmd == NULL)) {
+		DRM_ERROR("Failed reserving FIFO space for shader "
+			  "unbinding.\n");
 		return -ENOMEM;
+	}
 
 	cmd->header.id = SVGA_3D_CMD_BIND_GB_SHADER;
 	cmd->header.size = sizeof(cmd->body);
@@ -324,8 +328,10 @@ static int vmw_gb_shader_destroy(struct vmw_resource *res)
 	mutex_lock(&dev_priv->binding_mutex);
 	vmw_binding_res_list_scrub(&res->binding_head);
 
-	cmd = VMW_FIFO_RESERVE(dev_priv, sizeof(*cmd));
+	cmd = vmw_fifo_reserve(dev_priv, sizeof(*cmd));
 	if (unlikely(cmd == NULL)) {
+		DRM_ERROR("Failed reserving FIFO space for shader "
+			  "destruction.\n");
 		mutex_unlock(&dev_priv->binding_mutex);
 		return -ENOMEM;
 	}
@@ -394,9 +400,13 @@ static int vmw_dx_shader_unscrub(struct vmw_resource *res)
 	if (!list_empty(&shader->cotable_head) || !shader->committed)
 		return 0;
 
-	cmd = VMW_FIFO_RESERVE_DX(dev_priv, sizeof(*cmd), shader->ctx->id);
-	if (unlikely(cmd == NULL))
+	cmd = vmw_fifo_reserve_dx(dev_priv, sizeof(*cmd),
+				  shader->ctx->id);
+	if (unlikely(cmd == NULL)) {
+		DRM_ERROR("Failed reserving FIFO space for shader "
+			  "scrubbing.\n");
 		return -ENOMEM;
+	}
 
 	cmd->header.id = SVGA_3D_CMD_DX_BIND_SHADER;
 	cmd->header.size = sizeof(cmd->body);
@@ -427,7 +437,7 @@ static int vmw_dx_shader_create(struct vmw_resource *res)
 
 	WARN_ON_ONCE(!shader->committed);
 
-	if (vmw_resource_mob_attached(res)) {
+	if (!list_empty(&res->mob_head)) {
 		mutex_lock(&dev_priv->binding_mutex);
 		ret = vmw_dx_shader_unscrub(res);
 		mutex_unlock(&dev_priv->binding_mutex);
@@ -481,9 +491,12 @@ static int vmw_dx_shader_scrub(struct vmw_resource *res)
 		return 0;
 
 	WARN_ON_ONCE(!shader->committed);
-	cmd = VMW_FIFO_RESERVE(dev_priv, sizeof(*cmd));
-	if (unlikely(cmd == NULL))
+	cmd = vmw_fifo_reserve(dev_priv, sizeof(*cmd));
+	if (unlikely(cmd == NULL)) {
+		DRM_ERROR("Failed reserving FIFO space for shader "
+			  "scrubbing.\n");
 		return -ENOMEM;
+	}
 
 	cmd->header.id = SVGA_3D_CMD_DX_BIND_SHADER;
 	cmd->header.size = sizeof(cmd->body);
@@ -852,13 +865,14 @@ static int vmw_shader_define(struct drm_device *dev, struct drm_file *file_priv,
 		ret = vmw_user_bo_lookup(tfile, buffer_handle,
 					     &buffer, NULL);
 		if (unlikely(ret != 0)) {
-			VMW_DEBUG_USER("Couldn't find buffer for shader creation.\n");
+			DRM_ERROR("Could not find buffer for shader "
+				  "creation.\n");
 			return ret;
 		}
 
 		if ((u64)buffer->base.num_pages * PAGE_SIZE <
 		    (u64)size + (u64)offset) {
-			VMW_DEBUG_USER("Illegal buffer- or shader size.\n");
+			DRM_ERROR("Illegal buffer- or shader size.\n");
 			ret = -EINVAL;
 			goto out_bad_arg;
 		}
@@ -872,7 +886,7 @@ static int vmw_shader_define(struct drm_device *dev, struct drm_file *file_priv,
 		shader_type = SVGA3D_SHADERTYPE_PS;
 		break;
 	default:
-		VMW_DEBUG_USER("Illegal shader type.\n");
+		DRM_ERROR("Illegal shader type.\n");
 		ret = -EINVAL;
 		goto out_bad_arg;
 	}

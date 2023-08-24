@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Ram backed block device driver.
  *
@@ -97,8 +96,13 @@ static struct page *brd_insert_page(struct brd_device *brd, sector_t sector)
 	/*
 	 * Must use NOIO because we don't want to recurse back into the
 	 * block or filesystem layers from page reclaim.
+	 *
+	 * Cannot support DAX and highmem, because our ->direct_access
+	 * routine for DAX must return memory that is always addressable.
+	 * If DAX was reworked to use pfns and kmap throughout, this
+	 * restriction might be able to be lifted.
 	 */
-	gfp_flags = GFP_NOIO | __GFP_ZERO | __GFP_HIGHMEM;
+	gfp_flags = GFP_NOIO | __GFP_ZERO;
 	page = alloc_page(gfp_flags);
 	if (!page)
 		return NULL;
@@ -152,12 +156,6 @@ static void brd_free_pages(struct brd_device *brd)
 		}
 
 		pos++;
-
-		/*
-		 * It takes 3.4 seconds to remove 80GiB ramdisk.
-		 * So, we need cond_resched to avoid stalling the CPU.
-		 */
-		cond_resched();
 
 		/*
 		 * This assumes radix_tree_gang_lookup always returns as
@@ -282,7 +280,7 @@ out:
 	return err;
 }
 
-static blk_qc_t brd_submit_bio(struct bio *bio)
+static blk_qc_t brd_make_request(struct request_queue *q, struct bio *bio)
 {
 	struct brd_device *brd = bio->bi_disk->private_data;
 	struct bio_vec bvec;
@@ -296,10 +294,6 @@ static blk_qc_t brd_submit_bio(struct bio *bio)
 	bio_for_each_segment(bvec, bio, iter) {
 		unsigned int len = bvec.bv_len;
 		int err;
-
-		/* Don't support un-aligned buffer */
-		WARN_ON_ONCE((bvec.bv_offset & (SECTOR_SIZE - 1)) ||
-				(len & (SECTOR_SIZE - 1)));
 
 		err = brd_do_bvec(brd, bvec.bv_page, len, bvec.bv_offset,
 				  bio_op(bio), sector);
@@ -330,7 +324,6 @@ static int brd_rw_page(struct block_device *bdev, sector_t sector,
 
 static const struct block_device_operations brd_fops = {
 	.owner =		THIS_MODULE,
-	.submit_bio =		brd_submit_bio,
 	.rw_page =		brd_rw_page,
 };
 
@@ -382,9 +375,12 @@ static struct brd_device *brd_alloc(int i)
 	spin_lock_init(&brd->brd_lock);
 	INIT_RADIX_TREE(&brd->brd_pages, GFP_ATOMIC);
 
-	brd->brd_queue = blk_alloc_queue(NUMA_NO_NODE);
+	brd->brd_queue = blk_alloc_queue(GFP_KERNEL);
 	if (!brd->brd_queue)
 		goto out_free_dev;
+
+	blk_queue_make_request(brd->brd_queue, brd_make_request);
+	blk_queue_max_hw_sectors(brd->brd_queue, 1024);
 
 	/* This is so fdisk will align partitions on 4k, because of
 	 * direct_access API needing 4k alignment, returning a PFN
@@ -403,6 +399,7 @@ static struct brd_device *brd_alloc(int i)
 	disk->flags		= GENHD_FL_EXT_DEVT;
 	sprintf(disk->disk_name, "ram%d", i);
 	set_capacity(disk, rd_size * 2);
+	brd->brd_queue->backing_dev_info->capabilities |= BDI_CAP_SYNCHRONOUS_IO;
 
 	/* Tell the block layer that this is not a rotational device */
 	blk_queue_flag_set(QUEUE_FLAG_NONROT, brd->brd_queue);
@@ -471,25 +468,6 @@ static struct kobject *brd_probe(dev_t dev, int *part, void *data)
 	return kobj;
 }
 
-static inline void brd_check_and_reset_par(void)
-{
-	if (unlikely(!max_part))
-		max_part = 1;
-
-	/*
-	 * make sure 'max_part' can be divided exactly by (1U << MINORBITS),
-	 * otherwise, it is possiable to get same dev_t when adding partitions.
-	 */
-	if ((1U << MINORBITS) % max_part != 0)
-		max_part = 1UL << fls(max_part);
-
-	if (max_part > DISK_MAX_PARTS) {
-		pr_info("brd: max_part can't be larger than %d, reset max_part = %d.\n",
-			DISK_MAX_PARTS, DISK_MAX_PARTS);
-		max_part = DISK_MAX_PARTS;
-	}
-}
-
 static int __init brd_init(void)
 {
 	struct brd_device *brd, *next;
@@ -513,7 +491,8 @@ static int __init brd_init(void)
 	if (register_blkdev(RAMDISK_MAJOR, "ramdisk"))
 		return -EIO;
 
-	brd_check_and_reset_par();
+	if (unlikely(!max_part))
+		max_part = 1;
 
 	for (i = 0; i < rd_nr; i++) {
 		brd = brd_alloc(i);

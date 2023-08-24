@@ -56,8 +56,7 @@ static const struct attribute_group tbt_attribute_group = {
 	.attrs = tbt_attrs,
 };
 
-static int intel_wmi_thunderbolt_probe(struct wmi_device *wdev,
-				       const void *context)
+static int intel_wmi_thunderbolt_probe(struct wmi_device *wdev)
 {
 	int ret;
 
@@ -89,7 +88,7 @@ static struct wmi_driver intel_wmi_thunderbolt_driver = {
 
 module_wmi_driver(intel_wmi_thunderbolt_driver);
 
-MODULE_DEVICE_TABLE(wmi, intel_wmi_thunderbolt_id_table);
+MODULE_ALIAS("wmi:" INTEL_WMI_THUNDERBOLT_GUID);
 MODULE_AUTHOR("Mario Limonciello <mario.limonciello@dell.com>");
 MODULE_DESCRIPTION("Intel WMI Thunderbolt force power driver");
 MODULE_LICENSE("GPL v2");

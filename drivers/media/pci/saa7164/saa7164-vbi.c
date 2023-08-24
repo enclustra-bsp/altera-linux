@@ -1,8 +1,18 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Driver for the NXP SAA7164 PCIe bridge
  *
  *  Copyright (c) 2010-2015 Steven Toth <stoth@kernellabs.com>
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *
+ *  GNU General Public License for more details.
  */
 
 #include "saa7164.h"
@@ -202,9 +212,16 @@ static int vidioc_querycap(struct file *file, void  *priv,
 	strscpy(cap->card, saa7164_boards[dev->board].name,
 		sizeof(cap->card));
 	sprintf(cap->bus_info, "PCI:%s", pci_name(dev->pci));
-	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_READWRITE |
-			    V4L2_CAP_TUNER | V4L2_CAP_VBI_CAPTURE |
-			    V4L2_CAP_DEVICE_CAPS;
+
+	cap->device_caps =
+		V4L2_CAP_VBI_CAPTURE |
+		V4L2_CAP_READWRITE |
+		V4L2_CAP_TUNER;
+
+	cap->capabilities = cap->device_caps |
+		V4L2_CAP_VIDEO_CAPTURE |
+		V4L2_CAP_DEVICE_CAPS;
+
 	return 0;
 }
 
@@ -668,8 +685,6 @@ static struct video_device saa7164_vbi_template = {
 	.ioctl_ops     = &vbi_ioctl_ops,
 	.minor         = -1,
 	.tvnorms       = SAA7164_NORMS,
-	.device_caps   = V4L2_CAP_VBI_CAPTURE | V4L2_CAP_READWRITE |
-			 V4L2_CAP_TUNER,
 };
 
 static struct video_device *saa7164_vbi_alloc(
@@ -703,7 +718,8 @@ int saa7164_vbi_register(struct saa7164_port *port)
 
 	dprintk(DBGLVL_VBI, "%s()\n", __func__);
 
-	BUG_ON(port->type != SAA7164_MPEG_VBI);
+	if (port->type != SAA7164_MPEG_VBI)
+		BUG();
 
 	/* Sanity check that the PCI configuration space is active */
 	if (port->hwcfg.BARLocation == 0) {
@@ -755,7 +771,8 @@ void saa7164_vbi_unregister(struct saa7164_port *port)
 
 	dprintk(DBGLVL_VBI, "%s(port=%d)\n", __func__, port->nr);
 
-	BUG_ON(port->type != SAA7164_MPEG_VBI);
+	if (port->type != SAA7164_MPEG_VBI)
+		BUG();
 
 	if (port->v4l_device) {
 		if (port->v4l_device->minor != -1)

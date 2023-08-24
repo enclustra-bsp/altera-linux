@@ -19,6 +19,8 @@
 #include <asm/cmpxchg.h>
 #include <asm/barrier.h>
 
+#define ATOMIC_INIT(i)	{ (i) }
+
 #define atomic_read(v)		READ_ONCE((v)->counter)
 #define atomic_set(v,i)		WRITE_ONCE((v)->counter, (i))
 

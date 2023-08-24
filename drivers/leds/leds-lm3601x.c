@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 // Flash and torch driver for Texas Instruments LM3601X LED
 // Flash driver chip family
-// Copyright (C) 2018 Texas Instruments Incorporated - https://www.ti.com/
+// Copyright (C) 2018 Texas Instruments Incorporated - http://www.ti.com/
 
 #include <linux/delay.h>
 #include <linux/i2c.h>
@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
+#include <uapi/linux/uleds.h>
 
 #define LM3601X_LED_IR		0x0
 #define LM3601X_LED_TORCH	0x1
@@ -88,6 +89,8 @@ struct lm3601x_led {
 	struct i2c_client *client;
 	struct regmap *regmap;
 	struct mutex lock;
+
+	char led_name[LED_MAX_NAME_SIZE];
 
 	unsigned int flash_timeout;
 	unsigned int last_flag;
@@ -319,12 +322,10 @@ static const struct led_flash_ops flash_ops = {
 	.fault_get		= lm3601x_flash_fault_get,
 };
 
-static int lm3601x_register_leds(struct lm3601x_led *led,
-				 struct fwnode_handle *fwnode)
+static int lm3601x_register_leds(struct lm3601x_led *led)
 {
 	struct led_classdev *led_cdev;
 	struct led_flash_setting *setting;
-	struct led_init_data init_data = {};
 
 	led->fled_cdev.ops = &flash_ops;
 
@@ -341,24 +342,20 @@ static int lm3601x_register_leds(struct lm3601x_led *led,
 	setting->val = led->flash_current_max;
 
 	led_cdev = &led->fled_cdev.led_cdev;
+	led_cdev->name = led->led_name;
 	led_cdev->brightness_set_blocking = lm3601x_brightness_set;
 	led_cdev->max_brightness = DIV_ROUND_UP(led->torch_current_max,
 						LM3601X_TORCH_REG_DIV);
 	led_cdev->flags |= LED_DEV_CAP_FLASH;
 
-	init_data.fwnode = fwnode;
-	init_data.devicename = led->client->name;
-	init_data.default_label = (led->led_mode == LM3601X_LED_TORCH) ?
-					"torch" : "infrared";
-	return devm_led_classdev_flash_register_ext(&led->client->dev,
-						&led->fled_cdev, &init_data);
+	return led_classdev_flash_register(&led->client->dev, &led->fled_cdev);
 }
 
-static int lm3601x_parse_node(struct lm3601x_led *led,
-			      struct fwnode_handle **fwnode)
+static int lm3601x_parse_node(struct lm3601x_led *led)
 {
 	struct fwnode_handle *child = NULL;
 	int ret = -ENODEV;
+	const char *name;
 
 	child = device_get_next_child_node(&led->client->dev, child);
 	if (!child) {
@@ -378,6 +375,17 @@ static int lm3601x_parse_node(struct lm3601x_led *led,
 		ret = -EINVAL;
 		goto out_err;
 	}
+
+	ret = fwnode_property_read_string(child, "label", &name);
+	if (ret) {
+		if (led->led_mode == LM3601X_LED_TORCH)
+			name = "torch";
+		else
+			name = "infrared";
+	}
+
+	snprintf(led->led_name, sizeof(led->led_name),
+		"%s:%s", led->client->name, name);
 
 	ret = fwnode_property_read_u32(child, "led-max-microamp",
 					&led->torch_current_max);
@@ -403,8 +411,6 @@ static int lm3601x_parse_node(struct lm3601x_led *led,
 		goto out_err;
 	}
 
-	*fwnode = child;
-
 out_err:
 	fwnode_handle_put(child);
 	return ret;
@@ -413,7 +419,6 @@ out_err:
 static int lm3601x_probe(struct i2c_client *client)
 {
 	struct lm3601x_led *led;
-	struct fwnode_handle *fwnode;
 	int ret;
 
 	led = devm_kzalloc(&client->dev, sizeof(*led), GFP_KERNEL);
@@ -423,7 +428,7 @@ static int lm3601x_probe(struct i2c_client *client)
 	led->client = client;
 	i2c_set_clientdata(client, led);
 
-	ret = lm3601x_parse_node(led, &fwnode);
+	ret = lm3601x_parse_node(led);
 	if (ret)
 		return -ENODEV;
 
@@ -437,13 +442,14 @@ static int lm3601x_probe(struct i2c_client *client)
 
 	mutex_init(&led->lock);
 
-	return lm3601x_register_leds(led, fwnode);
+	return lm3601x_register_leds(led);
 }
 
 static int lm3601x_remove(struct i2c_client *client)
 {
 	struct lm3601x_led *led = i2c_get_clientdata(client);
 
+	led_classdev_flash_unregister(&led->fled_cdev);
 	mutex_destroy(&led->lock);
 
 	return regmap_update_bits(led->regmap, LM3601X_ENABLE_REG,

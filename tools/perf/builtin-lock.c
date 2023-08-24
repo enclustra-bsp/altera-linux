@@ -4,13 +4,14 @@
 #include "builtin.h"
 #include "perf.h"
 
-#include "util/evlist.h" // for struct evsel_str_handler
+#include "util/evlist.h"
 #include "util/evsel.h"
+#include "util/util.h"
+#include "util/cache.h"
 #include "util/symbol.h"
 #include "util/thread.h"
 #include "util/header.h"
 
-#include <subcmd/pager.h>
 #include <subcmd/parse-options.h>
 #include "util/trace-event.h"
 
@@ -29,8 +30,6 @@
 #include <linux/list.h>
 #include <linux/hash.h>
 #include <linux/kernel.h>
-#include <linux/zalloc.h>
-#include <linux/err.h>
 
 static struct perf_session *session;
 
@@ -48,7 +47,7 @@ struct lock_stat {
 	struct rb_node		rb;		/* used for sorting */
 
 	/*
-	 * FIXME: evsel__intval() returns u64,
+	 * FIXME: perf_evsel__intval() returns u64,
 	 * so address of lockdep_map should be dealed as 64bit.
 	 * Is there more better solution?
 	 */
@@ -348,16 +347,16 @@ alloc_failed:
 }
 
 struct trace_lock_handler {
-	int (*acquire_event)(struct evsel *evsel,
+	int (*acquire_event)(struct perf_evsel *evsel,
 			     struct perf_sample *sample);
 
-	int (*acquired_event)(struct evsel *evsel,
+	int (*acquired_event)(struct perf_evsel *evsel,
 			      struct perf_sample *sample);
 
-	int (*contended_event)(struct evsel *evsel,
+	int (*contended_event)(struct perf_evsel *evsel,
 			       struct perf_sample *sample);
 
-	int (*release_event)(struct evsel *evsel,
+	int (*release_event)(struct perf_evsel *evsel,
 			     struct perf_sample *sample);
 };
 
@@ -397,16 +396,16 @@ enum acquire_flags {
 	READ_LOCK = 2,
 };
 
-static int report_lock_acquire_event(struct evsel *evsel,
+static int report_lock_acquire_event(struct perf_evsel *evsel,
 				     struct perf_sample *sample)
 {
 	void *addr;
 	struct lock_stat *ls;
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
-	const char *name = evsel__strval(evsel, sample, "name");
-	u64 tmp	 = evsel__intval(evsel, sample, "lockdep_addr");
-	int flag = evsel__intval(evsel, sample, "flags");
+	const char *name = perf_evsel__strval(evsel, sample, "name");
+	u64 tmp = perf_evsel__intval(evsel, sample, "lockdep_addr");
+	int flag = perf_evsel__intval(evsel, sample, "flag");
 
 	memcpy(&addr, &tmp, sizeof(void *));
 
@@ -455,7 +454,7 @@ broken:
 		/* broken lock sequence, discard it */
 		ls->discard = 1;
 		bad_hist[BROKEN_ACQUIRE]++;
-		list_del_init(&seq->list);
+		list_del(&seq->list);
 		free(seq);
 		goto end;
 	default:
@@ -469,7 +468,7 @@ end:
 	return 0;
 }
 
-static int report_lock_acquired_event(struct evsel *evsel,
+static int report_lock_acquired_event(struct perf_evsel *evsel,
 				      struct perf_sample *sample)
 {
 	void *addr;
@@ -477,8 +476,8 @@ static int report_lock_acquired_event(struct evsel *evsel,
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
 	u64 contended_term;
-	const char *name = evsel__strval(evsel, sample, "name");
-	u64 tmp = evsel__intval(evsel, sample, "lockdep_addr");
+	const char *name = perf_evsel__strval(evsel, sample, "name");
+	u64 tmp = perf_evsel__intval(evsel, sample, "lockdep_addr");
 
 	memcpy(&addr, &tmp, sizeof(void *));
 
@@ -516,7 +515,7 @@ static int report_lock_acquired_event(struct evsel *evsel,
 		/* broken lock sequence, discard it */
 		ls->discard = 1;
 		bad_hist[BROKEN_ACQUIRED]++;
-		list_del_init(&seq->list);
+		list_del(&seq->list);
 		free(seq);
 		goto end;
 	default:
@@ -532,15 +531,15 @@ end:
 	return 0;
 }
 
-static int report_lock_contended_event(struct evsel *evsel,
+static int report_lock_contended_event(struct perf_evsel *evsel,
 				       struct perf_sample *sample)
 {
 	void *addr;
 	struct lock_stat *ls;
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
-	const char *name = evsel__strval(evsel, sample, "name");
-	u64 tmp = evsel__intval(evsel, sample, "lockdep_addr");
+	const char *name = perf_evsel__strval(evsel, sample, "name");
+	u64 tmp = perf_evsel__intval(evsel, sample, "lockdep_addr");
 
 	memcpy(&addr, &tmp, sizeof(void *));
 
@@ -571,7 +570,7 @@ static int report_lock_contended_event(struct evsel *evsel,
 		/* broken lock sequence, discard it */
 		ls->discard = 1;
 		bad_hist[BROKEN_CONTENDED]++;
-		list_del_init(&seq->list);
+		list_del(&seq->list);
 		free(seq);
 		goto end;
 	default:
@@ -587,15 +586,15 @@ end:
 	return 0;
 }
 
-static int report_lock_release_event(struct evsel *evsel,
+static int report_lock_release_event(struct perf_evsel *evsel,
 				     struct perf_sample *sample)
 {
 	void *addr;
 	struct lock_stat *ls;
 	struct thread_stat *ts;
 	struct lock_seq_stat *seq;
-	const char *name = evsel__strval(evsel, sample, "name");
-	u64 tmp = evsel__intval(evsel, sample, "lockdep_addr");
+	const char *name = perf_evsel__strval(evsel, sample, "name");
+	u64 tmp = perf_evsel__intval(evsel, sample, "lockdep_addr");
 
 	memcpy(&addr, &tmp, sizeof(void *));
 
@@ -621,7 +620,7 @@ static int report_lock_release_event(struct evsel *evsel,
 	case SEQ_STATE_READ_ACQUIRED:
 		seq->read_count--;
 		BUG_ON(seq->read_count < 0);
-		if (seq->read_count) {
+		if (!seq->read_count) {
 			ls->nr_release++;
 			goto end;
 		}
@@ -640,7 +639,7 @@ static int report_lock_release_event(struct evsel *evsel,
 
 	ls->nr_release++;
 free_seq:
-	list_del_init(&seq->list);
+	list_del(&seq->list);
 	free(seq);
 end:
 	return 0;
@@ -657,28 +656,32 @@ static struct trace_lock_handler report_lock_ops  = {
 
 static struct trace_lock_handler *trace_handler;
 
-static int evsel__process_lock_acquire(struct evsel *evsel, struct perf_sample *sample)
+static int perf_evsel__process_lock_acquire(struct perf_evsel *evsel,
+					     struct perf_sample *sample)
 {
 	if (trace_handler->acquire_event)
 		return trace_handler->acquire_event(evsel, sample);
 	return 0;
 }
 
-static int evsel__process_lock_acquired(struct evsel *evsel, struct perf_sample *sample)
+static int perf_evsel__process_lock_acquired(struct perf_evsel *evsel,
+					      struct perf_sample *sample)
 {
 	if (trace_handler->acquired_event)
 		return trace_handler->acquired_event(evsel, sample);
 	return 0;
 }
 
-static int evsel__process_lock_contended(struct evsel *evsel, struct perf_sample *sample)
+static int perf_evsel__process_lock_contended(struct perf_evsel *evsel,
+					      struct perf_sample *sample)
 {
 	if (trace_handler->contended_event)
 		return trace_handler->contended_event(evsel, sample);
 	return 0;
 }
 
-static int evsel__process_lock_release(struct evsel *evsel, struct perf_sample *sample)
+static int perf_evsel__process_lock_release(struct perf_evsel *evsel,
+					    struct perf_sample *sample)
 {
 	if (trace_handler->release_event)
 		return trace_handler->release_event(evsel, sample);
@@ -771,7 +774,7 @@ static void dump_threads(void)
 		pr_info("%10d: %s\n", st->tid, thread__comm_str(t));
 		node = rb_next(node);
 		thread__put(t);
-	}
+	};
 }
 
 static void dump_map(void)
@@ -803,13 +806,13 @@ static int dump_info(void)
 	return rc;
 }
 
-typedef int (*tracepoint_handler)(struct evsel *evsel,
+typedef int (*tracepoint_handler)(struct perf_evsel *evsel,
 				  struct perf_sample *sample);
 
 static int process_sample_event(struct perf_tool *tool __maybe_unused,
 				union perf_event *event,
 				struct perf_sample *sample,
-				struct evsel *evsel,
+				struct perf_evsel *evsel,
 				struct machine *machine)
 {
 	int err = 0;
@@ -844,11 +847,11 @@ static void sort_result(void)
 	}
 }
 
-static const struct evsel_str_handler lock_tracepoints[] = {
-	{ "lock:lock_acquire",	 evsel__process_lock_acquire,   }, /* CONFIG_LOCKDEP */
-	{ "lock:lock_acquired",	 evsel__process_lock_acquired,  }, /* CONFIG_LOCKDEP, CONFIG_LOCK_STAT */
-	{ "lock:lock_contended", evsel__process_lock_contended, }, /* CONFIG_LOCKDEP, CONFIG_LOCK_STAT */
-	{ "lock:lock_release",	 evsel__process_lock_release,   }, /* CONFIG_LOCKDEP */
+static const struct perf_evsel_str_handler lock_tracepoints[] = {
+	{ "lock:lock_acquire",	 perf_evsel__process_lock_acquire,   }, /* CONFIG_LOCKDEP */
+	{ "lock:lock_acquired",	 perf_evsel__process_lock_acquired,  }, /* CONFIG_LOCKDEP, CONFIG_LOCK_STAT */
+	{ "lock:lock_contended", perf_evsel__process_lock_contended, }, /* CONFIG_LOCKDEP, CONFIG_LOCK_STAT */
+	{ "lock:lock_release",	 perf_evsel__process_lock_release,   }, /* CONFIG_LOCKDEP */
 };
 
 static bool force;
@@ -863,15 +866,17 @@ static int __cmd_report(bool display_info)
 		.ordered_events	 = true,
 	};
 	struct perf_data data = {
-		.path  = input_name,
-		.mode  = PERF_DATA_MODE_READ,
-		.force = force,
+		.file      = {
+			.path = input_name,
+		},
+		.mode      = PERF_DATA_MODE_READ,
+		.force     = force,
 	};
 
 	session = perf_session__new(&data, false, &eops);
-	if (IS_ERR(session)) {
+	if (!session) {
 		pr_err("Initializing perf session failed\n");
-		return PTR_ERR(session);
+		return -1;
 	}
 
 	symbol__init(&session->header.env);

@@ -25,30 +25,24 @@
  *          Alex Deucher
  *          Jerome Glisse
  */
-
-#include <linux/firmware.h>
-#include <linux/module.h>
-#include <linux/pci.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
-
-#include <drm/drm_debugfs.h>
-#include <drm/drm_device.h>
-#include <drm/drm_file.h>
-#include <drm/drm_fourcc.h>
-#include <drm/drm_vblank.h>
+#include <drm/drmP.h>
 #include <drm/radeon_drm.h>
-
-#include "atom.h"
-#include "r100_reg_safe.h"
-#include "r100d.h"
+#include "radeon_reg.h"
 #include "radeon.h"
 #include "radeon_asic.h"
-#include "radeon_reg.h"
-#include "rn50_reg_safe.h"
+#include "r100d.h"
 #include "rs100d.h"
 #include "rv200d.h"
 #include "rv250d.h"
+#include "atom.h"
+
+#include <linux/firmware.h>
+#include <linux/module.h>
+
+#include "r100_reg_safe.h"
+#include "rn50_reg_safe.h"
 
 /* Firmware Names */
 #define FIRMWARE_R100		"radeon/R100_cp.bin"
@@ -891,7 +885,7 @@ struct radeon_fence *r100_copy_blit(struct radeon_device *rdev,
 				    uint64_t src_offset,
 				    uint64_t dst_offset,
 				    unsigned num_gpu_pages,
-				    struct dma_resv *resv)
+				    struct reservation_object *resv)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 	struct radeon_fence *fence;
@@ -1823,11 +1817,11 @@ static int r100_packet0_check(struct radeon_cs_parser *p,
 	case RADEON_PP_TXFORMAT_2:
 		i = (reg - RADEON_PP_TXFORMAT_0) / 24;
 		if (idx_value & RADEON_TXFORMAT_NON_POWER2) {
-			track->textures[i].use_pitch = true;
+			track->textures[i].use_pitch = 1;
 		} else {
-			track->textures[i].use_pitch = false;
-			track->textures[i].width = 1 << ((idx_value & RADEON_TXFORMAT_WIDTH_MASK) >> RADEON_TXFORMAT_WIDTH_SHIFT);
-			track->textures[i].height = 1 << ((idx_value & RADEON_TXFORMAT_HEIGHT_MASK) >> RADEON_TXFORMAT_HEIGHT_SHIFT);
+			track->textures[i].use_pitch = 0;
+			track->textures[i].width = 1 << ((idx_value >> RADEON_TXFORMAT_WIDTH_SHIFT) & RADEON_TXFORMAT_WIDTH_MASK);
+			track->textures[i].height = 1 << ((idx_value >> RADEON_TXFORMAT_HEIGHT_SHIFT) & RADEON_TXFORMAT_HEIGHT_MASK);
 		}
 		if (idx_value & RADEON_TXFORMAT_CUBIC_MAP_ENABLE)
 			track->textures[i].tex_coord_type = 2;
@@ -2387,12 +2381,12 @@ void r100_cs_track_clear(struct radeon_device *rdev, struct r100_cs_track *track
 		else
 			track->num_texture = 6;
 		track->maxy = 2048;
-		track->separate_cube = true;
+		track->separate_cube = 1;
 	} else {
 		track->num_cb = 4;
 		track->num_texture = 16;
 		track->maxy = 4096;
-		track->separate_cube = false;
+		track->separate_cube = 0;
 		track->aaresolve = false;
 		track->aa.robj = NULL;
 	}
@@ -2476,7 +2470,7 @@ static int r100_rbbm_fifo_wait_for_entry(struct radeon_device *rdev, unsigned n)
 		if (tmp >= n) {
 			return 0;
 		}
-		udelay(1);
+		DRM_UDELAY(1);
 	}
 	return -1;
 }
@@ -2494,7 +2488,7 @@ int r100_gui_wait_for_idle(struct radeon_device *rdev)
 		if (!(tmp & RADEON_RBBM_ACTIVE)) {
 			return 0;
 		}
-		udelay(1);
+		DRM_UDELAY(1);
 	}
 	return -1;
 }
@@ -2510,7 +2504,7 @@ int r100_mc_wait_for_idle(struct radeon_device *rdev)
 		if (tmp & RADEON_MC_IDLE) {
 			return 0;
 		}
-		udelay(1);
+		DRM_UDELAY(1);
 	}
 	return -1;
 }
@@ -2815,7 +2809,7 @@ void r100_vga_set_state(struct radeon_device *rdev, bool state)
 	uint32_t temp;
 
 	temp = RREG32(RADEON_CONFIG_CNTL);
-	if (!state) {
+	if (state == false) {
 		temp &= ~RADEON_CFG_VGA_RAM_EN;
 		temp |= RADEON_CFG_VGA_IO_DIS;
 	} else {
@@ -3675,7 +3669,7 @@ int r100_ring_test(struct radeon_device *rdev, struct radeon_ring *ring)
 		if (tmp == 0xDEADBEEF) {
 			break;
 		}
-		udelay(1);
+		DRM_UDELAY(1);
 	}
 	if (i < rdev->usec_timeout) {
 		DRM_INFO("ring test succeeded in %d usecs\n", i);
@@ -3752,7 +3746,7 @@ int r100_ib_test(struct radeon_device *rdev, struct radeon_ring *ring)
 		if (tmp == 0xDEADBEEF) {
 			break;
 		}
-		udelay(1);
+		DRM_UDELAY(1);
 	}
 	if (i < rdev->usec_timeout) {
 		DRM_INFO("ib test succeeded in %u usecs\n", i);

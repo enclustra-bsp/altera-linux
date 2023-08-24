@@ -33,7 +33,7 @@ void flush_cpu_work(void);
 struct op_sample {
 	unsigned long eip;
 	unsigned long event;
-	unsigned long data[];
+	unsigned long data[0];
 };
 
 struct op_entry;

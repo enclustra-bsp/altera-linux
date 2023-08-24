@@ -86,7 +86,7 @@
 #ifdef DEBUG
 #define dprintk(X...)	printk(X)
 #else
-#define dprintk(X...)	no_printk(X)
+#define dprintk(X...)
 #endif
 
 #ifndef PCI_SS_VENDOR_ID_SIEMENS_NIXDORF

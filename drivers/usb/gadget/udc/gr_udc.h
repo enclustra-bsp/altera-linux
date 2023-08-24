@@ -8,7 +8,7 @@
  * GRLIB VHDL IP core library.
  *
  * Full documentation of the GRUSBDC core can be found here:
- * https://www.gaisler.com/products/grlib/grip.pdf
+ * http://www.gaisler.com/products/grlib/grip.pdf
  *
  * Contributors:
  * - Andreas Larsson <andreas@gaisler.com>

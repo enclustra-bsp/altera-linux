@@ -20,8 +20,7 @@ do {					\
 
 struct pt_regs;
 
-void die(struct pt_regs *regs, const char *str);
+void die_if_kernel(char *str, struct pt_regs *regs, int nr);
 void show_regs(struct pt_regs *regs);
-void show_code(struct pt_regs *regs);
 
 #endif /* __ASM_CSKY_BUG_H */

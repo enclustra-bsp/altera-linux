@@ -1,8 +1,19 @@
-// SPDX-License-Identifier: GPL-2.0+
-/*
- * Driver for Realtek PCI-Express card reader
+/* Driver for Realtek PCI-Express card reader
  *
  * Copyright(c) 2009-2013 Realtek Semiconductor Corp. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author:
  *   Wei WANG (wei_wang@realsil.com.cn)
@@ -226,6 +237,12 @@ static struct scsi_host_template rtsx_host_template = {
 	/* limit the total size of a transfer to 120 KB */
 	.max_sectors =                  240,
 
+	/* merge commands... this seems to help performance, but
+	 * periodically someone should test to see which setting is more
+	 * optimal.
+	 */
+	.use_clustering =		1,
+
 	/* emulated HBA */
 	.emulated =			1,
 
@@ -258,12 +275,12 @@ static int rtsx_acquire_irq(struct rtsx_dev *dev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
 /*
  * power management
  */
-static int __maybe_unused rtsx_suspend(struct device *dev_d)
+static int rtsx_suspend(struct pci_dev *pci, pm_message_t state)
 {
-	struct pci_dev *pci = to_pci_dev(dev_d);
 	struct rtsx_dev *dev = pci_get_drvdata(pci);
 	struct rtsx_chip *chip;
 
@@ -283,9 +300,12 @@ static int __maybe_unused rtsx_suspend(struct device *dev_d)
 	}
 
 	if (chip->msi_en)
-		pci_free_irq_vectors(pci);
+		pci_disable_msi(pci);
 
-	device_wakeup_enable(dev_d);
+	pci_save_state(pci);
+	pci_enable_wake(pci, pci_choose_state(pci, state), 1);
+	pci_disable_device(pci);
+	pci_set_power_state(pci, pci_choose_state(pci, state));
 
 	/* unlock the device pointers */
 	mutex_unlock(&dev->dev_mutex);
@@ -293,9 +313,8 @@ static int __maybe_unused rtsx_suspend(struct device *dev_d)
 	return 0;
 }
 
-static int __maybe_unused rtsx_resume(struct device *dev_d)
+static int rtsx_resume(struct pci_dev *pci)
 {
-	struct pci_dev *pci = to_pci_dev(dev_d);
 	struct rtsx_dev *dev = pci_get_drvdata(pci);
 	struct rtsx_chip *chip;
 
@@ -307,10 +326,20 @@ static int __maybe_unused rtsx_resume(struct device *dev_d)
 	/* lock the device pointers */
 	mutex_lock(&dev->dev_mutex);
 
+	pci_set_power_state(pci, PCI_D0);
+	pci_restore_state(pci);
+	if (pci_enable_device(pci) < 0) {
+		dev_err(&dev->pci->dev,
+			"%s: pci_enable_device failed, disabling device\n",
+			CR_DRIVER_NAME);
+		/* unlock the device pointers */
+		mutex_unlock(&dev->dev_mutex);
+		return -EIO;
+	}
 	pci_set_master(pci);
 
 	if (chip->msi_en) {
-		if (pci_alloc_irq_vectors(pci, 1, 1, PCI_IRQ_MSI) < 0)
+		if (pci_enable_msi(pci) < 0)
 			chip->msi_en = 0;
 	}
 
@@ -328,6 +357,7 @@ static int __maybe_unused rtsx_resume(struct device *dev_d)
 
 	return 0;
 }
+#endif /* CONFIG_PM */
 
 static void rtsx_shutdown(struct pci_dev *pci)
 {
@@ -347,7 +377,7 @@ static void rtsx_shutdown(struct pci_dev *pci)
 	}
 
 	if (chip->msi_en)
-		pci_free_irq_vectors(pci);
+		pci_disable_msi(pci);
 
 	pci_disable_device(pci);
 }
@@ -594,7 +624,7 @@ static void rtsx_release_resources(struct rtsx_dev *dev)
 	if (dev->irq > 0)
 		free_irq(dev->irq, (void *)dev);
 	if (dev->chip->msi_en)
-		pci_free_irq_vectors(dev->pci);
+		pci_disable_msi(dev->pci);
 	if (dev->remap_addr)
 		iounmap(dev->remap_addr);
 
@@ -818,8 +848,7 @@ static int rtsx_probe(struct pci_dev *pci,
 	host = scsi_host_alloc(&rtsx_host_template, sizeof(*dev));
 	if (!host) {
 		dev_err(&pci->dev, "Unable to allocate the scsi host\n");
-		err = -ENOMEM;
-		goto scsi_host_alloc_fail;
+		return -ENOMEM;
 	}
 
 	dev = host_to_rtsx(host);
@@ -846,7 +875,7 @@ static int rtsx_probe(struct pci_dev *pci,
 	dev_info(&pci->dev, "Resource length: 0x%x\n",
 		 (unsigned int)pci_resource_len(pci, 0));
 	dev->addr = pci_resource_start(pci, 0);
-	dev->remap_addr = ioremap(dev->addr, pci_resource_len(pci, 0));
+	dev->remap_addr = ioremap_nocache(dev->addr, pci_resource_len(pci, 0));
 	if (!dev->remap_addr) {
 		dev_err(&pci->dev, "ioremap error\n");
 		err = -ENXIO;
@@ -861,8 +890,7 @@ static int rtsx_probe(struct pci_dev *pci,
 		 (unsigned long)(dev->addr), (unsigned long)(dev->remap_addr));
 
 	dev->rtsx_resv_buf = dmam_alloc_coherent(&pci->dev, RTSX_RESV_BUF_LEN,
-						 &dev->rtsx_resv_buf_addr,
-						 GFP_KERNEL);
+			&dev->rtsx_resv_buf_addr, GFP_KERNEL);
 	if (!dev->rtsx_resv_buf) {
 		dev_err(&pci->dev, "alloc dma buffer fail\n");
 		err = -ENXIO;
@@ -881,7 +909,7 @@ static int rtsx_probe(struct pci_dev *pci,
 	dev_info(&pci->dev, "pci->irq = %d\n", pci->irq);
 
 	if (dev->chip->msi_en) {
-		if (pci_alloc_irq_vectors(pci, 1, 1, PCI_IRQ_MSI) < 0)
+		if (pci_enable_msi(pci) < 0)
 			dev->chip->msi_en = 0;
 	}
 
@@ -952,16 +980,14 @@ irq_acquire_fail:
 	dev->chip->host_cmds_ptr = NULL;
 	dev->chip->host_sg_tbl_ptr = NULL;
 	if (dev->chip->msi_en)
-		pci_free_irq_vectors(dev->pci);
+		pci_disable_msi(dev->pci);
 dma_alloc_fail:
 	iounmap(dev->remap_addr);
 ioremap_fail:
 	kfree(dev->chip);
 chip_alloc_fail:
 	dev_err(&pci->dev, "%s failed\n", __func__);
-	scsi_host_put(host);
-scsi_host_alloc_fail:
-	pci_release_regions(pci);
+
 	return err;
 }
 
@@ -973,7 +999,6 @@ static void rtsx_remove(struct pci_dev *pci)
 
 	quiesce_and_remove_host(dev);
 	release_everything(dev);
-	pci_release_regions(pci);
 }
 
 /* PCI IDs */
@@ -987,15 +1012,16 @@ static const struct pci_device_id rtsx_ids[] = {
 
 MODULE_DEVICE_TABLE(pci, rtsx_ids);
 
-static SIMPLE_DEV_PM_OPS(rtsx_pm_ops, rtsx_suspend, rtsx_resume);
-
 /* pci_driver definition */
 static struct pci_driver rtsx_driver = {
 	.name = CR_DRIVER_NAME,
 	.id_table = rtsx_ids,
 	.probe = rtsx_probe,
 	.remove = rtsx_remove,
-	.driver.pm = &rtsx_pm_ops,
+#ifdef CONFIG_PM
+	.suspend = rtsx_suspend,
+	.resume = rtsx_resume,
+#endif
 	.shutdown = rtsx_shutdown,
 };
 

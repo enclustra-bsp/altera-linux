@@ -52,12 +52,15 @@ EXPORT_SYMBOL_GPL(tm6000_debug);
 
 static struct tm6000_fmt format[] = {
 	{
+		.name     = "4:2:2, packed, YVY2",
 		.fourcc   = V4L2_PIX_FMT_YUYV,
 		.depth    = 16,
 	}, {
+		.name     = "4:2:2, packed, UYVY",
 		.fourcc   = V4L2_PIX_FMT_UYVY,
 		.depth    = 16,
 	}, {
+		.name     = "A/V + VBI mux packet",
 		.fourcc   = V4L2_PIX_FMT_TM6000,
 		.depth    = 16,
 	}
@@ -103,7 +106,7 @@ static inline void buffer_filled(struct tm6000_core *dev,
 	dprintk(dev, V4L2_DEBUG_ISOC, "[%p/%d] wakeup\n", buf, buf->vb.i);
 	buf->vb.state = VIDEOBUF_DONE;
 	buf->vb.field_count++;
-	buf->vb.ts = ktime_get_ns();
+	v4l2_get_timestamp(&buf->vb.ts);
 
 	list_del(&buf->vb.queue);
 	wake_up(&buf->vb.done);
@@ -177,7 +180,7 @@ static int copy_streams(u8 *data, unsigned long len,
 			field = (header >> 11) & 0x1;
 			line  = (header >> 12) & 0x1ff;
 			cmd   = (header >> 21) & 0x7;
-			/* Validates header fields */
+			/* Validates haeder fields */
 			if (size > TM6000_URB_MSG_LEN)
 				size = TM6000_URB_MSG_LEN;
 			pktsize = TM6000_URB_MSG_LEN;
@@ -461,12 +464,11 @@ static int tm6000_alloc_urb_buffers(struct tm6000_core *dev)
 	if (dev->urb_buffer)
 		return 0;
 
-	dev->urb_buffer = kmalloc_array(num_bufs, sizeof(*dev->urb_buffer),
-					GFP_KERNEL);
+	dev->urb_buffer = kmalloc_array(num_bufs, sizeof(void *), GFP_KERNEL);
 	if (!dev->urb_buffer)
 		return -ENOMEM;
 
-	dev->urb_dma = kmalloc_array(num_bufs, sizeof(*dev->urb_dma),
+	dev->urb_dma = kmalloc_array(num_bufs, sizeof(dma_addr_t *),
 				     GFP_KERNEL);
 	if (!dev->urb_dma)
 		return -ENOMEM;
@@ -852,16 +854,22 @@ static int vidioc_querycap(struct file *file, void  *priv,
 					struct v4l2_capability *cap)
 {
 	struct tm6000_core *dev = ((struct tm6000_fh *)priv)->dev;
+	struct video_device *vdev = video_devdata(file);
 
 	strscpy(cap->driver, "tm6000", sizeof(cap->driver));
-	strscpy(cap->card, "Trident TM5600/6000/6010", sizeof(cap->card));
+	strscpy(cap->card, "Trident TVMaster TM5600/6000/6010",
+		sizeof(cap->card));
 	usb_make_path(dev->udev, cap->bus_info, sizeof(cap->bus_info));
-	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_READWRITE |
-			    V4L2_CAP_DEVICE_CAPS;
 	if (dev->tuner_type != TUNER_ABSENT)
-		cap->capabilities |= V4L2_CAP_TUNER;
-	if (dev->caps.has_radio)
-		cap->capabilities |= V4L2_CAP_RADIO;
+		cap->device_caps |= V4L2_CAP_TUNER;
+	if (vdev->vfl_type == VFL_TYPE_GRABBER)
+		cap->device_caps |= V4L2_CAP_VIDEO_CAPTURE |
+				V4L2_CAP_STREAMING |
+				V4L2_CAP_READWRITE;
+	else
+		cap->device_caps |= V4L2_CAP_RADIO;
+	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS |
+		V4L2_CAP_RADIO | V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_READWRITE;
 
 	return 0;
 }
@@ -872,6 +880,7 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void  *priv,
 	if (f->index >= ARRAY_SIZE(format))
 		return -EINVAL;
 
+	strscpy(f->description, format[f->index].name, sizeof(f->description));
 	f->pixelformat = format[f->index].fourcc;
 	return 0;
 }
@@ -1300,7 +1309,7 @@ static int __tm6000_open(struct file *file)
 		video_device_node_name(vdev));
 
 	switch (vdev->vfl_type) {
-	case VFL_TYPE_VIDEO:
+	case VFL_TYPE_GRABBER:
 		type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		break;
 	case VFL_TYPE_VBI:
@@ -1630,16 +1639,12 @@ int tm6000_v4l2_register(struct tm6000_core *dev)
 	vdev_init(dev, &dev->vfd, &tm6000_template, "video");
 
 	dev->vfd.ctrl_handler = &dev->ctrl_handler;
-	dev->vfd.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING |
-			       V4L2_CAP_READWRITE;
-	if (dev->tuner_type != TUNER_ABSENT)
-		dev->vfd.device_caps |= V4L2_CAP_TUNER;
 
 	/* init video dma queues */
 	INIT_LIST_HEAD(&dev->vidq.active);
 	INIT_LIST_HEAD(&dev->vidq.queued);
 
-	ret = video_register_device(&dev->vfd, VFL_TYPE_VIDEO, video_nr);
+	ret = video_register_device(&dev->vfd, VFL_TYPE_GRABBER, video_nr);
 
 	if (ret < 0) {
 		printk(KERN_INFO "%s: can't register video device\n",
@@ -1654,7 +1659,6 @@ int tm6000_v4l2_register(struct tm6000_core *dev)
 		vdev_init(dev, &dev->radio_dev, &tm6000_radio_template,
 							   "radio");
 		dev->radio_dev.ctrl_handler = &dev->radio_ctrl_handler;
-		dev->radio_dev.device_caps = V4L2_CAP_RADIO | V4L2_CAP_TUNER;
 		ret = video_register_device(&dev->radio_dev, VFL_TYPE_RADIO,
 					    radio_nr);
 		if (ret < 0) {

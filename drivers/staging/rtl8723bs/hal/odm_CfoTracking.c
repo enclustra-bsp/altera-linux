@@ -11,6 +11,11 @@ static void odm_SetCrystalCap(void *pDM_VOID, u8 CrystalCap)
 {
 	PDM_ODM_T pDM_Odm = (PDM_ODM_T)pDM_VOID;
 	PCFO_TRACKING pCfoTrack = &pDM_Odm->DM_CfoTrack;
+	bool bEEPROMCheck;
+	struct adapter *Adapter = pDM_Odm->Adapter;
+	struct hal_com_data *pHalData = GET_HAL_DATA(Adapter);
+
+	bEEPROMCheck = pHalData->EEPROMVersion >= 0x01;
 
 	if (pCfoTrack->CrystalCap == CrystalCap)
 		return;
@@ -40,11 +45,16 @@ static void odm_SetCrystalCap(void *pDM_VOID, u8 CrystalCap)
 static u8 odm_GetDefaultCrytaltalCap(void *pDM_VOID)
 {
 	PDM_ODM_T pDM_Odm = (PDM_ODM_T)pDM_VOID;
+	u8 CrystalCap = 0x20;
 
 	struct adapter *Adapter = pDM_Odm->Adapter;
 	struct hal_com_data *pHalData = GET_HAL_DATA(Adapter);
 
-	return pHalData->CrystalCap & 0x3f;
+	CrystalCap = pHalData->CrystalCap;
+
+	CrystalCap = CrystalCap & 0x3f;
+
+	return CrystalCap;
 }
 
 static void odm_SetATCStatus(void *pDM_VOID, bool ATCStatus)
@@ -298,7 +308,7 @@ void ODM_CfoTracking(void *pDM_VOID)
 void ODM_ParsingCFO(void *pDM_VOID, void *pPktinfo_VOID, s8 *pcfotail)
 {
 	PDM_ODM_T pDM_Odm = (PDM_ODM_T)pDM_VOID;
-	struct odm_packet_info *pPktinfo = pPktinfo_VOID;
+	struct odm_packet_info *pPktinfo = (struct odm_packet_info *)pPktinfo_VOID;
 	PCFO_TRACKING pCfoTrack = &pDM_Odm->DM_CfoTrack;
 	u8 i;
 

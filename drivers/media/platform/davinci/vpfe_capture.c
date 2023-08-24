@@ -1,6 +1,15 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2008-2009 Texas Instruments Inc
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  * Driver name : VPFE Capture driver
  *    VPFE Capture driver allows applications to capture and stream video
@@ -14,6 +23,7 @@
  *    YUV data through an in-built analog encoder or Digital LCD port. This
  *    driver is for capture through VPFE. A typical EVM using these SoCs have
  *    following high level configuration.
+ *
  *
  *    decoder(TVP5146/		YUV/
  *	     MT9T001)   -->  Raw Bayer RGB ---> MUX -> VPFE (CCDC/ISIF)
@@ -119,27 +129,57 @@ static const struct vpfe_standard vpfe_standards[] = {
 /* Used when raw Bayer image from ccdc is directly captured to SDRAM */
 static const struct vpfe_pixel_format vpfe_pix_fmts[] = {
 	{
-		.pixelformat = V4L2_PIX_FMT_SBGGR8,
+		.fmtdesc = {
+			.index = 0,
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			.description = "Bayer GrRBGb 8bit A-Law compr.",
+			.pixelformat = V4L2_PIX_FMT_SBGGR8,
+		},
 		.bpp = 1,
 	},
 	{
-		.pixelformat = V4L2_PIX_FMT_SBGGR16,
+		.fmtdesc = {
+			.index = 1,
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			.description = "Bayer GrRBGb - 16bit",
+			.pixelformat = V4L2_PIX_FMT_SBGGR16,
+		},
 		.bpp = 2,
 	},
 	{
-		.pixelformat = V4L2_PIX_FMT_SGRBG10DPCM8,
+		.fmtdesc = {
+			.index = 2,
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			.description = "Bayer GrRBGb 8bit DPCM compr.",
+			.pixelformat = V4L2_PIX_FMT_SGRBG10DPCM8,
+		},
 		.bpp = 1,
 	},
 	{
-		.pixelformat = V4L2_PIX_FMT_UYVY,
+		.fmtdesc = {
+			.index = 3,
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			.description = "YCbCr 4:2:2 Interleaved UYVY",
+			.pixelformat = V4L2_PIX_FMT_UYVY,
+		},
 		.bpp = 2,
 	},
 	{
-		.pixelformat = V4L2_PIX_FMT_YUYV,
+		.fmtdesc = {
+			.index = 4,
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			.description = "YCbCr 4:2:2 Interleaved YUYV",
+			.pixelformat = V4L2_PIX_FMT_YUYV,
+		},
 		.bpp = 2,
 	},
 	{
-		.pixelformat = V4L2_PIX_FMT_NV12,
+		.fmtdesc = {
+			.index = 5,
+			.type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+			.description = "Y/CbCr 4:2:0 - Semi planar",
+			.pixelformat = V4L2_PIX_FMT_NV12,
+		},
 		.bpp = 1,
 	},
 };
@@ -153,7 +193,7 @@ static const struct vpfe_pixel_format *vpfe_lookup_pix_format(u32 pix_format)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(vpfe_pix_fmts); i++) {
-		if (pix_format == vpfe_pix_fmts[i].pixelformat)
+		if (pix_format == vpfe_pix_fmts[i].fmtdesc.pixelformat)
 			return &vpfe_pix_fmts[i];
 	}
 	return NULL;
@@ -168,22 +208,21 @@ int vpfe_register_ccdc_device(const struct ccdc_hw_device *dev)
 	int ret = 0;
 	printk(KERN_NOTICE "vpfe_register_ccdc_device: %s\n", dev->name);
 
-	if (!dev->hw_ops.open ||
-	    !dev->hw_ops.enable ||
-	    !dev->hw_ops.set_hw_if_params ||
-	    !dev->hw_ops.configure ||
-	    !dev->hw_ops.set_buftype ||
-	    !dev->hw_ops.get_buftype ||
-	    !dev->hw_ops.enum_pix ||
-	    !dev->hw_ops.set_frame_format ||
-	    !dev->hw_ops.get_frame_format ||
-	    !dev->hw_ops.get_pixel_format ||
-	    !dev->hw_ops.set_pixel_format ||
-	    !dev->hw_ops.set_image_window ||
-	    !dev->hw_ops.get_image_window ||
-	    !dev->hw_ops.get_line_length ||
-	    !dev->hw_ops.getfid)
-		return -EINVAL;
+	BUG_ON(!dev->hw_ops.open);
+	BUG_ON(!dev->hw_ops.enable);
+	BUG_ON(!dev->hw_ops.set_hw_if_params);
+	BUG_ON(!dev->hw_ops.configure);
+	BUG_ON(!dev->hw_ops.set_buftype);
+	BUG_ON(!dev->hw_ops.get_buftype);
+	BUG_ON(!dev->hw_ops.enum_pix);
+	BUG_ON(!dev->hw_ops.set_frame_format);
+	BUG_ON(!dev->hw_ops.get_frame_format);
+	BUG_ON(!dev->hw_ops.get_pixel_format);
+	BUG_ON(!dev->hw_ops.set_pixel_format);
+	BUG_ON(!dev->hw_ops.set_image_window);
+	BUG_ON(!dev->hw_ops.get_image_window);
+	BUG_ON(!dev->hw_ops.get_line_length);
+	BUG_ON(!dev->hw_ops.getfid);
 
 	mutex_lock(&ccdc_lock);
 	if (!ccdc_cfg) {
@@ -479,7 +518,7 @@ static void vpfe_schedule_bottom_field(struct vpfe_device *vpfe_dev)
 
 static void vpfe_process_buffer_complete(struct vpfe_device *vpfe_dev)
 {
-	vpfe_dev->cur_frm->ts = ktime_get_ns();
+	v4l2_get_timestamp(&vpfe_dev->cur_frm->ts);
 	vpfe_dev->cur_frm->state = VIDEOBUF_DONE;
 	vpfe_dev->cur_frm->size = vpfe_dev->fmt.fmt.pix.sizeimage;
 	wake_up_interruptible(&vpfe_dev->cur_frm->done);
@@ -753,7 +792,7 @@ static const struct vpfe_pixel_format *
 	temp = 0;
 	found = 0;
 	while (ccdc_dev->hw_ops.enum_pix(&pix, temp) >= 0) {
-		if (vpfe_pix_fmt->pixelformat == pix) {
+		if (vpfe_pix_fmt->fmtdesc.pixelformat == pix) {
 			found = 1;
 			break;
 		}
@@ -848,6 +887,8 @@ static int vpfe_querycap(struct file *file, void  *priv,
 
 	v4l2_dbg(1, debug, &vpfe_dev->v4l2_dev, "vpfe_querycap\n");
 
+	cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
+	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
 	strscpy(cap->driver, CAPTURE_DRV_NAME, sizeof(cap->driver));
 	strscpy(cap->bus_info, "VPFE", sizeof(cap->bus_info));
 	strscpy(cap->card, vpfe_dev->cfg->card_name, sizeof(cap->card));
@@ -870,6 +911,7 @@ static int vpfe_enum_fmt_vid_cap(struct file *file, void  *priv,
 {
 	struct vpfe_device *vpfe_dev = video_drvdata(file);
 	const struct vpfe_pixel_format *pix_fmt;
+	int temp_index;
 	u32 pix;
 
 	v4l2_dbg(1, debug, &vpfe_dev->v4l2_dev, "vpfe_enum_fmt_vid_cap\n");
@@ -880,7 +922,9 @@ static int vpfe_enum_fmt_vid_cap(struct file *file, void  *priv,
 	/* Fill in the information about format */
 	pix_fmt = vpfe_lookup_pix_format(pix);
 	if (pix_fmt) {
-		fmt->pixelformat = pix_fmt->pixelformat;
+		temp_index = fmt->index;
+		*fmt = pix_fmt->fmtdesc;
+		fmt->index = temp_index;
 		return 0;
 	}
 	return -EINVAL;
@@ -1514,20 +1558,20 @@ static int vpfe_streamoff(struct file *file, void *priv,
 	return ret;
 }
 
-static int vpfe_g_pixelaspect(struct file *file, void *priv,
-			      int type, struct v4l2_fract *f)
+static int vpfe_cropcap(struct file *file, void *priv,
+			      struct v4l2_cropcap *crop)
 {
 	struct vpfe_device *vpfe_dev = video_drvdata(file);
 
-	v4l2_dbg(1, debug, &vpfe_dev->v4l2_dev, "vpfe_g_pixelaspect\n");
+	v4l2_dbg(1, debug, &vpfe_dev->v4l2_dev, "vpfe_cropcap\n");
 
-	if (type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+	if (crop->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
 	/* If std_index is invalid, then just return (== 1:1 aspect) */
 	if (vpfe_dev->std_index >= ARRAY_SIZE(vpfe_standards))
 		return 0;
 
-	*f = vpfe_standards[vpfe_dev->std_index].pixelaspect;
+	crop->pixelaspect = vpfe_standards[vpfe_dev->std_index].pixelaspect;
 	return 0;
 }
 
@@ -1633,7 +1677,7 @@ static const struct v4l2_ioctl_ops vpfe_ioctl_ops = {
 	.vidioc_dqbuf		 = vpfe_dqbuf,
 	.vidioc_streamon	 = vpfe_streamon,
 	.vidioc_streamoff	 = vpfe_streamoff,
-	.vidioc_g_pixelaspect	 = vpfe_g_pixelaspect,
+	.vidioc_cropcap		 = vpfe_cropcap,
 	.vidioc_g_selection	 = vpfe_g_selection,
 	.vidioc_s_selection	 = vpfe_s_selection,
 };
@@ -1715,7 +1759,7 @@ static int vpfe_probe(struct platform_device *pdev)
 
 	mutex_lock(&ccdc_lock);
 
-	strscpy(ccdc_cfg->name, vpfe_cfg->ccdc, sizeof(ccdc_cfg->name));
+	strncpy(ccdc_cfg->name, vpfe_cfg->ccdc, 32);
 	/* Get VINT0 irq resource */
 	res1 = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res1) {
@@ -1751,7 +1795,6 @@ static int vpfe_probe(struct platform_device *pdev)
 	vfd->ioctl_ops		= &vpfe_ioctl_ops;
 	vfd->tvnorms		= 0;
 	vfd->v4l2_dev		= &vpfe_dev->v4l2_dev;
-	vfd->device_caps	= V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	snprintf(vfd->name, sizeof(vfd->name),
 		 "%s_V%d.%d.%d",
 		 CAPTURE_DRV_NAME,
@@ -1780,7 +1823,7 @@ static int vpfe_probe(struct platform_device *pdev)
 		"video_dev=%p\n", &vpfe_dev->video_dev);
 	vpfe_dev->fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	ret = video_register_device(&vpfe_dev->video_dev,
-				    VFL_TYPE_VIDEO, -1);
+				    VFL_TYPE_GRABBER, -1);
 
 	if (ret) {
 		v4l2_err(pdev->dev.driver,

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/arch/arm/mach-omap1/board-nand.c
  *
@@ -9,6 +8,10 @@
  * Copyright (C) 2001 RidgeRun, Inc.
  * Author: RidgeRun, Inc.
  *         Greg Lonnon (glonnon@ridgerun.com) or info@ridgerun.com
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 #include <linux/kernel.h>
 #include <linux/io.h>

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Generic OPP helper interface for CPU device
  *
@@ -6,6 +5,10 @@
  *	Nishanth Menon
  *	Romit Dasgupta
  *	Kevin Hilman
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -124,7 +127,7 @@ void _dev_pm_opp_cpumask_remove_table(const struct cpumask *cpumask,
 			continue;
 		}
 
-		dev_pm_opp_remove_table(cpu_dev);
+		_dev_pm_opp_find_and_remove_table(cpu_dev);
 	}
 }
 

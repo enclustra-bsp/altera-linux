@@ -1368,7 +1368,7 @@ enum dcn10_input_csc_select {
 
 void dpp1_set_cursor_attributes(
 		struct dpp *dpp_base,
-		struct dc_cursor_attributes *cursor_attributes);
+		enum dc_cursor_color_format color_format);
 
 void dpp1_set_cursor_position(
 		struct dpp *dpp_base,
@@ -1486,8 +1486,7 @@ void dpp1_cnv_setup (
 		enum surface_pixel_format format,
 		enum expansion_mode mode,
 		struct dc_csc_transform input_csc_color_matrix,
-		enum dc_color_space input_color_space,
-		struct cnv_alpha_2bit_lut *alpha_2bit_lut);
+		enum dc_color_space input_color_space);
 
 void dpp1_full_bypass(struct dpp *dpp_base);
 
@@ -1499,11 +1498,6 @@ void dpp1_dppclk_control(
 void dpp1_set_hdr_multiplier(
 		struct dpp *dpp_base,
 		uint32_t multiplier);
-
-bool dpp1_get_optimal_number_of_taps(
-		struct dpp *dpp,
-		struct scaler_data *scl_data,
-		const struct scaling_taps *in_taps);
 
 void dpp1_construct(struct dcn10_dpp *dpp1,
 	struct dc_context *ctx,

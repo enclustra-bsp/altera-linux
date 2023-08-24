@@ -1,6 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright 2015 Linaro.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 #include <linux/sched.h>
 #include <linux/device.h>
@@ -285,7 +288,9 @@ static irqreturn_t zx_dma_int_handler(int irq, void *dev_id)
 		p = &d->phy[i];
 		c = p->vchan;
 		if (c) {
-			spin_lock(&c->vc.lock);
+			unsigned long flags;
+
+			spin_lock_irqsave(&c->vc.lock, flags);
 			if (c->cyclic) {
 				vchan_cyclic_callback(&p->ds_run->vd);
 			} else {
@@ -293,7 +298,7 @@ static irqreturn_t zx_dma_int_handler(int irq, void *dev_id)
 				p->ds_done = p->ds_run;
 				task = 1;
 			}
-			spin_unlock(&c->vc.lock);
+			spin_unlock_irqrestore(&c->vc.lock, flags);
 			irq_chan |= BIT(i);
 		}
 	}
@@ -752,13 +757,18 @@ static struct dma_chan *zx_of_dma_simple_xlate(struct of_phandle_args *dma_spec,
 static int zx_dma_probe(struct platform_device *op)
 {
 	struct zx_dma_dev *d;
+	struct resource *iores;
 	int i, ret = 0;
+
+	iores = platform_get_resource(op, IORESOURCE_MEM, 0);
+	if (!iores)
+		return -EINVAL;
 
 	d = devm_kzalloc(&op->dev, sizeof(*d), GFP_KERNEL);
 	if (!d)
 		return -ENOMEM;
 
-	d->base = devm_platform_ioremap_resource(op, 0);
+	d->base = devm_ioremap_resource(&op->dev, iores);
 	if (IS_ERR(d->base))
 		return PTR_ERR(d->base);
 
@@ -887,6 +897,7 @@ static int zx_dma_remove(struct platform_device *op)
 		list_del(&c->vc.chan.device_node);
 	}
 	clk_disable_unprepare(d->clk);
+	dmam_pool_destroy(d->pool);
 
 	return 0;
 }

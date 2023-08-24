@@ -28,6 +28,7 @@
    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+
 #ifndef H_QXL_DEV
 #define H_QXL_DEV
 
@@ -130,6 +131,8 @@ enum SpiceCursorType {
 /* qxl_dev.h */
 
 #pragma pack(push, 1)
+
+#define REDHAT_PCI_VENDOR_ID 0x1b36
 
 /* 0x100-0x11f reserved for spice, 0x1ff used for unstable work */
 #define QXL_DEVICE_ID_STABLE 0x0100

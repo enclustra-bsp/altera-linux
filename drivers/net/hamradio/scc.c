@@ -7,7 +7,7 @@
  *            ------------------
  *
  * You can find a subset of the documentation in 
- * Documentation/networking/device_drivers/hamradio/z8530drv.rst.
+ * Documentation/networking/z8530drv.txt.
  */
 
 /*

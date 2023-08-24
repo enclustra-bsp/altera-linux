@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2015 Thomas Meyer (thomas@m3y3r.de)
  * Copyright (C) 2002 - 2007 Jeff Dike (jdike@{addtoit,linux.intel}.com)
+ * Licensed under the GPL
  */
 
 #include <linux/mm.h>
@@ -9,6 +9,7 @@
 #include <linux/slab.h>
 
 #include <asm/pgalloc.h>
+#include <asm/pgtable.h>
 #include <asm/sections.h>
 #include <as-layout.h>
 #include <os.h>
@@ -18,20 +19,14 @@ static int init_stub_pte(struct mm_struct *mm, unsigned long proc,
 			 unsigned long kernel)
 {
 	pgd_t *pgd;
-	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
 
 	pgd = pgd_offset(mm, proc);
-
-	p4d = p4d_alloc(mm, pgd, proc);
-	if (!p4d)
-		goto out;
-
-	pud = pud_alloc(mm, p4d, proc);
+	pud = pud_alloc(mm, pgd, proc);
 	if (!pud)
-		goto out_pud;
+		goto out;
 
 	pmd = pmd_alloc(mm, pud, proc);
 	if (!pmd)
@@ -49,8 +44,6 @@ static int init_stub_pte(struct mm_struct *mm, unsigned long proc,
 	pmd_free(mm, pmd);
  out_pmd:
 	pud_free(mm, pud);
- out_pud:
-	p4d_free(mm, p4d);
  out:
 	return -ENOMEM;
 }
@@ -70,12 +63,12 @@ int init_new_context(struct task_struct *task, struct mm_struct *mm)
 	if (current->mm != NULL && current->mm != &init_mm)
 		from_mm = &current->mm->context;
 
-	block_signals_trace();
+	block_signals();
 	if (from_mm)
 		to_mm->id.u.pid = copy_context_skas0(stack,
 						     from_mm->id.u.pid);
 	else to_mm->id.u.pid = start_userspace(stack);
-	unblock_signals_trace();
+	unblock_signals();
 
 	if (to_mm->id.u.pid < 0) {
 		ret = to_mm->id.u.pid;
@@ -114,7 +107,7 @@ void uml_setup_stubs(struct mm_struct *mm)
 	mm->context.stub_pages[0] = virt_to_page(__syscall_stub_start);
 	mm->context.stub_pages[1] = virt_to_page(mm->context.id.stack);
 
-	/* dup_mmap already holds mmap_lock */
+	/* dup_mmap already holds mmap_sem */
 	err = install_special_mapping(mm, STUB_START, STUB_END - STUB_START,
 				      VM_READ | VM_MAYREAD | VM_EXEC |
 				      VM_MAYEXEC | VM_DONTCOPY | VM_PFNMAP,
@@ -126,7 +119,7 @@ void uml_setup_stubs(struct mm_struct *mm)
 	return;
 
 out:
-	force_sigsegv(SIGSEGV);
+	force_sigsegv(SIGSEGV, current);
 }
 
 void arch_exit_mmap(struct mm_struct *mm)

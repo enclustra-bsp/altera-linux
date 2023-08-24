@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Marvell 88E6xxx Switch Global 2 Scratch & Misc Registers support
  *
@@ -6,6 +5,11 @@
  *
  * Copyright (c) 2017 National Instruments
  *      Brandon Streiff <brandon.streiff@ni.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  */
 
 #include "chip.h"
@@ -37,15 +41,13 @@ static int mv88e6xxx_g2_scratch_write(struct mv88e6xxx_chip *chip, int reg,
 {
 	u16 value = (reg << 8) | data;
 
-	return mv88e6xxx_g2_write(chip, MV88E6XXX_G2_SCRATCH_MISC_MISC,
-				  MV88E6XXX_G2_SCRATCH_MISC_UPDATE | value);
+	return mv88e6xxx_g2_update(chip, MV88E6XXX_G2_SCRATCH_MISC_MISC, value);
 }
 
 /**
  * mv88e6xxx_g2_scratch_gpio_get_bit - get a bit
  * @chip: chip private data
- * @base_reg: base of scratch bits
- * @offset: index of bit within the register
+ * @nr: bit index
  * @set: is bit set?
  */
 static int mv88e6xxx_g2_scratch_get_bit(struct mv88e6xxx_chip *chip,
@@ -69,9 +71,8 @@ static int mv88e6xxx_g2_scratch_get_bit(struct mv88e6xxx_chip *chip,
 /**
  * mv88e6xxx_g2_scratch_gpio_set_bit - set (or clear) a bit
  * @chip: chip private data
- * @base_reg: base of scratch bits
- * @offset: index of bit within the register
- * @set: should this bit be set?
+ * @nr: bit index
+ * @set: set if true, clear if false
  *
  * Helper function for dealing with the direction and data registers.
  */
@@ -167,7 +168,6 @@ static int mv88e6352_g2_scratch_gpio_get_dir(struct mv88e6xxx_chip *chip,
  * mv88e6352_g2_scratch_gpio_set_dir - set direction of gpio pin
  * @chip: chip private data
  * @pin: gpio index
- * @input: should the gpio be an input, or an output?
  */
 static int mv88e6352_g2_scratch_gpio_set_dir(struct mv88e6xxx_chip *chip,
 					     unsigned int pin, bool input)

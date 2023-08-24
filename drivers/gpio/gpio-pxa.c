@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/arch/arm/plat-pxa/gpio.c
  *
@@ -7,6 +6,10 @@
  *  Author:	Nicolas Pitre
  *  Created:	Jun 15, 2001
  *  Copyright:	MontaVista Software Inc.
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License version 2 as
+ *  published by the Free Software Foundation.
  */
 #include <linux/module.h>
 #include <linux/clk.h>
@@ -242,7 +245,6 @@ static bool pxa_gpio_has_pinctrl(void)
 {
 	switch (gpio_type) {
 	case PXA3XX_GPIO:
-	case MMP2_GPIO:
 		return false;
 
 	default:
@@ -361,8 +363,11 @@ static int pxa_init_gpio_chip(struct pxa_gpio_chip *pchip, int ngpio,
 	pchip->chip.set = pxa_gpio_set;
 	pchip->chip.to_irq = pxa_gpio_to_irq;
 	pchip->chip.ngpio = ngpio;
-	pchip->chip.request = gpiochip_generic_request;
-	pchip->chip.free = gpiochip_generic_free;
+
+	if (pxa_gpio_has_pinctrl()) {
+		pchip->chip.request = gpiochip_generic_request;
+		pchip->chip.free = gpiochip_generic_free;
+	}
 
 #ifdef CONFIG_OF_GPIO
 	pchip->chip.of_node = np;
@@ -571,7 +576,7 @@ static int pxa_irq_domain_map(struct irq_domain *d, unsigned int irq,
 	return 0;
 }
 
-static const struct irq_domain_ops pxa_irq_domain_ops = {
+const struct irq_domain_ops pxa_irq_domain_ops = {
 	.map	= pxa_irq_domain_map,
 	.xlate	= irq_domain_xlate_twocell,
 };
@@ -616,6 +621,7 @@ static int pxa_gpio_probe(struct platform_device *pdev)
 {
 	struct pxa_gpio_chip *pchip;
 	struct pxa_gpio_bank *c;
+	struct resource *res;
 	struct clk *clk;
 	struct pxa_gpio_platform_data *info;
 	void __iomem *gpio_reg_base;
@@ -649,8 +655,8 @@ static int pxa_gpio_probe(struct platform_device *pdev)
 	if (!pchip->irqdomain)
 		return -ENOMEM;
 
-	irq0 = platform_get_irq_byname_optional(pdev, "gpio0");
-	irq1 = platform_get_irq_byname_optional(pdev, "gpio1");
+	irq0 = platform_get_irq_byname(pdev, "gpio0");
+	irq1 = platform_get_irq_byname(pdev, "gpio1");
 	irq_mux = platform_get_irq_byname(pdev, "gpio_mux");
 	if ((irq0 > 0 && irq1 <= 0) || (irq0 <= 0 && irq1 > 0)
 		|| (irq_mux <= 0))
@@ -658,10 +664,13 @@ static int pxa_gpio_probe(struct platform_device *pdev)
 
 	pchip->irq0 = irq0;
 	pchip->irq1 = irq1;
-
-	gpio_reg_base = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(gpio_reg_base))
-		return PTR_ERR(gpio_reg_base);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res)
+		return -EINVAL;
+	gpio_reg_base = devm_ioremap(&pdev->dev, res->start,
+				     resource_size(res));
+	if (!gpio_reg_base)
+		return -EINVAL;
 
 	clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(clk)) {
@@ -806,7 +815,7 @@ static void pxa_gpio_resume(void)
 #define pxa_gpio_resume		NULL
 #endif
 
-static struct syscore_ops pxa_gpio_syscore_ops = {
+struct syscore_ops pxa_gpio_syscore_ops = {
 	.suspend	= pxa_gpio_suspend,
 	.resume		= pxa_gpio_resume,
 };

@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 config CEPH_LIB
 	tristate "Ceph core library"
 	depends on INET
@@ -13,7 +12,7 @@ config CEPH_LIB
 	  common functionality to both the Ceph filesystem and
 	  to the rados block device (rbd).
 
-	  More information at https://ceph.io/.
+	  More information at http://ceph.newdream.net/.
 
 	  If unsure, say N.
 
@@ -39,6 +38,6 @@ config CEPH_LIB_USE_DNS_RESOLVER
 	  be resolved using the CONFIG_DNS_RESOLVER facility.
 
 	  For information on how to use CONFIG_DNS_RESOLVER consult
-	  Documentation/networking/dns_resolver.rst
+	  Documentation/networking/dns_resolver.txt
 
 	  If unsure, say N.

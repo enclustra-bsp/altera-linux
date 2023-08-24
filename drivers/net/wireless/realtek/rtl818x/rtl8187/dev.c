@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Linux device driver for RTL8187
  *
@@ -15,6 +14,10 @@
  *
  * Magic delays and register offsets below are taken from the original
  * r8187 driver sources.  Thanks to Realtek for their support!
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/usb.h>
@@ -441,13 +444,12 @@ static int rtl8187_init_urbs(struct ieee80211_hw *dev)
 		skb_queue_tail(&priv->rx_queue, skb);
 		usb_anchor_urb(entry, &priv->anchored);
 		ret = usb_submit_urb(entry, GFP_KERNEL);
+		usb_put_urb(entry);
 		if (ret) {
 			skb_unlink(skb, &priv->rx_queue);
 			usb_unanchor_urb(entry);
-			usb_put_urb(entry);
 			goto err;
 		}
-		usb_put_urb(entry);
 	}
 	return ret;
 

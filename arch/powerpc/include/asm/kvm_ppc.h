@@ -1,5 +1,16 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2, as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  * Copyright IBM Corp. 2008
  *
@@ -25,8 +36,6 @@
 #endif
 #ifdef CONFIG_KVM_BOOK3S_64_HANDLER
 #include <asm/paca.h>
-#include <asm/xive.h>
-#include <asm/cpu_has_feature.h>
 #endif
 
 /*
@@ -58,28 +67,28 @@ enum xlate_readwrite {
 	XLATE_WRITE		/* check for write permissions */
 };
 
-extern int kvmppc_vcpu_run(struct kvm_vcpu *vcpu);
-extern int __kvmppc_vcpu_run(struct kvm_vcpu *vcpu);
+extern int kvmppc_vcpu_run(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu);
+extern int __kvmppc_vcpu_run(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu);
 extern void kvmppc_handler_highmem(void);
 
 extern void kvmppc_dump_vcpu(struct kvm_vcpu *vcpu);
-extern int kvmppc_handle_load(struct kvm_vcpu *vcpu,
+extern int kvmppc_handle_load(struct kvm_run *run, struct kvm_vcpu *vcpu,
                               unsigned int rt, unsigned int bytes,
 			      int is_default_endian);
-extern int kvmppc_handle_loads(struct kvm_vcpu *vcpu,
+extern int kvmppc_handle_loads(struct kvm_run *run, struct kvm_vcpu *vcpu,
                                unsigned int rt, unsigned int bytes,
 			       int is_default_endian);
-extern int kvmppc_handle_vsx_load(struct kvm_vcpu *vcpu,
+extern int kvmppc_handle_vsx_load(struct kvm_run *run, struct kvm_vcpu *vcpu,
 				unsigned int rt, unsigned int bytes,
 			int is_default_endian, int mmio_sign_extend);
-extern int kvmppc_handle_vmx_load(struct kvm_vcpu *vcpu,
+extern int kvmppc_handle_vmx_load(struct kvm_run *run, struct kvm_vcpu *vcpu,
 		unsigned int rt, unsigned int bytes, int is_default_endian);
-extern int kvmppc_handle_vmx_store(struct kvm_vcpu *vcpu,
+extern int kvmppc_handle_vmx_store(struct kvm_run *run, struct kvm_vcpu *vcpu,
 		unsigned int rs, unsigned int bytes, int is_default_endian);
-extern int kvmppc_handle_store(struct kvm_vcpu *vcpu,
+extern int kvmppc_handle_store(struct kvm_run *run, struct kvm_vcpu *vcpu,
 			       u64 val, unsigned int bytes,
 			       int is_default_endian);
-extern int kvmppc_handle_vsx_store(struct kvm_vcpu *vcpu,
+extern int kvmppc_handle_vsx_store(struct kvm_run *run, struct kvm_vcpu *vcpu,
 				int rs, unsigned int bytes,
 				int is_default_endian);
 
@@ -90,9 +99,10 @@ extern int kvmppc_ld(struct kvm_vcpu *vcpu, ulong *eaddr, int size, void *ptr,
 		     bool data);
 extern int kvmppc_st(struct kvm_vcpu *vcpu, ulong *eaddr, int size, void *ptr,
 		     bool data);
-extern int kvmppc_emulate_instruction(struct kvm_vcpu *vcpu);
+extern int kvmppc_emulate_instruction(struct kvm_run *run,
+                                      struct kvm_vcpu *vcpu);
 extern int kvmppc_emulate_loadstore(struct kvm_vcpu *vcpu);
-extern int kvmppc_emulate_mmio(struct kvm_vcpu *vcpu);
+extern int kvmppc_emulate_mmio(struct kvm_run *run, struct kvm_vcpu *vcpu);
 extern void kvmppc_emulate_dec(struct kvm_vcpu *vcpu);
 extern u32 kvmppc_get_dec(struct kvm_vcpu *vcpu, u64 tb);
 extern void kvmppc_decrementer_func(struct kvm_vcpu *vcpu);
@@ -106,6 +116,8 @@ extern void kvmppc_mmu_map(struct kvm_vcpu *vcpu, u64 gvaddr, gpa_t gpaddr,
                            unsigned int gtlb_idx);
 extern void kvmppc_mmu_priv_switch(struct kvm_vcpu *vcpu, int usermode);
 extern void kvmppc_mmu_switch_pid(struct kvm_vcpu *vcpu, u32 pid);
+extern void kvmppc_mmu_destroy(struct kvm_vcpu *vcpu);
+extern int kvmppc_mmu_init(struct kvm_vcpu *vcpu);
 extern int kvmppc_mmu_dtlb_index(struct kvm_vcpu *vcpu, gva_t eaddr);
 extern int kvmppc_mmu_itlb_index(struct kvm_vcpu *vcpu, gva_t eaddr);
 extern gpa_t kvmppc_mmu_xlate(struct kvm_vcpu *vcpu, unsigned int gtlb_index,
@@ -116,7 +128,8 @@ extern int kvmppc_xlate(struct kvm_vcpu *vcpu, ulong eaddr,
 			enum xlate_instdata xlid, enum xlate_readwrite xlrw,
 			struct kvmppc_pte *pte);
 
-extern int kvmppc_core_vcpu_create(struct kvm_vcpu *vcpu);
+extern struct kvm_vcpu *kvmppc_core_vcpu_create(struct kvm *kvm,
+                                                unsigned int id);
 extern void kvmppc_core_vcpu_free(struct kvm_vcpu *vcpu);
 extern int kvmppc_core_vcpu_setup(struct kvm_vcpu *vcpu);
 extern int kvmppc_core_check_processor_compat(void);
@@ -128,7 +141,6 @@ extern void kvmppc_core_vcpu_put(struct kvm_vcpu *vcpu);
 
 extern int kvmppc_core_prepare_to_enter(struct kvm_vcpu *vcpu);
 extern int kvmppc_core_pending_dec(struct kvm_vcpu *vcpu);
-extern void kvmppc_core_queue_machine_check(struct kvm_vcpu *vcpu, ulong flags);
 extern void kvmppc_core_queue_program(struct kvm_vcpu *vcpu, ulong flags);
 extern void kvmppc_core_queue_fpunavail(struct kvm_vcpu *vcpu);
 extern void kvmppc_core_queue_vec_unavail(struct kvm_vcpu *vcpu);
@@ -182,6 +194,10 @@ extern struct kvmppc_spapr_tce_table *kvmppc_find_table(
 		(iommu_tce_check_ioba((stt)->page_shift, (stt)->offset, \
 				(stt)->size, (ioba), (npages)) ?        \
 				H_PARAMETER : H_SUCCESS)
+extern long kvmppc_tce_to_ua(struct kvm *kvm, unsigned long tce,
+		unsigned long *ua, unsigned long **prmap);
+extern void kvmppc_tce_put(struct kvmppc_spapr_tce_table *tt,
+		unsigned long idx, unsigned long tce);
 extern long kvmppc_h_put_tce(struct kvm_vcpu *vcpu, unsigned long liobn,
 			     unsigned long ioba, unsigned long tce);
 extern long kvmppc_h_put_tce_indirect(struct kvm_vcpu *vcpu,
@@ -197,16 +213,18 @@ extern void kvm_free_hpt_cma(struct page *page, unsigned long nr_pages);
 extern int kvmppc_core_init_vm(struct kvm *kvm);
 extern void kvmppc_core_destroy_vm(struct kvm *kvm);
 extern void kvmppc_core_free_memslot(struct kvm *kvm,
-				     struct kvm_memory_slot *slot);
+				     struct kvm_memory_slot *free,
+				     struct kvm_memory_slot *dont);
+extern int kvmppc_core_create_memslot(struct kvm *kvm,
+				      struct kvm_memory_slot *slot,
+				      unsigned long npages);
 extern int kvmppc_core_prepare_memory_region(struct kvm *kvm,
 				struct kvm_memory_slot *memslot,
-				const struct kvm_userspace_memory_region *mem,
-				enum kvm_mr_change change);
+				const struct kvm_userspace_memory_region *mem);
 extern void kvmppc_core_commit_memory_region(struct kvm *kvm,
 				const struct kvm_userspace_memory_region *mem,
 				const struct kvm_memory_slot *old,
-				const struct kvm_memory_slot *new,
-				enum kvm_mr_change change);
+				const struct kvm_memory_slot *new);
 extern int kvm_vm_ioctl_get_smmu_info(struct kvm *kvm,
 				      struct kvm_ppc_smmu_info *info);
 extern void kvmppc_core_flush_memslot(struct kvm *kvm,
@@ -251,7 +269,6 @@ union kvmppc_one_reg {
 		u64	addr;
 		u64	length;
 	}	vpaval;
-	u64	xive_timaval[2];
 };
 
 struct kvmppc_ops {
@@ -264,33 +281,34 @@ struct kvmppc_ops {
 			   union kvmppc_one_reg *val);
 	void (*vcpu_load)(struct kvm_vcpu *vcpu, int cpu);
 	void (*vcpu_put)(struct kvm_vcpu *vcpu);
-	void (*inject_interrupt)(struct kvm_vcpu *vcpu, int vec, u64 srr1_flags);
 	void (*set_msr)(struct kvm_vcpu *vcpu, u64 msr);
-	int (*vcpu_run)(struct kvm_vcpu *vcpu);
-	int (*vcpu_create)(struct kvm_vcpu *vcpu);
+	int (*vcpu_run)(struct kvm_run *run, struct kvm_vcpu *vcpu);
+	struct kvm_vcpu *(*vcpu_create)(struct kvm *kvm, unsigned int id);
 	void (*vcpu_free)(struct kvm_vcpu *vcpu);
 	int (*check_requests)(struct kvm_vcpu *vcpu);
 	int (*get_dirty_log)(struct kvm *kvm, struct kvm_dirty_log *log);
 	void (*flush_memslot)(struct kvm *kvm, struct kvm_memory_slot *memslot);
 	int (*prepare_memory_region)(struct kvm *kvm,
 				     struct kvm_memory_slot *memslot,
-				     const struct kvm_userspace_memory_region *mem,
-				     enum kvm_mr_change change);
+				     const struct kvm_userspace_memory_region *mem);
 	void (*commit_memory_region)(struct kvm *kvm,
 				     const struct kvm_userspace_memory_region *mem,
 				     const struct kvm_memory_slot *old,
-				     const struct kvm_memory_slot *new,
-				     enum kvm_mr_change change);
+				     const struct kvm_memory_slot *new);
 	int (*unmap_hva_range)(struct kvm *kvm, unsigned long start,
 			   unsigned long end);
 	int (*age_hva)(struct kvm *kvm, unsigned long start, unsigned long end);
 	int (*test_age_hva)(struct kvm *kvm, unsigned long hva);
 	void (*set_spte_hva)(struct kvm *kvm, unsigned long hva, pte_t pte);
-	void (*free_memslot)(struct kvm_memory_slot *slot);
+	void (*mmu_destroy)(struct kvm_vcpu *vcpu);
+	void (*free_memslot)(struct kvm_memory_slot *free,
+			     struct kvm_memory_slot *dont);
+	int (*create_memslot)(struct kvm_memory_slot *slot,
+			      unsigned long npages);
 	int (*init_vm)(struct kvm *kvm);
 	void (*destroy_vm)(struct kvm *kvm);
 	int (*get_smmu_info)(struct kvm *kvm, struct kvm_ppc_smmu_info *info);
-	int (*emulate_op)(struct kvm_vcpu *vcpu,
+	int (*emulate_op)(struct kvm_run *run, struct kvm_vcpu *vcpu,
 			  unsigned int inst, int *advance);
 	int (*emulate_mtspr)(struct kvm_vcpu *vcpu, int sprn, ulong spr_val);
 	int (*emulate_mfspr)(struct kvm_vcpu *vcpu, int sprn, ulong *spr_val);
@@ -308,12 +326,6 @@ struct kvmppc_ops {
 			    unsigned long flags);
 	void (*giveup_ext)(struct kvm_vcpu *vcpu, ulong msr);
 	int (*enable_nested)(struct kvm *kvm);
-	int (*load_from_eaddr)(struct kvm_vcpu *vcpu, ulong *eaddr, void *ptr,
-			       int size);
-	int (*store_to_eaddr)(struct kvm_vcpu *vcpu, ulong *eaddr, void *ptr,
-			      int size);
-	int (*enable_svm)(struct kvm *kvm);
-	int (*svm_off)(struct kvm *kvm);
 };
 
 extern struct kvmppc_ops *kvmppc_hv_ops;
@@ -445,100 +457,9 @@ static inline u32 kvmppc_get_xics_latch(void)
 	return xirr;
 }
 
-/*
- * To avoid the need to unnecessarily exit fully to the host kernel, an IPI to
- * a CPU thread that's running/napping inside of a guest is by default regarded
- * as a request to wake the CPU (if needed) and continue execution within the
- * guest, potentially to process new state like externally-generated
- * interrupts or IPIs sent from within the guest itself (e.g. H_PROD/H_IPI).
- *
- * To force an exit to the host kernel, kvmppc_set_host_ipi() must be called
- * prior to issuing the IPI to set the corresponding 'host_ipi' flag in the
- * target CPU's PACA. To avoid unnecessary exits to the host, this flag should
- * be immediately cleared via kvmppc_clear_host_ipi() by the IPI handler on
- * the receiving side prior to processing the IPI work.
- *
- * NOTE:
- *
- * We currently issue an smp_mb() at the beginning of kvmppc_set_host_ipi().
- * This is to guard against sequences such as the following:
- *
- *      CPU
- *        X: smp_muxed_ipi_set_message():
- *        X:   smp_mb()
- *        X:   message[RESCHEDULE] = 1
- *        X: doorbell_global_ipi(42):
- *        X:   kvmppc_set_host_ipi(42)
- *        X:   ppc_msgsnd_sync()/smp_mb()
- *        X:   ppc_msgsnd() -> 42
- *       42: doorbell_exception(): // from CPU X
- *       42:   ppc_msgsync()
- *      105: smp_muxed_ipi_set_message():
- *      105:   smb_mb()
- *           // STORE DEFERRED DUE TO RE-ORDERING
- *    --105:   message[CALL_FUNCTION] = 1
- *    | 105: doorbell_global_ipi(42):
- *    | 105:   kvmppc_set_host_ipi(42)
- *    |  42:   kvmppc_clear_host_ipi(42)
- *    |  42: smp_ipi_demux_relaxed()
- *    |  42: // returns to executing guest
- *    |      // RE-ORDERED STORE COMPLETES
- *    ->105:   message[CALL_FUNCTION] = 1
- *      105:   ppc_msgsnd_sync()/smp_mb()
- *      105:   ppc_msgsnd() -> 42
- *       42: local_paca->kvm_hstate.host_ipi == 0 // IPI ignored
- *      105: // hangs waiting on 42 to process messages/call_single_queue
- *
- * We also issue an smp_mb() at the end of kvmppc_clear_host_ipi(). This is
- * to guard against sequences such as the following (as well as to create
- * a read-side pairing with the barrier in kvmppc_set_host_ipi()):
- *
- *      CPU
- *        X: smp_muxed_ipi_set_message():
- *        X:   smp_mb()
- *        X:   message[RESCHEDULE] = 1
- *        X: doorbell_global_ipi(42):
- *        X:   kvmppc_set_host_ipi(42)
- *        X:   ppc_msgsnd_sync()/smp_mb()
- *        X:   ppc_msgsnd() -> 42
- *       42: doorbell_exception(): // from CPU X
- *       42:   ppc_msgsync()
- *           // STORE DEFERRED DUE TO RE-ORDERING
- *    -- 42:   kvmppc_clear_host_ipi(42)
- *    |  42: smp_ipi_demux_relaxed()
- *    | 105: smp_muxed_ipi_set_message():
- *    | 105:   smb_mb()
- *    | 105:   message[CALL_FUNCTION] = 1
- *    | 105: doorbell_global_ipi(42):
- *    | 105:   kvmppc_set_host_ipi(42)
- *    |      // RE-ORDERED STORE COMPLETES
- *    -> 42:   kvmppc_clear_host_ipi(42)
- *       42: // returns to executing guest
- *      105:   ppc_msgsnd_sync()/smp_mb()
- *      105:   ppc_msgsnd() -> 42
- *       42: local_paca->kvm_hstate.host_ipi == 0 // IPI ignored
- *      105: // hangs waiting on 42 to process messages/call_single_queue
- */
-static inline void kvmppc_set_host_ipi(int cpu)
+static inline void kvmppc_set_host_ipi(int cpu, u8 host_ipi)
 {
-	/*
-	 * order stores of IPI messages vs. setting of host_ipi flag
-	 *
-	 * pairs with the barrier in kvmppc_clear_host_ipi()
-	 */
-	smp_mb();
-	paca_ptrs[cpu]->kvm_hstate.host_ipi = 1;
-}
-
-static inline void kvmppc_clear_host_ipi(int cpu)
-{
-	paca_ptrs[cpu]->kvm_hstate.host_ipi = 0;
-	/*
-	 * order clearing of host_ipi flag vs. processing of IPI messages
-	 *
-	 * pairs with the barrier in kvmppc_set_host_ipi()
-	 */
-	smp_mb();
+	paca_ptrs[cpu]->kvm_hstate.host_ipi = host_ipi;
 }
 
 static inline void kvmppc_fast_vcpu_kick(struct kvm_vcpu *vcpu)
@@ -549,9 +470,6 @@ static inline void kvmppc_fast_vcpu_kick(struct kvm_vcpu *vcpu)
 extern void kvm_hv_vm_activated(void);
 extern void kvm_hv_vm_deactivated(void);
 extern bool kvm_hv_mode_active(void);
-
-extern void kvmppc_check_need_tlb_flush(struct kvm *kvm, int pcpu,
-					struct kvm_nested_guest *nested);
 
 #else
 static inline void __init kvm_cma_reserve(void)
@@ -570,10 +488,7 @@ static inline u32 kvmppc_get_xics_latch(void)
 	return 0;
 }
 
-static inline void kvmppc_set_host_ipi(int cpu)
-{}
-
-static inline void kvmppc_clear_host_ipi(int cpu)
+static inline void kvmppc_set_host_ipi(int cpu, u8 host_ipi)
 {}
 
 static inline void kvmppc_fast_vcpu_kick(struct kvm_vcpu *vcpu)
@@ -670,23 +585,6 @@ extern int kvmppc_xive_set_icp(struct kvm_vcpu *vcpu, u64 icpval);
 extern int kvmppc_xive_set_irq(struct kvm *kvm, int irq_source_id, u32 irq,
 			       int level, bool line_status);
 extern void kvmppc_xive_push_vcpu(struct kvm_vcpu *vcpu);
-
-static inline int kvmppc_xive_enabled(struct kvm_vcpu *vcpu)
-{
-	return vcpu->arch.irq_type == KVMPPC_IRQ_XIVE;
-}
-
-extern int kvmppc_xive_native_connect_vcpu(struct kvm_device *dev,
-					   struct kvm_vcpu *vcpu, u32 cpu);
-extern void kvmppc_xive_native_cleanup_vcpu(struct kvm_vcpu *vcpu);
-extern void kvmppc_xive_native_init_module(void);
-extern void kvmppc_xive_native_exit_module(void);
-extern int kvmppc_xive_native_get_vp(struct kvm_vcpu *vcpu,
-				     union kvmppc_one_reg *val);
-extern int kvmppc_xive_native_set_vp(struct kvm_vcpu *vcpu,
-				     union kvmppc_one_reg *val);
-extern bool kvmppc_xive_native_supported(void);
-
 #else
 static inline int kvmppc_xive_set_xive(struct kvm *kvm, u32 irq, u32 server,
 				       u32 priority) { return -1; }
@@ -710,34 +608,7 @@ static inline int kvmppc_xive_set_icp(struct kvm_vcpu *vcpu, u64 icpval) { retur
 static inline int kvmppc_xive_set_irq(struct kvm *kvm, int irq_source_id, u32 irq,
 				      int level, bool line_status) { return -ENODEV; }
 static inline void kvmppc_xive_push_vcpu(struct kvm_vcpu *vcpu) { }
-
-static inline int kvmppc_xive_enabled(struct kvm_vcpu *vcpu)
-	{ return 0; }
-static inline int kvmppc_xive_native_connect_vcpu(struct kvm_device *dev,
-			  struct kvm_vcpu *vcpu, u32 cpu) { return -EBUSY; }
-static inline void kvmppc_xive_native_cleanup_vcpu(struct kvm_vcpu *vcpu) { }
-static inline void kvmppc_xive_native_init_module(void) { }
-static inline void kvmppc_xive_native_exit_module(void) { }
-static inline int kvmppc_xive_native_get_vp(struct kvm_vcpu *vcpu,
-					    union kvmppc_one_reg *val)
-{ return 0; }
-static inline int kvmppc_xive_native_set_vp(struct kvm_vcpu *vcpu,
-					    union kvmppc_one_reg *val)
-{ return -ENOENT; }
-
 #endif /* CONFIG_KVM_XIVE */
-
-#if defined(CONFIG_PPC_POWERNV) && defined(CONFIG_KVM_BOOK3S_64_HANDLER)
-static inline bool xics_on_xive(void)
-{
-	return xive_enabled() && cpu_has_feature(CPU_FTR_HVMODE);
-}
-#else
-static inline bool xics_on_xive(void)
-{
-	return false;
-}
-#endif
 
 /*
  * Prototypes for functions called only from assembler code.
@@ -755,7 +626,7 @@ long int kvmppc_rm_h_confer(struct kvm_vcpu *vcpu, int target,
                             unsigned int yield_count);
 long kvmppc_h_random(struct kvm_vcpu *vcpu);
 void kvmhv_commence_exit(int trap);
-void kvmppc_realmode_machine_check(struct kvm_vcpu *vcpu);
+long kvmppc_realmode_machine_check(struct kvm_vcpu *vcpu);
 void kvmppc_subcore_enter_guest(void);
 void kvmppc_subcore_exit_guest(void);
 long kvmppc_realmode_hmi_handler(void);
@@ -773,8 +644,6 @@ long kvmppc_h_clear_ref(struct kvm_vcpu *vcpu, unsigned long flags,
                         unsigned long pte_index);
 long kvmppc_h_clear_mod(struct kvm_vcpu *vcpu, unsigned long flags,
                         unsigned long pte_index);
-long kvmppc_rm_h_page_init(struct kvm_vcpu *vcpu, unsigned long flags,
-			   unsigned long dest, unsigned long src);
 long kvmppc_hpte_hv_fault(struct kvm_vcpu *vcpu, unsigned long addr,
                           unsigned long slb_v, unsigned int status, bool data);
 unsigned long kvmppc_rm_h_xirr(struct kvm_vcpu *vcpu);

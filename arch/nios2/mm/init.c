@@ -29,6 +29,7 @@
 
 #include <asm/setup.h>
 #include <asm/page.h>
+#include <asm/pgtable.h>
 #include <asm/sections.h>
 #include <asm/tlb.h>
 #include <asm/mmu_context.h>
@@ -45,15 +46,17 @@ pgd_t *pgd_current;
  */
 void __init paging_init(void)
 {
-	unsigned long max_zone_pfn[MAX_NR_ZONES] = { 0 };
+	unsigned long zones_size[MAX_NR_ZONES];
+
+	memset(zones_size, 0, sizeof(zones_size));
 
 	pagetable_init();
 	pgd_current = swapper_pg_dir;
 
-	max_zone_pfn[ZONE_NORMAL] = max_mapnr;
+	zones_size[ZONE_NORMAL] = max_mapnr;
 
 	/* pass the memory from the bootmem allocator to the main allocator */
-	free_area_init(max_zone_pfn);
+	free_area_init(zones_size);
 
 	flush_dcache_range((unsigned long)empty_zero_page,
 			(unsigned long)empty_zero_page + PAGE_SIZE);
@@ -77,6 +80,18 @@ void __init mem_init(void)
 void __init mmu_init(void)
 {
 	flush_tlb_all();
+}
+
+#ifdef CONFIG_BLK_DEV_INITRD
+void __init free_initrd_mem(unsigned long start, unsigned long end)
+{
+	free_reserved_area((void *)start, (void *)end, -1, "initrd");
+}
+#endif
+
+void __ref free_initmem(void)
+{
+	free_initmem_default(-1);
 }
 
 #define __page_aligned(order) __aligned(PAGE_SIZE << (order))
@@ -109,14 +124,14 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	struct mm_struct *mm = current->mm;
 	int ret;
 
-	mmap_write_lock(mm);
+	down_write(&mm->mmap_sem);
 
 	/* Map kuser helpers to user space address */
 	ret = install_special_mapping(mm, KUSER_BASE, KUSER_SIZE,
 				      VM_READ | VM_EXEC | VM_MAYREAD |
 				      VM_MAYEXEC, kuser_page);
 
-	mmap_write_unlock(mm);
+	up_write(&mm->mmap_sem);
 
 	return ret;
 }

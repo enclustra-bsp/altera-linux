@@ -347,6 +347,7 @@ static const struct rtc_class_ops spear_rtc_ops = {
 
 static int spear_rtc_probe(struct platform_device *pdev)
 {
+	struct resource *res;
 	struct spear_rtc_config *config;
 	int status = 0;
 	int irq;
@@ -357,8 +358,10 @@ static int spear_rtc_probe(struct platform_device *pdev)
 
 	/* alarm irqs */
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0)
+	if (irq < 0) {
+		dev_err(&pdev->dev, "no update irq?\n");
 		return irq;
+	}
 
 	status = devm_request_irq(&pdev->dev, irq, spear_rtc_irq, 0, pdev->name,
 			config);
@@ -368,7 +371,8 @@ static int spear_rtc_probe(struct platform_device *pdev)
 		return status;
 	}
 
-	config->ioaddr = devm_platform_ioremap_resource(pdev, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	config->ioaddr = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(config->ioaddr))
 		return PTR_ERR(config->ioaddr);
 

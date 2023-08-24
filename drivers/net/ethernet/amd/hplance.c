@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /* hplance.c  : the  Linux/hp300/lance ethernet driver
  *
  * Copyright (C) 05/1998 Peter Maydell <pmaydell@chiark.greenend.org.uk>
@@ -15,7 +14,6 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/errno.h>
-#include <linux/pgtable.h>
 /* Used for the temporal inet entries and routing */
 #include <linux/socket.h>
 #include <linux/route.h>
@@ -25,6 +23,7 @@
 #include <linux/skbuff.h>
 
 #include <asm/io.h>
+#include <asm/pgtable.h>
 
 #include "hplance.h"
 

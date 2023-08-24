@@ -87,11 +87,9 @@ struct amdgpu_irq {
 	/* status, etc. */
 	bool				msi_enabled; /* msi enabled */
 
-	/* interrupt rings */
-	struct amdgpu_ih_ring		ih, ih1, ih2;
-	const struct amdgpu_ih_funcs    *ih_funcs;
-	struct work_struct		ih1_work, ih2_work;
-	struct amdgpu_irq_src		self_irq;
+	/* interrupt ring */
+	struct amdgpu_ih_ring		ih;
+	const struct amdgpu_ih_funcs	*ih_funcs;
 
 	/* gen irq stuff */
 	struct irq_domain		*domain; /* GPU irq controller domain */
@@ -108,7 +106,7 @@ int amdgpu_irq_add_id(struct amdgpu_device *adev,
 		      unsigned client_id, unsigned src_id,
 		      struct amdgpu_irq_src *source);
 void amdgpu_irq_dispatch(struct amdgpu_device *adev,
-			 struct amdgpu_ih_ring *ih);
+			 struct amdgpu_iv_entry *entry);
 int amdgpu_irq_update(struct amdgpu_device *adev, struct amdgpu_irq_src *src,
 		      unsigned type);
 int amdgpu_irq_get(struct amdgpu_device *adev, struct amdgpu_irq_src *src,

@@ -1,5 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
+ *	This module:
+ *		This module is free software; you can redistribute it and/or
+ *		modify it under the terms of the GNU General Public License
+ *		as published by the Free Software Foundation; either version
+ *		2 of the License, or (at your option) any later version.
+ *
  *	History
  *	03-01-2007	Added forwarding for x.25	Andrew Hendry
  */
@@ -131,11 +136,13 @@ out:
 
 void x25_clear_forward_by_lci(unsigned int lci)
 {
-	struct x25_forward *fwd, *tmp;
+	struct x25_forward *fwd;
+	struct list_head *entry, *tmp;
 
 	write_lock_bh(&x25_forward_list_lock);
 
-	list_for_each_entry_safe(fwd, tmp, &x25_forward_list, node) {
+	list_for_each_safe(entry, tmp, &x25_forward_list) {
+		fwd = list_entry(entry, struct x25_forward, node);
 		if (fwd->lci == lci) {
 			list_del(&fwd->node);
 			kfree(fwd);
@@ -147,11 +154,13 @@ void x25_clear_forward_by_lci(unsigned int lci)
 
 void x25_clear_forward_by_dev(struct net_device *dev)
 {
-	struct x25_forward *fwd, *tmp;
+	struct x25_forward *fwd;
+	struct list_head *entry, *tmp;
 
 	write_lock_bh(&x25_forward_list_lock);
 
-	list_for_each_entry_safe(fwd, tmp, &x25_forward_list, node) {
+	list_for_each_safe(entry, tmp, &x25_forward_list) {
+		fwd = list_entry(entry, struct x25_forward, node);
 		if ((fwd->dev1 == dev) || (fwd->dev2 == dev)){
 			list_del(&fwd->node);
 			kfree(fwd);

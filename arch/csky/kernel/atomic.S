@@ -12,20 +12,18 @@
  * If *ptr != oldval && return 1,
  * else *ptr = newval return 0.
  */
+#ifdef CONFIG_CPU_HAS_LDSTEX
 ENTRY(csky_cmpxchg)
 	USPTOKSP
 	mfcr	a3, epc
-	addi	a3, TRAP0_SIZE
+	INCTRAP	a3
 
-	subi    sp, 16
+	subi    sp, 8
 	stw     a3, (sp, 0)
 	mfcr    a3, epsr
 	stw     a3, (sp, 4)
-	mfcr	a3, usp
-	stw     a3, (sp, 8)
 
 	psrset	ee
-#ifdef CONFIG_CPU_HAS_LDSTEX
 1:
 	ldex	a3, (a2)
 	cmpne	a0, a3
@@ -35,7 +33,27 @@ ENTRY(csky_cmpxchg)
 	bez	a3, 1b
 2:
 	sync.is
+	mvc	a0
+	ldw	a3, (sp, 0)
+	mtcr	a3, epc
+	ldw     a3, (sp, 4)
+	mtcr	a3, epsr
+	addi	sp, 8
+	KSPTOUSP
+	rte
+END(csky_cmpxchg)
 #else
+ENTRY(csky_cmpxchg)
+	USPTOKSP
+	mfcr	a3, epc
+	INCTRAP	a3
+
+	subi    sp, 8
+	stw     a3, (sp, 0)
+	mfcr    a3, epsr
+	stw     a3, (sp, 4)
+
+	psrset	ee
 1:
 	ldw	a3, (a2)
 	cmpne	a0, a3
@@ -43,20 +61,16 @@ ENTRY(csky_cmpxchg)
 2:
 	stw	a1, (a2)
 3:
-#endif
 	mvc	a0
 	ldw	a3, (sp, 0)
 	mtcr	a3, epc
 	ldw     a3, (sp, 4)
 	mtcr	a3, epsr
-	ldw     a3, (sp, 8)
-	mtcr	a3, usp
-	addi	sp, 16
+	addi	sp, 8
 	KSPTOUSP
 	rte
 END(csky_cmpxchg)
 
-#ifndef CONFIG_CPU_HAS_LDSTEX
 /*
  * Called from tlbmodified exception
  */

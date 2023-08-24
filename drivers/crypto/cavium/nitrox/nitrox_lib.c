@@ -19,17 +19,15 @@
 
 /* packet inuput ring alignments */
 #define PKTIN_Q_ALIGN_BYTES 16
-/* AQM Queue input alignments */
-#define AQM_Q_ALIGN_BYTES 32
 
 static int nitrox_cmdq_init(struct nitrox_cmdq *cmdq, int align_bytes)
 {
 	struct nitrox_device *ndev = cmdq->ndev;
 
 	cmdq->qsize = (ndev->qlen * cmdq->instr_size) + align_bytes;
-	cmdq->unalign_base = dma_alloc_coherent(DEV(ndev), cmdq->qsize,
-						&cmdq->unalign_dma,
-						GFP_KERNEL);
+	cmdq->unalign_base = dma_zalloc_coherent(DEV(ndev), cmdq->qsize,
+						 &cmdq->unalign_dma,
+						 GFP_KERNEL);
 	if (!cmdq->unalign_base)
 		return -ENOMEM;
 
@@ -59,15 +57,11 @@ static void nitrox_cmdq_reset(struct nitrox_cmdq *cmdq)
 
 static void nitrox_cmdq_cleanup(struct nitrox_cmdq *cmdq)
 {
-	struct nitrox_device *ndev;
-
-	if (!cmdq)
-		return;
+	struct nitrox_device *ndev = cmdq->ndev;
 
 	if (!cmdq->unalign_base)
 		return;
 
-	ndev = cmdq->ndev;
 	cancel_work_sync(&cmdq->backlog_qflush);
 
 	dma_free_coherent(DEV(ndev), cmdq->qsize,
@@ -82,57 +76,6 @@ static void nitrox_cmdq_cleanup(struct nitrox_cmdq *cmdq)
 	cmdq->dma = 0;
 	cmdq->qsize = 0;
 	cmdq->instr_size = 0;
-}
-
-static void nitrox_free_aqm_queues(struct nitrox_device *ndev)
-{
-	int i;
-
-	for (i = 0; i < ndev->nr_queues; i++) {
-		nitrox_cmdq_cleanup(ndev->aqmq[i]);
-		kfree_sensitive(ndev->aqmq[i]);
-		ndev->aqmq[i] = NULL;
-	}
-}
-
-static int nitrox_alloc_aqm_queues(struct nitrox_device *ndev)
-{
-	int i, err;
-
-	for (i = 0; i < ndev->nr_queues; i++) {
-		struct nitrox_cmdq *cmdq;
-		u64 offset;
-
-		cmdq = kzalloc_node(sizeof(*cmdq), GFP_KERNEL, ndev->node);
-		if (!cmdq) {
-			err = -ENOMEM;
-			goto aqmq_fail;
-		}
-
-		cmdq->ndev = ndev;
-		cmdq->qno = i;
-		cmdq->instr_size = sizeof(struct aqmq_command_s);
-
-		/* AQM Queue Doorbell Counter Register Address */
-		offset = AQMQ_DRBLX(i);
-		cmdq->dbell_csr_addr = NITROX_CSR_ADDR(ndev, offset);
-		/* AQM Queue Commands Completed Count Register Address */
-		offset = AQMQ_CMD_CNTX(i);
-		cmdq->compl_cnt_csr_addr = NITROX_CSR_ADDR(ndev, offset);
-
-		err = nitrox_cmdq_init(cmdq, AQM_Q_ALIGN_BYTES);
-		if (err) {
-			kfree_sensitive(cmdq);
-			goto aqmq_fail;
-		}
-		ndev->aqmq[i] = cmdq;
-	}
-
-	return 0;
-
-aqmq_fail:
-	nitrox_free_aqm_queues(ndev);
-	return err;
 }
 
 static void nitrox_free_pktin_queues(struct nitrox_device *ndev)
@@ -215,19 +158,12 @@ static void destroy_crypto_dma_pool(struct nitrox_device *ndev)
 void *crypto_alloc_context(struct nitrox_device *ndev)
 {
 	struct ctx_hdr *ctx;
-	struct crypto_ctx_hdr *chdr;
 	void *vaddr;
 	dma_addr_t dma;
 
-	chdr = kmalloc(sizeof(*chdr), GFP_KERNEL);
-	if (!chdr)
-		return NULL;
-
 	vaddr = dma_pool_zalloc(ndev->ctx_pool, GFP_KERNEL, &dma);
-	if (!vaddr) {
-		kfree(chdr);
+	if (!vaddr)
 		return NULL;
-	}
 
 	/* fill meta data */
 	ctx = vaddr;
@@ -235,11 +171,7 @@ void *crypto_alloc_context(struct nitrox_device *ndev)
 	ctx->dma = dma;
 	ctx->ctx_dma = dma + sizeof(struct ctx_hdr);
 
-	chdr->pool = ndev->ctx_pool;
-	chdr->dma = dma;
-	chdr->vaddr = vaddr;
-
-	return chdr;
+	return ((u8 *)vaddr + sizeof(struct ctx_hdr));
 }
 
 /**
@@ -248,14 +180,13 @@ void *crypto_alloc_context(struct nitrox_device *ndev)
  */
 void crypto_free_context(void *ctx)
 {
-	struct crypto_ctx_hdr *ctxp;
+	struct ctx_hdr *ctxp;
 
 	if (!ctx)
 		return;
 
-	ctxp = ctx;
-	dma_pool_free(ctxp->pool, ctxp->vaddr, ctxp->dma);
-	kfree(ctxp);
+	ctxp = (struct ctx_hdr *)((u8 *)ctx - sizeof(struct ctx_hdr));
+	dma_pool_free(ctxp->pool, ctxp, ctxp->dma);
 }
 
 /**
@@ -279,12 +210,6 @@ int nitrox_common_sw_init(struct nitrox_device *ndev)
 	if (err)
 		destroy_crypto_dma_pool(ndev);
 
-	err = nitrox_alloc_aqm_queues(ndev);
-	if (err) {
-		nitrox_free_pktin_queues(ndev);
-		destroy_crypto_dma_pool(ndev);
-	}
-
 	return err;
 }
 
@@ -294,7 +219,6 @@ int nitrox_common_sw_init(struct nitrox_device *ndev)
  */
 void nitrox_common_sw_cleanup(struct nitrox_device *ndev)
 {
-	nitrox_free_aqm_queues(ndev);
 	nitrox_free_pktin_queues(ndev);
 	destroy_crypto_dma_pool(ndev);
 }

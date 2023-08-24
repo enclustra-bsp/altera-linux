@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
-# SPDX-License-Identifier: GPL-2.0-only
 #
 # Copyright 2010 - Steven Rostedt <srostedt@redhat.com>, Red Hat Inc.
+# Licensed under the terms of the GNU GPL License version 2
 #
 
 use strict;
@@ -11,7 +11,6 @@ use File::Path qw(mkpath);
 use File::Copy qw(cp);
 use FileHandle;
 use FindBin;
-use IO::Handle;
 
 my $VERSION = "0.2";
 
@@ -31,7 +30,7 @@ my %default = (
     "EMAIL_WHEN_STARTED"	=> 0,
     "NUM_TESTS"			=> 1,
     "TEST_TYPE"			=> "build",
-    "BUILD_TYPE"		=> "oldconfig",
+    "BUILD_TYPE"		=> "randconfig",
     "MAKE_CMD"			=> "make",
     "CLOSE_CONSOLE_SIGNAL"	=> "INT",
     "TIMEOUT"			=> 120,
@@ -59,13 +58,11 @@ my %default = (
     "SCP_TO_TARGET"		=> "scp \$SRC_FILE \$SSH_USER\@\$MACHINE:\$DST_FILE",
     "SCP_TO_TARGET_INSTALL"	=> "\${SCP_TO_TARGET}",
     "REBOOT"			=> "ssh \$SSH_USER\@\$MACHINE reboot",
-    "REBOOT_RETURN_CODE"	=> 255,
     "STOP_AFTER_SUCCESS"	=> 10,
     "STOP_AFTER_FAILURE"	=> 60,
     "STOP_TEST_AFTER"		=> 600,
     "MAX_MONITOR_WAIT"		=> 1800,
     "GRUB_REBOOT"		=> "grub2-reboot",
-    "GRUB_BLS_GET"		=> "grubby --info=ALL",
     "SYSLINUX"			=> "extlinux",
     "SYSLINUX_PATH"		=> "/boot/extlinux",
     "CONNECT_TIMEOUT"		=> 25,
@@ -81,8 +78,6 @@ my %default = (
     "LOG_FILE"			=> undef,
     "IGNORE_UNUSED"		=> 0,
 );
-
-my $test_log_start = 0;
 
 my $ktest_config = "ktest.conf";
 my $version;
@@ -101,7 +96,6 @@ my $final_post_ktest;
 my $pre_ktest;
 my $post_ktest;
 my $pre_test;
-my $pre_test_die;
 my $post_test;
 my $pre_build;
 my $post_build;
@@ -111,7 +105,6 @@ my $reboot_type;
 my $reboot_script;
 my $power_cycle;
 my $reboot;
-my $reboot_return_code;
 my $reboot_on_error;
 my $switch_to_good;
 my $switch_to_test;
@@ -130,7 +123,6 @@ my $last_grub_menu;
 my $grub_file;
 my $grub_number;
 my $grub_reboot;
-my $grub_bls_get;
 my $syslinux;
 my $syslinux_path;
 my $syslinux_label;
@@ -227,7 +219,6 @@ my $dirname = $FindBin::Bin;
 my $mailto;
 my $mailer;
 my $mail_path;
-my $mail_max_size;
 my $mail_command;
 my $email_on_error;
 my $email_when_finished;
@@ -264,7 +255,6 @@ my %option_map = (
     "MAILTO"			=> \$mailto,
     "MAILER"			=> \$mailer,
     "MAIL_PATH"			=> \$mail_path,
-    "MAIL_MAX_SIZE"		=> \$mail_max_size,
     "MAIL_COMMAND"		=> \$mail_command,
     "EMAIL_ON_ERROR"		=> \$email_on_error,
     "EMAIL_WHEN_FINISHED"	=> \$email_when_finished,
@@ -279,7 +269,6 @@ my %option_map = (
     "PRE_KTEST"			=> \$pre_ktest,
     "POST_KTEST"		=> \$post_ktest,
     "PRE_TEST"			=> \$pre_test,
-    "PRE_TEST_DIE"		=> \$pre_test_die,
     "POST_TEST"			=> \$post_test,
     "BUILD_TYPE"		=> \$build_type,
     "BUILD_OPTIONS"		=> \$build_options,
@@ -289,7 +278,6 @@ my %option_map = (
     "POST_BUILD_DIE"		=> \$post_build_die,
     "POWER_CYCLE"		=> \$power_cycle,
     "REBOOT"			=> \$reboot,
-    "REBOOT_RETURN_CODE"	=> \$reboot_return_code,
     "BUILD_NOCLEAN"		=> \$noclean,
     "MIN_CONFIG"		=> \$minconfig,
     "OUTPUT_MIN_CONFIG"		=> \$output_minconfig,
@@ -304,7 +292,6 @@ my %option_map = (
     "GRUB_MENU"			=> \$grub_menu,
     "GRUB_FILE"			=> \$grub_file,
     "GRUB_REBOOT"		=> \$grub_reboot,
-    "GRUB_BLS_GET"		=> \$grub_bls_get,
     "SYSLINUX"			=> \$syslinux,
     "SYSLINUX_PATH"		=> \$syslinux_path,
     "SYSLINUX_LABEL"		=> \$syslinux_label,
@@ -450,7 +437,7 @@ EOF
     ;
 $config_help{"REBOOT_TYPE"} = << "EOF"
  Way to reboot the box to the test kernel.
- Only valid options so far are "grub", "grub2", "grub2bls", "syslinux", and "script".
+ Only valid options so far are "grub", "grub2", "syslinux", and "script".
 
  If you specify grub, it will assume grub version 1
  and will search in /boot/grub/menu.lst for the title \$GRUB_MENU
@@ -463,8 +450,6 @@ $config_help{"REBOOT_TYPE"} = << "EOF"
 
  If you specify grub2, then you also need to specify both \$GRUB_MENU
  and \$GRUB_FILE.
-
- If you specify grub2bls, then you also need to specify \$GRUB_MENU.
 
  If you specify syslinux, then you may use SYSLINUX to define the syslinux
  command (defaults to extlinux), and SYSLINUX_PATH to specify the path to
@@ -491,9 +476,6 @@ $config_help{"GRUB_MENU"} = << "EOF"
  menu must be a non-nested menu. Add the quotes used in the menu
  to guarantee your selection, as the first menuentry with the content
  of \$GRUB_MENU that is found will be used.
-
- For grub2bls, \$GRUB_MENU is searched on the result of \$GRUB_BLS_GET
- command for the lines that begin with "title".
 EOF
     ;
 $config_help{"GRUB_FILE"} = << "EOF"
@@ -514,7 +496,9 @@ EOF
 
 sub _logit {
     if (defined($opt{"LOG_FILE"})) {
-	print LOG @_;
+	open(OUT, ">> $opt{LOG_FILE}") or die "Can't write to $opt{LOG_FILE}";
+	print OUT @_;
+	close(OUT);
     }
 }
 
@@ -708,7 +692,7 @@ sub get_mandatory_configs {
 	}
     }
 
-    if (($rtype eq "grub") or ($rtype eq "grub2bls")) {
+    if ($rtype eq "grub") {
 	get_mandatory_config("GRUB_MENU");
     }
 
@@ -914,12 +898,6 @@ sub process_expression {
 	}
     }
 
-    if ($val =~ s/^\s*NOT\s+(.*)//) {
-	my $express = $1;
-	my $ret = process_expression($name, $express);
-	return !$ret;
-    }
-
     if ($val =~ /^\s*0\s*$/) {
 	return 0;
     } elsif ($val =~ /^\s*\d+\s*$/) {
@@ -1041,7 +1019,7 @@ sub __read_config {
 	    }
 
 	    if (!$skip && $rest !~ /^\s*$/) {
-		die "$name: $.: Garbage found after $type\n$_";
+		die "$name: $.: Gargbage found after $type\n$_";
 	    }
 
 	    if ($skip && $type eq "TEST_START") {
@@ -1074,7 +1052,7 @@ sub __read_config {
 	    }
 
 	    if ($rest !~ /^\s*$/) {
-		die "$name: $.: Garbage found after DEFAULTS\n$_";
+		die "$name: $.: Gargbage found after DEFAULTS\n$_";
 	    }
 
 	} elsif (/^\s*INCLUDE\s+(\S+)/) {
@@ -1165,7 +1143,7 @@ sub __read_config {
 	    # on of these sections that have SKIP defined.
 	    # The save variable can be
 	    # defined multiple times and the new one simply overrides
-	    # the previous one.
+	    # the prevous one.
 	    set_variable($lvalue, $rvalue);
 
 	} else {
@@ -1245,7 +1223,7 @@ sub read_config {
 	foreach my $option (keys %not_used) {
 	    print "$option\n";
 	}
-	print "Set IGNORE_UNUSED = 1 to have ktest ignore unused variables\n";
+	print "Set IGRNORE_UNUSED = 1 to have ktest ignore unused variables\n";
 	if (!read_yn "Do you want to continue?") {
 	    exit -1;
 	}
@@ -1356,7 +1334,7 @@ sub eval_option {
 	# Check for recursive evaluations.
 	# 100 deep should be more than enough.
 	if ($r++ > 100) {
-	    die "Over 100 evaluations occurred with $option\n" .
+	    die "Over 100 evaluations accurred with $option\n" .
 		"Check for recursive variables\n";
 	}
 	$prev = $option;
@@ -1394,7 +1372,7 @@ sub reboot {
 
     } else {
 	# Make sure everything has been written to disk
-	run_ssh("sync", 10);
+	run_ssh("sync");
 
 	if (defined($time)) {
 	    start_monitor;
@@ -1459,26 +1437,15 @@ sub do_not_reboot {
 
 my $in_die = 0;
 
-sub get_test_name() {
-    my $name;
-
-    if (defined($test_name)) {
-	$name = "$test_name:$test_type";
-    } else {
-	$name = $test_type;
-    }
-    return $name;
-}
-
 sub dodie {
 
-    # avoid recursion
+    # avoid recusion
     return if ($in_die);
     $in_die = 1;
 
-    my $i = $iteration;
+    doprint "CRITICAL FAILURE... ", @_, "\n";
 
-    doprint "CRITICAL FAILURE... [TEST $i] ", @_, "\n";
+    my $i = $iteration;
 
     if ($reboot_on_error && !do_not_reboot) {
 
@@ -1495,32 +1462,8 @@ sub dodie {
     }
 
     if ($email_on_error) {
-	my $name = get_test_name;
-	my $log_file;
-
-	if (defined($opt{"LOG_FILE"})) {
-	    my $whence = 2; # End of file
-	    my $log_size = tell LOG;
-	    my $size = $log_size - $test_log_start;
-
-	    if (defined($mail_max_size)) {
-		if ($size > $mail_max_size) {
-		    $size = $mail_max_size;
-		}
-	    }
-	    my $pos = - $size;
-	    $log_file = "$tmpdir/log";
-	    open (L, "$opt{LOG_FILE}") or die "Can't open $opt{LOG_FILE} to read)";
-	    open (O, "> $tmpdir/log") or die "Can't open $tmpdir/log\n";
-	    seek(L, $pos, $whence);
-	    while (<L>) {
-		print O;
-	    }
-	    close O;
-	    close L;
-	}
-        send_email("KTEST: critical failure for test $i [$name]",
-                "Your test started at $script_start_time has failed with:\n@_\n", $log_file);
+        send_email("KTEST: critical failure for your [$test_type] test",
+                "Your test started at $script_start_time has failed with:\n@_\n");
     }
 
     if ($monitor_cnt) {
@@ -1542,7 +1485,7 @@ sub create_pty {
     my $TIOCGPTN = 0x80045430;
 
     sysopen($ptm, "/dev/ptmx", O_RDWR | O_NONBLOCK) or
-	dodie "Can't open /dev/ptmx";
+	dodie "Cant open /dev/ptmx";
 
     # unlockpt()
     $tmp = pack("i", 0);
@@ -1794,7 +1737,6 @@ sub run_command {
     my $dord = 0;
     my $dostdout = 0;
     my $pid;
-    my $command_orig = $command;
 
     $command =~ s/\$SSH_USER/$ssh_user/g;
     $command =~ s/\$MACHINE/$machine/g;
@@ -1806,6 +1748,8 @@ sub run_command {
 	(fail "unable to exec $command" and return 0);
 
     if (defined($opt{"LOG_FILE"})) {
+	open(LOG, ">>$opt{LOG_FILE}") or
+	    dodie "failed to write to log";
 	$dolog = 1;
     }
 
@@ -1847,12 +1791,8 @@ sub run_command {
     # shift 8 for real exit status
     $run_command_status = $? >> 8;
 
-    if ($command_orig eq $default{REBOOT} &&
-	$run_command_status == $reboot_return_code) {
-	$run_command_status = 0;
-    }
-
     close(CMD);
+    close(LOG) if ($dolog);
     close(RD)  if ($dord);
 
     $end_time = time;
@@ -1910,37 +1850,35 @@ sub run_scp_mod {
     return run_scp($src, $dst, $cp_scp);
 }
 
-sub _get_grub_index {
-
-    my ($command, $target, $skip) = @_;
+sub get_grub2_index {
 
     return if (defined($grub_number) && defined($last_grub_menu) &&
 	       $last_grub_menu eq $grub_menu && defined($last_machine) &&
 	       $last_machine eq $machine);
 
-    doprint "Find $reboot_type menu ... ";
+    doprint "Find grub2 menu ... ";
     $grub_number = -1;
 
     my $ssh_grub = $ssh_exec;
-    $ssh_grub =~ s,\$SSH_COMMAND,$command,g;
+    $ssh_grub =~ s,\$SSH_COMMAND,cat $grub_file,g;
 
     open(IN, "$ssh_grub |")
-	or dodie "unable to execute $command";
+	or dodie "unable to get $grub_file";
 
     my $found = 0;
 
     while (<IN>) {
-	if (/$target/) {
+	if (/^menuentry.*$grub_menu/) {
 	    $grub_number++;
 	    $found = 1;
 	    last;
-	} elsif (/$skip/) {
+	} elsif (/^menuentry\s|^submenu\s/) {
 	    $grub_number++;
 	}
     }
     close(IN);
 
-    dodie "Could not find '$grub_menu' through $command on $machine"
+    dodie "Could not find '$grub_menu' in $grub_file on $machine"
 	if (!$found);
     doprint "$grub_number\n";
     $last_grub_menu = $grub_menu;
@@ -1949,34 +1887,45 @@ sub _get_grub_index {
 
 sub get_grub_index {
 
-    my $command;
-    my $target;
-    my $skip;
-    my $grub_menu_qt;
-
-    if ($reboot_type !~ /^grub/) {
+    if ($reboot_type eq "grub2") {
+	get_grub2_index;
 	return;
     }
 
-    $grub_menu_qt = quotemeta($grub_menu);
-
-    if ($reboot_type eq "grub") {
-	$command = "cat /boot/grub/menu.lst";
-	$target = '^\s*title\s+' . $grub_menu_qt . '\s*$';
-	$skip = '^\s*title\s';
-    } elsif ($reboot_type eq "grub2") {
-	$command = "cat $grub_file";
-	$target = '^menuentry.*' . $grub_menu_qt;
-	$skip = '^menuentry\s|^submenu\s';
-    } elsif ($reboot_type eq "grub2bls") {
-        $command = $grub_bls_get;
-        $target = '^title=.*' . $grub_menu_qt;
-        $skip = '^title=';
-    } else {
+    if ($reboot_type ne "grub") {
 	return;
     }
+    return if (defined($grub_number) && defined($last_grub_menu) &&
+	       $last_grub_menu eq $grub_menu && defined($last_machine) &&
+	       $last_machine eq $machine);
 
-    _get_grub_index($command, $target, $skip);
+    doprint "Find grub menu ... ";
+    $grub_number = -1;
+
+    my $ssh_grub = $ssh_exec;
+    $ssh_grub =~ s,\$SSH_COMMAND,cat /boot/grub/menu.lst,g;
+
+    open(IN, "$ssh_grub |")
+	or dodie "unable to get menu.lst";
+
+    my $found = 0;
+
+    while (<IN>) {
+	if (/^\s*title\s+$grub_menu\s*$/) {
+	    $grub_number++;
+	    $found = 1;
+	    last;
+	} elsif (/^\s*title\s/) {
+	    $grub_number++;
+	}
+    }
+    close(IN);
+
+    dodie "Could not find '$grub_menu' in /boot/grub/menu on $machine"
+	if (!$found);
+    doprint "$grub_number\n";
+    $last_grub_menu = $grub_menu;
+    $last_machine = $machine;
 }
 
 sub wait_for_input
@@ -2039,7 +1988,7 @@ sub reboot_to {
 
     if ($reboot_type eq "grub") {
 	run_ssh "'(echo \"savedefault --default=$grub_number --once\" | grub --batch)'";
-    } elsif (($reboot_type eq "grub2") or ($reboot_type eq "grub2bls")) {
+    } elsif ($reboot_type eq "grub2") {
 	run_ssh "$grub_reboot $grub_number";
     } elsif ($reboot_type eq "syslinux") {
 	run_ssh "$syslinux --once \\\"$syslinux_label\\\" $syslinux_path";
@@ -3219,8 +3168,6 @@ sub config_bisect_end {
     doprint "***************************************\n\n";
 }
 
-my $pass = 1;
-
 sub run_config_bisect {
     my ($good, $bad, $last_result) = @_;
     my $reset = "";
@@ -3243,15 +3190,11 @@ sub run_config_bisect {
 
     $ret = run_config_bisect_test $config_bisect_type;
     if ($ret) {
-        doprint "NEW GOOD CONFIG ($pass)\n";
-	system("cp $output_config $tmpdir/good_config.tmp.$pass");
-	$pass++;
+        doprint "NEW GOOD CONFIG\n";
 	# Return 3 for good config
 	return 3;
     } else {
-        doprint "NEW BAD CONFIG ($pass)\n";
-	system("cp $output_config $tmpdir/bad_config.tmp.$pass");
-	$pass++;
+        doprint "NEW BAD CONFIG\n";
 	# Return 4 for bad config
 	return 4;
     }
@@ -4114,12 +4057,8 @@ if ($#new_configs >= 0) {
     }
 }
 
-if (defined($opt{"LOG_FILE"})) {
-    if ($opt{"CLEAR_LOG"}) {
-	unlink $opt{"LOG_FILE"};
-    }
-    open(LOG, ">> $opt{LOG_FILE}") or die "Can't write to $opt{LOG_FILE}";
-    LOG->autoflush(1);
+if ($opt{"CLEAR_LOG"} && defined($opt{"LOG_FILE"})) {
+    unlink $opt{"LOG_FILE"};
 }
 
 doprint "\n\nSTARTING AUTOMATED TESTS\n\n";
@@ -4212,7 +4151,7 @@ sub find_mailer {
 }
 
 sub do_send_mail {
-    my ($subject, $message, $file) = @_;
+    my ($subject, $message) = @_;
 
     if (!defined($mail_path)) {
 	# find the mailer
@@ -4222,42 +4161,23 @@ sub do_send_mail {
 	}
     }
 
-    my $header_file = "$tmpdir/header";
-    open (HEAD, ">$header_file") or die "Can not create $header_file\n";
-    print HEAD "To: $mailto\n";
-    print HEAD "Subject: $subject\n\n";
-    print HEAD "$message\n";
-    close HEAD;
-
     if (!defined($mail_command)) {
 	if ($mailer eq "mail" || $mailer eq "mailx") {
-	    $mail_command = "cat \$HEADER_FILE \$BODY_FILE | \$MAIL_PATH/\$MAILER -s \'\$SUBJECT\' \$MAILTO";
+	    $mail_command = "\$MAIL_PATH/\$MAILER -s \'\$SUBJECT\' \$MAILTO <<< \'\$MESSAGE\'";
 	} elsif ($mailer eq "sendmail" ) {
-	    $mail_command =  "cat \$HEADER_FILE \$BODY_FILE | \$MAIL_PATH/\$MAILER -t \$MAILTO";
+	    $mail_command =  "echo \'Subject: \$SUBJECT\n\n\$MESSAGE\' | \$MAIL_PATH/\$MAILER -t \$MAILTO";
 	} else {
 	    die "\nYour mailer: $mailer is not supported.\n";
 	}
     }
 
-    if (defined($file)) {
-	$mail_command =~ s/\$BODY_FILE/$file/g;
-    } else {
-	$mail_command =~ s/\$BODY_FILE//g;
-    }
-
-    $mail_command =~ s/\$HEADER_FILE/$header_file/g;
     $mail_command =~ s/\$MAILER/$mailer/g;
     $mail_command =~ s/\$MAIL_PATH/$mail_path/g;
     $mail_command =~ s/\$MAILTO/$mailto/g;
     $mail_command =~ s/\$SUBJECT/$subject/g;
     $mail_command =~ s/\$MESSAGE/$message/g;
 
-    my $ret = run_command $mail_command;
-    if (!$ret && defined($file)) {
-	# try again without the file
-	$message .= "\n\n*** FAILED TO SEND LOG ***\n\n";
-	do_send_email($subject, $message);
-    }
+    run_command $mail_command;
 }
 
 sub send_email {
@@ -4273,8 +4193,7 @@ sub send_email {
 
 sub cancel_test {
     if ($email_when_canceled) {
-	my $name = get_test_name;
-        send_email("KTEST: Your [$name] test was cancelled",
+        send_email("KTEST: Your [$test_type] test was cancelled",
                 "Your test started at $script_start_time was cancelled: sig int");
     }
     die "\nCaught Sig Int, test interrupted: $!\n"
@@ -4328,8 +4247,7 @@ for (my $i = 1; $i <= $opt{"NUM_TESTS"}; $i++) {
             run_command $pre_ktest;
         }
         if ($email_when_started) {
-	    my $name = get_test_name;
-            send_email("KTEST: Your [$name] test was started",
+            send_email("KTEST: Your [$test_type] test was started",
                 "Your test was started on $script_start_time");
         }
     }
@@ -4360,7 +4278,7 @@ for (my $i = 1; $i <= $opt{"NUM_TESTS"}; $i++) {
 
     if (!$buildonly) {
 	$target = "$ssh_user\@$machine";
-	if (($reboot_type eq "grub") or ($reboot_type eq "grub2bls")) {
+	if ($reboot_type eq "grub") {
 	    dodie "GRUB_MENU not defined" if (!defined($grub_menu));
 	} elsif ($reboot_type eq "grub2") {
 	    dodie "GRUB_MENU not defined" if (!defined($grub_menu));
@@ -4398,19 +4316,10 @@ for (my $i = 1; $i <= $opt{"NUM_TESTS"}; $i++) {
     }
 
     doprint "\n\n";
-
-    if (defined($opt{"LOG_FILE"})) {
-	$test_log_start = tell(LOG);
-    }
-
     doprint "RUNNING TEST $i of $opt{NUM_TESTS}$name with option $test_type $run_type$installme\n\n";
 
     if (defined($pre_test)) {
-	my $ret = run_command $pre_test;
-	if (!$ret && defined($pre_test_die) &&
-	    $pre_test_die) {
-	    dodie "failed to pre_test\n";
-	}
+	run_command $pre_test;
     }
 
     unlink $dmesg;
@@ -4489,9 +4398,7 @@ for (my $i = 1; $i <= $opt{"NUM_TESTS"}; $i++) {
 }
 
 if (defined($final_post_ktest)) {
-
-    my $cp_final_post_ktest = eval_kernel_version $final_post_ktest;
-    run_command $cp_final_post_ktest;
+    run_command $final_post_ktest;
 }
 
 if ($opt{"POWEROFF_ON_SUCCESS"}) {
@@ -4507,13 +4414,7 @@ if ($opt{"POWEROFF_ON_SUCCESS"}) {
 doprint "\n    $successes of $opt{NUM_TESTS} tests were successful\n\n";
 
 if ($email_when_finished) {
-    send_email("KTEST: Your test has finished!",
+    send_email("KTEST: Your [$test_type] test has finished!",
             "$successes of $opt{NUM_TESTS} tests started at $script_start_time were successful!");
 }
-
-if (defined($opt{"LOG_FILE"})) {
-    print "\n See $opt{LOG_FILE} for the record of results.\n\n";
-    close LOG;
-}
-
 exit 0;

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * quatech_daqp_cs.c
  * Quatech DAQP PCMCIA data capture cards COMEDI client driver
@@ -7,7 +6,7 @@
  *
  * COMEDI - Linux Control and Measurement Device Interface
  * Copyright (C) 1998 David A. Schleef <ds@schleef.org>
- * https://www.comedi.org/
+ * http://www.comedi.org/
  *
  * Documentation for the DAQP PCMCIA cards can be found on Quatech's site:
  *	ftp://ftp.quatech.com/Manuals/daqp-208.pdf
@@ -164,7 +163,7 @@ static int daqp_clear_events(struct comedi_device *dev, int loops)
 
 	/*
 	 * Reset any pending interrupts (my card has a tendency to require
-	 * multiple reads on the status register to achieve this).
+	 * require multiple reads on the status register to achieve this).
 	 */
 	while (--loops) {
 		status = inb(dev->iobase + DAQP_STATUS_REG);

@@ -6,26 +6,24 @@
 
 #include <linux/random.h>
 
-#include "gem/selftests/igt_gem_utils.h"
-#include "gem/selftests/mock_context.h"
-#include "gt/intel_gt.h"
-#include "gt/intel_gt_pm.h"
+#include "../i915_selftest.h"
 
-#include "i915_selftest.h"
-
+#include "mock_context.h"
 #include "igt_flush_test.h"
-#include "mock_drm.h"
 
-static int switch_to_context(struct i915_gem_context *ctx)
+static int switch_to_context(struct drm_i915_private *i915,
+			     struct i915_gem_context *ctx)
 {
-	struct i915_gem_engines_iter it;
-	struct intel_context *ce;
+	struct intel_engine_cs *engine;
+	enum intel_engine_id id;
 	int err = 0;
 
-	for_each_gem_engine(ce, i915_gem_context_lock_engines(ctx), it) {
+	intel_runtime_pm_get(i915);
+
+	for_each_engine(engine, i915, id) {
 		struct i915_request *rq;
 
-		rq = intel_context_create_request(ce);
+		rq = i915_request_alloc(engine, ctx);
 		if (IS_ERR(rq)) {
 			err = PTR_ERR(rq);
 			break;
@@ -33,7 +31,8 @@ static int switch_to_context(struct i915_gem_context *ctx)
 
 		i915_request_add(rq);
 	}
-	i915_gem_context_unlock_engines(ctx);
+
+	intel_runtime_pm_put(i915);
 
 	return err;
 }
@@ -45,10 +44,6 @@ static void trash_stolen(struct drm_i915_private *i915)
 	const resource_size_t size = resource_size(&i915->dsm);
 	unsigned long page;
 	u32 prng = 0x12345678;
-
-	/* XXX: fsck. needs some more thought... */
-	if (!i915_ggtt_has_aperture(ggtt))
-		return;
 
 	for (page = 0; page < size; page += PAGE_SIZE) {
 		const dma_addr_t dma = i915->dsm.start + page;
@@ -70,9 +65,7 @@ static void trash_stolen(struct drm_i915_private *i915)
 
 static void simulate_hibernate(struct drm_i915_private *i915)
 {
-	intel_wakeref_t wakeref;
-
-	wakeref = intel_runtime_pm_get(&i915->runtime_pm);
+	intel_runtime_pm_get(i915);
 
 	/*
 	 * As a final sting in the tail, invalidate stolen. Under a real S4,
@@ -83,57 +76,63 @@ static void simulate_hibernate(struct drm_i915_private *i915)
 	 */
 	trash_stolen(i915);
 
-	intel_runtime_pm_put(&i915->runtime_pm, wakeref);
+	intel_runtime_pm_put(i915);
 }
 
 static int pm_prepare(struct drm_i915_private *i915)
 {
-	i915_gem_suspend(i915);
+	int err = 0;
 
-	return 0;
+	if (i915_gem_suspend(i915)) {
+		pr_err("i915_gem_suspend failed\n");
+		err = -EINVAL;
+	}
+
+	return err;
 }
 
 static void pm_suspend(struct drm_i915_private *i915)
 {
-	intel_wakeref_t wakeref;
+	intel_runtime_pm_get(i915);
 
-	with_intel_runtime_pm(&i915->runtime_pm, wakeref) {
-		i915_ggtt_suspend(&i915->ggtt);
-		i915_gem_suspend_late(i915);
-	}
+	i915_gem_suspend_gtt_mappings(i915);
+	i915_gem_suspend_late(i915);
+
+	intel_runtime_pm_put(i915);
 }
 
 static void pm_hibernate(struct drm_i915_private *i915)
 {
-	intel_wakeref_t wakeref;
+	intel_runtime_pm_get(i915);
 
-	with_intel_runtime_pm(&i915->runtime_pm, wakeref) {
-		i915_ggtt_suspend(&i915->ggtt);
+	i915_gem_suspend_gtt_mappings(i915);
 
-		i915_gem_freeze(i915);
-		i915_gem_freeze_late(i915);
-	}
+	i915_gem_freeze(i915);
+	i915_gem_freeze_late(i915);
+
+	intel_runtime_pm_put(i915);
 }
 
 static void pm_resume(struct drm_i915_private *i915)
 {
-	intel_wakeref_t wakeref;
-
 	/*
 	 * Both suspend and hibernate follow the same wakeup path and assume
 	 * that runtime-pm just works.
 	 */
-	with_intel_runtime_pm(&i915->runtime_pm, wakeref) {
-		i915_ggtt_resume(&i915->ggtt);
-		i915_gem_resume(i915);
-	}
+	intel_runtime_pm_get(i915);
+
+	intel_engines_sanitize(i915);
+	i915_gem_sanitize(i915);
+	i915_gem_resume(i915);
+
+	intel_runtime_pm_put(i915);
 }
 
 static int igt_gem_suspend(void *arg)
 {
 	struct drm_i915_private *i915 = arg;
 	struct i915_gem_context *ctx;
-	struct file *file;
+	struct drm_file *file;
 	int err;
 
 	file = mock_file(i915);
@@ -141,9 +140,11 @@ static int igt_gem_suspend(void *arg)
 		return PTR_ERR(file);
 
 	err = -ENOMEM;
+	mutex_lock(&i915->drm.struct_mutex);
 	ctx = live_context(i915, file);
 	if (!IS_ERR(ctx))
-		err = switch_to_context(ctx);
+		err = switch_to_context(i915, ctx);
+	mutex_unlock(&i915->drm.struct_mutex);
 	if (err)
 		goto out;
 
@@ -158,9 +159,13 @@ static int igt_gem_suspend(void *arg)
 
 	pm_resume(i915);
 
-	err = switch_to_context(ctx);
+	mutex_lock(&i915->drm.struct_mutex);
+	err = switch_to_context(i915, ctx);
+	if (igt_flush_test(i915, I915_WAIT_LOCKED))
+		err = -EIO;
+	mutex_unlock(&i915->drm.struct_mutex);
 out:
-	fput(file);
+	mock_file_free(i915, file);
 	return err;
 }
 
@@ -168,7 +173,7 @@ static int igt_gem_hibernate(void *arg)
 {
 	struct drm_i915_private *i915 = arg;
 	struct i915_gem_context *ctx;
-	struct file *file;
+	struct drm_file *file;
 	int err;
 
 	file = mock_file(i915);
@@ -176,9 +181,11 @@ static int igt_gem_hibernate(void *arg)
 		return PTR_ERR(file);
 
 	err = -ENOMEM;
+	mutex_lock(&i915->drm.struct_mutex);
 	ctx = live_context(i915, file);
 	if (!IS_ERR(ctx))
-		err = switch_to_context(ctx);
+		err = switch_to_context(i915, ctx);
+	mutex_unlock(&i915->drm.struct_mutex);
 	if (err)
 		goto out;
 
@@ -193,49 +200,13 @@ static int igt_gem_hibernate(void *arg)
 
 	pm_resume(i915);
 
-	err = switch_to_context(ctx);
+	mutex_lock(&i915->drm.struct_mutex);
+	err = switch_to_context(i915, ctx);
+	if (igt_flush_test(i915, I915_WAIT_LOCKED))
+		err = -EIO;
+	mutex_unlock(&i915->drm.struct_mutex);
 out:
-	fput(file);
-	return err;
-}
-
-static int igt_gem_ww_ctx(void *arg)
-{
-	struct drm_i915_private *i915 = arg;
-	struct drm_i915_gem_object *obj, *obj2;
-	struct i915_gem_ww_ctx ww;
-	int err = 0;
-
-	obj = i915_gem_object_create_internal(i915, PAGE_SIZE);
-	if (IS_ERR(obj))
-		return PTR_ERR(obj);
-
-	obj2 = i915_gem_object_create_internal(i915, PAGE_SIZE);
-	if (IS_ERR(obj2)) {
-		err = PTR_ERR(obj2);
-		goto put1;
-	}
-
-	i915_gem_ww_ctx_init(&ww, true);
-retry:
-	/* Lock the objects, twice for good measure (-EALREADY handling) */
-	err = i915_gem_object_lock(obj, &ww);
-	if (!err)
-		err = i915_gem_object_lock_interruptible(obj, &ww);
-	if (!err)
-		err = i915_gem_object_lock_interruptible(obj2, &ww);
-	if (!err)
-		err = i915_gem_object_lock(obj2, &ww);
-
-	if (err == -EDEADLK) {
-		err = i915_gem_ww_ctx_backoff(&ww);
-		if (!err)
-			goto retry;
-	}
-	i915_gem_ww_ctx_fini(&ww);
-	i915_gem_object_put(obj2);
-put1:
-	i915_gem_object_put(obj);
+	mock_file_free(i915, file);
 	return err;
 }
 
@@ -244,11 +215,7 @@ int i915_gem_live_selftests(struct drm_i915_private *i915)
 	static const struct i915_subtest tests[] = {
 		SUBTEST(igt_gem_suspend),
 		SUBTEST(igt_gem_hibernate),
-		SUBTEST(igt_gem_ww_ctx),
 	};
 
-	if (intel_gt_is_wedged(&i915->gt))
-		return 0;
-
-	return i915_live_subtests(tests, i915);
+	return i915_subtests(tests, i915);
 }

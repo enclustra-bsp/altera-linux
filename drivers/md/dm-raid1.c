@@ -83,7 +83,7 @@ struct mirror_set {
 	struct work_struct trigger_event;
 
 	unsigned nr_mirrors;
-	struct mirror mirror[];
+	struct mirror mirror[0];
 };
 
 DECLARE_DM_KCOPYD_THROTTLE_WITH_MODULE_PARM(raid1_resync_throttle,
@@ -779,7 +779,7 @@ static void do_writes(struct mirror_set *ms, struct bio_list *writes)
 			wakeup_mirrord(ms);
 		} else {
 			map_bio(get_default_mirror(ms), bio);
-			submit_bio_noacct(bio);
+			generic_make_request(bio);
 		}
 	}
 }
@@ -878,9 +878,12 @@ static struct mirror_set *alloc_context(unsigned int nr_mirrors,
 					struct dm_target *ti,
 					struct dm_dirty_log *dl)
 {
-	struct mirror_set *ms =
-		kzalloc(struct_size(ms, mirror, nr_mirrors), GFP_KERNEL);
+	size_t len;
+	struct mirror_set *ms = NULL;
 
+	len = sizeof(*ms) + (sizeof(ms->mirror[0]) * nr_mirrors);
+
+	ms = kzalloc(len, GFP_KERNEL);
 	if (!ms) {
 		ti->error = "Cannot allocate mirror context";
 		return NULL;
@@ -940,8 +943,7 @@ static int get_mirror(struct mirror_set *ms, struct dm_target *ti,
 	char dummy;
 	int ret;
 
-	if (sscanf(argv[1], "%llu%c", &offset, &dummy) != 1 ||
-	    offset != (sector_t)offset) {
+	if (sscanf(argv[1], "%llu%c", &offset, &dummy) != 1) {
 		ti->error = "Invalid offset";
 		return -EINVAL;
 	}

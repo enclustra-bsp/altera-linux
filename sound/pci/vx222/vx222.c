@@ -1,8 +1,21 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Driver for Digigram VX222 V2/Mic PCI soundcards
  *
  * Copyright (c) 2002 by Takashi Iwai <tiwai@suse.de>
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
 #include <linux/init.h>
@@ -62,7 +75,7 @@ MODULE_DEVICE_TABLE(pci, snd_vx222_ids);
 static const DECLARE_TLV_DB_SCALE(db_scale_old_vol, -11350, 50, 0);
 static const DECLARE_TLV_DB_SCALE(db_scale_akm, -7350, 50, 0);
 
-static const struct snd_vx_hardware vx222_old_hw = {
+static struct snd_vx_hardware vx222_old_hw = {
 
 	.name = "VX222/Old",
 	.type = VX_TYPE_BOARD,
@@ -74,7 +87,7 @@ static const struct snd_vx_hardware vx222_old_hw = {
 	.output_level_db_scale = db_scale_old_vol,
 };
 
-static const struct snd_vx_hardware vx222_v2_hw = {
+static struct snd_vx_hardware vx222_v2_hw = {
 
 	.name = "VX222/v2",
 	.type = VX_TYPE_V2,
@@ -86,7 +99,7 @@ static const struct snd_vx_hardware vx222_v2_hw = {
 	.output_level_db_scale = db_scale_akm,
 };
 
-static const struct snd_vx_hardware vx222_mic_hw = {
+static struct snd_vx_hardware vx222_mic_hw = {
 
 	.name = "VX222/Mic",
 	.type = VX_TYPE_MIC,
@@ -122,16 +135,16 @@ static int snd_vx222_dev_free(struct snd_device *device)
 
 
 static int snd_vx222_create(struct snd_card *card, struct pci_dev *pci,
-			    const struct snd_vx_hardware *hw,
+			    struct snd_vx_hardware *hw,
 			    struct snd_vx222 **rchip)
 {
 	struct vx_core *chip;
 	struct snd_vx222 *vx;
 	int i, err;
-	static const struct snd_device_ops ops = {
+	static struct snd_device_ops ops = {
 		.dev_free =	snd_vx222_dev_free,
 	};
-	const struct snd_vx_ops *vx_ops;
+	struct snd_vx_ops *vx_ops;
 
 	/* enable PCI device */
 	if ((err = pci_enable_device(pci)) < 0)
@@ -163,7 +176,6 @@ static int snd_vx222_create(struct snd_card *card, struct pci_dev *pci,
 		return -EBUSY;
 	}
 	chip->irq = pci->irq;
-	card->sync_irq = chip->irq;
 
 	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops)) < 0) {
 		snd_vx222_free(chip);
@@ -180,7 +192,7 @@ static int snd_vx222_probe(struct pci_dev *pci,
 {
 	static int dev;
 	struct snd_card *card;
-	const struct snd_vx_hardware *hw;
+	struct snd_vx_hardware *hw;
 	struct snd_vx222 *vx;
 	int err;
 

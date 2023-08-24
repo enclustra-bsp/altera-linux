@@ -1,5 +1,13 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2015-2017 The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  */
 #include <linux/acpi.h>
 #include <linux/bitops.h>
@@ -23,7 +31,6 @@
 #include <asm/barrier.h>
 #include <asm/local64.h>
 #include <asm/sysreg.h>
-#include <soc/qcom/kryo-l2-accessors.h>
 
 #define MAX_L2_CTRS             9
 
@@ -80,6 +87,8 @@
 #define L2_COUNTER_RELOAD       BIT_ULL(31)
 #define L2_CYCLE_COUNTER_RELOAD BIT_ULL(63)
 
+#define L2CPUSRSELR_EL1         sys_reg(3, 3, 15, 0, 6)
+#define L2CPUSRDR_EL1           sys_reg(3, 3, 15, 0, 7)
 
 #define reg_idx(reg, i)         (((i) * IA_L2_REG_OFFSET) + reg##_BASE)
 
@@ -98,7 +107,48 @@
 #define L2_EVENT_STREX                     0x421
 #define L2_EVENT_CLREX                     0x422
 
+static DEFINE_RAW_SPINLOCK(l2_access_lock);
 
+/**
+ * set_l2_indirect_reg: write value to an L2 register
+ * @reg: Address of L2 register.
+ * @value: Value to be written to register.
+ *
+ * Use architecturally required barriers for ordering between system register
+ * accesses
+ */
+static void set_l2_indirect_reg(u64 reg, u64 val)
+{
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&l2_access_lock, flags);
+	write_sysreg_s(reg, L2CPUSRSELR_EL1);
+	isb();
+	write_sysreg_s(val, L2CPUSRDR_EL1);
+	isb();
+	raw_spin_unlock_irqrestore(&l2_access_lock, flags);
+}
+
+/**
+ * get_l2_indirect_reg: read an L2 register value
+ * @reg: Address of L2 register.
+ *
+ * Use architecturally required barriers for ordering between system register
+ * accesses
+ */
+static u64 get_l2_indirect_reg(u64 reg)
+{
+	u64 val;
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&l2_access_lock, flags);
+	write_sysreg_s(reg, L2CPUSRSELR_EL1);
+	isb();
+	val = read_sysreg_s(L2CPUSRDR_EL1);
+	raw_spin_unlock_irqrestore(&l2_access_lock, flags);
+
+	return val;
+}
 
 struct cluster_pmu;
 
@@ -169,28 +219,28 @@ static inline struct cluster_pmu *get_cluster_pmu(
 static void cluster_pmu_reset(void)
 {
 	/* Reset all counters */
-	kryo_l2_set_indirect_reg(L2PMCR, L2PMCR_RESET_ALL);
-	kryo_l2_set_indirect_reg(L2PMCNTENCLR, l2_counter_present_mask);
-	kryo_l2_set_indirect_reg(L2PMINTENCLR, l2_counter_present_mask);
-	kryo_l2_set_indirect_reg(L2PMOVSCLR, l2_counter_present_mask);
+	set_l2_indirect_reg(L2PMCR, L2PMCR_RESET_ALL);
+	set_l2_indirect_reg(L2PMCNTENCLR, l2_counter_present_mask);
+	set_l2_indirect_reg(L2PMINTENCLR, l2_counter_present_mask);
+	set_l2_indirect_reg(L2PMOVSCLR, l2_counter_present_mask);
 }
 
 static inline void cluster_pmu_enable(void)
 {
-	kryo_l2_set_indirect_reg(L2PMCR, L2PMCR_COUNTERS_ENABLE);
+	set_l2_indirect_reg(L2PMCR, L2PMCR_COUNTERS_ENABLE);
 }
 
 static inline void cluster_pmu_disable(void)
 {
-	kryo_l2_set_indirect_reg(L2PMCR, L2PMCR_COUNTERS_DISABLE);
+	set_l2_indirect_reg(L2PMCR, L2PMCR_COUNTERS_DISABLE);
 }
 
 static inline void cluster_pmu_counter_set_value(u32 idx, u64 value)
 {
 	if (idx == l2_cycle_ctr_idx)
-		kryo_l2_set_indirect_reg(L2PMCCNTR, value);
+		set_l2_indirect_reg(L2PMCCNTR, value);
 	else
-		kryo_l2_set_indirect_reg(reg_idx(IA_L2PMXEVCNTR, idx), value);
+		set_l2_indirect_reg(reg_idx(IA_L2PMXEVCNTR, idx), value);
 }
 
 static inline u64 cluster_pmu_counter_get_value(u32 idx)
@@ -198,46 +248,46 @@ static inline u64 cluster_pmu_counter_get_value(u32 idx)
 	u64 value;
 
 	if (idx == l2_cycle_ctr_idx)
-		value = kryo_l2_get_indirect_reg(L2PMCCNTR);
+		value = get_l2_indirect_reg(L2PMCCNTR);
 	else
-		value = kryo_l2_get_indirect_reg(reg_idx(IA_L2PMXEVCNTR, idx));
+		value = get_l2_indirect_reg(reg_idx(IA_L2PMXEVCNTR, idx));
 
 	return value;
 }
 
 static inline void cluster_pmu_counter_enable(u32 idx)
 {
-	kryo_l2_set_indirect_reg(L2PMCNTENSET, idx_to_reg_bit(idx));
+	set_l2_indirect_reg(L2PMCNTENSET, idx_to_reg_bit(idx));
 }
 
 static inline void cluster_pmu_counter_disable(u32 idx)
 {
-	kryo_l2_set_indirect_reg(L2PMCNTENCLR, idx_to_reg_bit(idx));
+	set_l2_indirect_reg(L2PMCNTENCLR, idx_to_reg_bit(idx));
 }
 
 static inline void cluster_pmu_counter_enable_interrupt(u32 idx)
 {
-	kryo_l2_set_indirect_reg(L2PMINTENSET, idx_to_reg_bit(idx));
+	set_l2_indirect_reg(L2PMINTENSET, idx_to_reg_bit(idx));
 }
 
 static inline void cluster_pmu_counter_disable_interrupt(u32 idx)
 {
-	kryo_l2_set_indirect_reg(L2PMINTENCLR, idx_to_reg_bit(idx));
+	set_l2_indirect_reg(L2PMINTENCLR, idx_to_reg_bit(idx));
 }
 
 static inline void cluster_pmu_set_evccntcr(u32 val)
 {
-	kryo_l2_set_indirect_reg(L2PMCCNTCR, val);
+	set_l2_indirect_reg(L2PMCCNTCR, val);
 }
 
 static inline void cluster_pmu_set_evcntcr(u32 ctr, u32 val)
 {
-	kryo_l2_set_indirect_reg(reg_idx(IA_L2PMXEVCNTCR, ctr), val);
+	set_l2_indirect_reg(reg_idx(IA_L2PMXEVCNTCR, ctr), val);
 }
 
 static inline void cluster_pmu_set_evtyper(u32 ctr, u32 val)
 {
-	kryo_l2_set_indirect_reg(reg_idx(IA_L2PMXEVTYPER, ctr), val);
+	set_l2_indirect_reg(reg_idx(IA_L2PMXEVTYPER, ctr), val);
 }
 
 static void cluster_pmu_set_resr(struct cluster_pmu *cluster,
@@ -253,11 +303,11 @@ static void cluster_pmu_set_resr(struct cluster_pmu *cluster,
 
 	spin_lock_irqsave(&cluster->pmu_lock, flags);
 
-	resr_val = kryo_l2_get_indirect_reg(L2PMRESR);
+	resr_val = get_l2_indirect_reg(L2PMRESR);
 	resr_val &= ~(L2PMRESR_GROUP_MASK << shift);
 	resr_val |= field;
 	resr_val |= L2PMRESR_EN;
-	kryo_l2_set_indirect_reg(L2PMRESR, resr_val);
+	set_l2_indirect_reg(L2PMRESR, resr_val);
 
 	spin_unlock_irqrestore(&cluster->pmu_lock, flags);
 }
@@ -273,14 +323,14 @@ static inline void cluster_pmu_set_evfilter_sys_mode(u32 ctr)
 		   L2PMXEVFILTER_ORGFILTER_IDINDEP |
 		   L2PMXEVFILTER_ORGFILTER_ALL;
 
-	kryo_l2_set_indirect_reg(reg_idx(IA_L2PMXEVFILTER, ctr), val);
+	set_l2_indirect_reg(reg_idx(IA_L2PMXEVFILTER, ctr), val);
 }
 
 static inline u32 cluster_pmu_getreset_ovsr(void)
 {
-	u32 result = kryo_l2_get_indirect_reg(L2PMOVSSET);
+	u32 result = get_l2_indirect_reg(L2PMOVSSET);
 
-	kryo_l2_set_indirect_reg(L2PMOVSCLR, result);
+	set_l2_indirect_reg(L2PMOVSCLR, result);
 	return result;
 }
 
@@ -456,6 +506,14 @@ static int l2_cache_event_init(struct perf_event *event)
 	if (event->cpu < 0) {
 		dev_dbg_ratelimited(&l2cache_pmu->pdev->dev,
 				    "Per-task mode not supported\n");
+		return -EOPNOTSUPP;
+	}
+
+	/* We cannot filter accurately so we just don't allow it. */
+	if (event->attr.exclude_user || event->attr.exclude_kernel ||
+	    event->attr.exclude_hv || event->attr.exclude_idle) {
+		dev_dbg_ratelimited(&l2cache_pmu->pdev->dev,
+				    "Can't exclude execution levels\n");
 		return -EOPNOTSUPP;
 	}
 
@@ -725,7 +783,7 @@ static int get_num_counters(void)
 {
 	int val;
 
-	val = kryo_l2_get_indirect_reg(L2PMCR);
+	val = get_l2_indirect_reg(L2PMCR);
 
 	/*
 	 * Read number of counters from L2PMCR and add 1
@@ -867,8 +925,12 @@ static int l2_cache_pmu_probe_cluster(struct device *dev, void *data)
 	cluster->cluster_id = fw_cluster_id;
 
 	irq = platform_get_irq(sdev, 0);
-	if (irq < 0)
+	if (irq < 0) {
+		dev_err(&pdev->dev,
+			"Failed to get valid irq for cluster %ld\n",
+			fw_cluster_id);
 		return irq;
+	}
 	irq_set_status_flags(irq, IRQ_NOAUTOEN);
 	cluster->irq = irq;
 
@@ -920,7 +982,6 @@ static int l2_cache_pmu_probe(struct platform_device *pdev)
 		.stop		= l2_cache_event_stop,
 		.read		= l2_cache_event_read,
 		.attr_groups	= l2_cache_pmu_attr_grps,
-		.capabilities	= PERF_PMU_CAP_NO_EXCLUDE,
 	};
 
 	l2cache_pmu->num_counters = get_num_counters();
@@ -986,7 +1047,6 @@ static struct platform_driver l2_cache_pmu_driver = {
 	.driver = {
 		.name = "qcom-l2cache-pmu",
 		.acpi_match_table = ACPI_PTR(l2_cache_pmu_acpi_match),
-		.suppress_bind_attrs = true,
 	},
 	.probe = l2_cache_pmu_probe,
 	.remove = l2_cache_pmu_remove,

@@ -15,7 +15,8 @@
 
 #define RDS_IB_DEFAULT_RECV_WR		1024
 #define RDS_IB_DEFAULT_SEND_WR		256
-#define RDS_IB_DEFAULT_FR_WR		512
+#define RDS_IB_DEFAULT_FR_WR		256
+#define RDS_IB_DEFAULT_FR_INV_WR	256
 
 #define RDS_IB_DEFAULT_RETRY_COUNT	1
 
@@ -66,9 +67,7 @@ struct rds_ib_conn_priv_cmn {
 	u8			ricpc_protocol_major;
 	u8			ricpc_protocol_minor;
 	__be16			ricpc_protocol_minor_mask;	/* bitmask */
-	u8			ricpc_dp_toss;
-	u8			ripc_reserved1;
-	__be16			ripc_reserved2;
+	__be32			ricpc_reserved1;
 	__be64			ricpc_ack_seq;
 	__be32			ricpc_credit;	/* non-zero enables flow ctl */
 };
@@ -156,7 +155,7 @@ struct rds_ib_connection {
 
 	/* To control the number of wrs from fastreg */
 	atomic_t		i_fastreg_wrs;
-	atomic_t		i_fastreg_inuse_count;
+	atomic_t		i_fastunreg_wrs;
 
 	/* interrupt handling */
 	struct tasklet_struct	i_send_tasklet;
@@ -165,8 +164,8 @@ struct rds_ib_connection {
 	/* tx */
 	struct rds_ib_work_ring	i_send_ring;
 	struct rm_data_op	*i_data_op;
-	struct rds_header	**i_send_hdrs;
-	dma_addr_t		*i_send_hdrs_dma;
+	struct rds_header	*i_send_hdrs;
+	dma_addr_t		i_send_hdrs_dma;
 	struct rds_ib_send_work *i_sends;
 	atomic_t		i_signaled_sends;
 
@@ -175,8 +174,8 @@ struct rds_ib_connection {
 	struct rds_ib_work_ring	i_recv_ring;
 	struct rds_ib_incoming	*i_ibinc;
 	u32			i_recv_data_rem;
-	struct rds_header	**i_recv_hdrs;
-	dma_addr_t		*i_recv_hdrs_dma;
+	struct rds_header	*i_recv_hdrs;
+	dma_addr_t		i_recv_hdrs_dma;
 	struct rds_ib_recv_work *i_recvs;
 	u64			i_ack_recv;	/* last ACK received */
 	struct rds_ib_refill_cache i_cache_incs;
@@ -220,7 +219,6 @@ struct rds_ib_connection {
 	/* Send/Recv vectors */
 	int			i_scq_vector;
 	int			i_rcq_vector;
-	u8			i_sl;
 };
 
 /* This assumes that atomic_t is at least 32 bits */
@@ -246,11 +244,12 @@ struct rds_ib_device {
 	struct list_head	conn_list;
 	struct ib_device	*dev;
 	struct ib_pd		*pd;
-	u8			odp_capable:1;
+	bool                    use_fastreg;
 
 	unsigned int		max_mrs;
 	struct rds_ib_mr_pool	*mr_1m_pool;
 	struct rds_ib_mr_pool   *mr_8k_pool;
+	unsigned int		fmr_max_remaps;
 	unsigned int		max_8k_mrs;
 	unsigned int		max_1m_mrs;
 	int			max_sge;
@@ -263,6 +262,7 @@ struct rds_ib_device {
 	int			*vector_load;
 };
 
+#define ibdev_to_node(ibdev) dev_to_node((ibdev)->dev.parent)
 #define rdsibdev_to_node(rdsibdev) ibdev_to_node(rdsibdev->dev)
 
 /* bits for i_ack_flags */
@@ -331,8 +331,10 @@ static inline void rds_ib_dma_sync_sg_for_cpu(struct ib_device *dev,
 	unsigned int i;
 
 	for_each_sg(sglist, sg, sg_dma_len, i) {
-		ib_dma_sync_single_for_cpu(dev, sg_dma_address(sg),
-					   sg_dma_len(sg), direction);
+		ib_dma_sync_single_for_cpu(dev,
+				ib_sg_dma_address(dev, sg),
+				ib_sg_dma_len(dev, sg),
+				direction);
 	}
 }
 #define ib_dma_sync_sg_for_cpu	rds_ib_dma_sync_sg_for_cpu
@@ -346,8 +348,10 @@ static inline void rds_ib_dma_sync_sg_for_device(struct ib_device *dev,
 	unsigned int i;
 
 	for_each_sg(sglist, sg, sg_dma_len, i) {
-		ib_dma_sync_single_for_device(dev, sg_dma_address(sg),
-					      sg_dma_len(sg), direction);
+		ib_dma_sync_single_for_device(dev,
+				ib_sg_dma_address(dev, sg),
+				ib_sg_dma_len(dev, sg),
+				direction);
 	}
 }
 #define ib_dma_sync_sg_for_device	rds_ib_dma_sync_sg_for_device
@@ -379,6 +383,7 @@ int rds_ib_cm_handle_connect(struct rdma_cm_id *cm_id,
 int rds_ib_cm_initiate_connect(struct rdma_cm_id *cm_id, bool isv6);
 void rds_ib_cm_connect_complete(struct rds_connection *conn,
 				struct rdma_cm_event *event);
+
 
 #define rds_ib_conn_error(conn, fmt...) \
 	__rds_ib_conn_error(conn, KERN_WARNING "RDS/IB: " fmt)

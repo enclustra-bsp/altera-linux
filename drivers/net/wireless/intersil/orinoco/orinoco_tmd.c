@@ -213,7 +213,8 @@ static struct pci_driver orinoco_tmd_driver = {
 	.id_table	= orinoco_tmd_id_table,
 	.probe		= orinoco_tmd_init_one,
 	.remove		= orinoco_tmd_remove_one,
-	.driver.pm	= &orinoco_pci_pm_ops,
+	.suspend	= orinoco_pci_suspend,
+	.resume		= orinoco_pci_resume,
 };
 
 static char version[] __initdata = DRIVER_NAME " " DRIVER_VERSION

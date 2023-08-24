@@ -2,9 +2,7 @@
 
 Required properties:
 
-- compatible:
-    * "asahi-kasei,ak8974"
-    * "alps,hscdtd008a"
+- compatible : should be "asahi-kasei,ak8974"
 - reg : the I2C address of the magnetometer
 
 Optional properties:

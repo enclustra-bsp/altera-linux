@@ -1,7 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /* Crypto operations using stored keys
  *
  * Copyright (c) 2016, Intel Corporation
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version
+ * 2 of the License, or (at your option) any later version.
  */
 
 #include <linux/slab.h>
@@ -58,9 +62,9 @@ error:
 
 static void dh_free_data(struct dh *dh)
 {
-	kfree_sensitive(dh->key);
-	kfree_sensitive(dh->p);
-	kfree_sensitive(dh->g);
+	kzfree(dh->key);
+	kzfree(dh->p);
+	kzfree(dh->g);
 }
 
 struct dh_completion {
@@ -108,6 +112,7 @@ static int kdf_alloc(struct kdf_sdesc **sdesc_ret, char *hashname)
 	if (!sdesc)
 		goto out_free_tfm;
 	sdesc->shash.tfm = tfm;
+	sdesc->shash.flags = 0x0;
 
 	*sdesc_ret = sdesc;
 
@@ -126,7 +131,7 @@ static void kdf_dealloc(struct kdf_sdesc *sdesc)
 	if (sdesc->shash.tfm)
 		crypto_free_shash(sdesc->shash.tfm);
 
-	kfree_sensitive(sdesc);
+	kzfree(sdesc);
 }
 
 /*
@@ -220,7 +225,7 @@ static int keyctl_dh_compute_kdf(struct kdf_sdesc *sdesc,
 		ret = -EFAULT;
 
 err:
-	kfree_sensitive(outbuf);
+	kzfree(outbuf);
 	return ret;
 }
 
@@ -395,11 +400,11 @@ long __keyctl_dh_compute(struct keyctl_dh_params __user *params,
 out6:
 	kpp_request_free(req);
 out5:
-	kfree_sensitive(outbuf);
+	kzfree(outbuf);
 out4:
 	crypto_free_kpp(tfm);
 out3:
-	kfree_sensitive(secret);
+	kzfree(secret);
 out2:
 	dh_free_data(&dh_inputs);
 out1:

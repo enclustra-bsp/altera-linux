@@ -1,8 +1,19 @@
-// SPDX-License-Identifier: GPL-2.0+
-/*
- * Driver for Realtek PCI-Express card reader
+/* Driver for Realtek PCI-Express card reader
  *
  * Copyright(c) 2009-2013 Realtek Semiconductor Corp. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2, or (at your option) any
+ * later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author:
  *   Wei WANG (wei_wang@realsil.com.cn)
@@ -2802,10 +2813,10 @@ static int get_ms_information(struct scsi_cmnd *srb, struct rtsx_chip *chip)
 	}
 
 	if (dev_info_id == 0x15) {
-		buf_len = 0x3C;
+		buf_len = 0x3A;
 		data_len = 0x3A;
 	} else {
-		buf_len = 0x6C;
+		buf_len = 0x6A;
 		data_len = 0x6A;
 	}
 
@@ -2855,7 +2866,11 @@ static int get_ms_information(struct scsi_cmnd *srb, struct rtsx_chip *chip)
 	}
 
 	rtsx_stor_set_xfer_buf(buf, buf_len, srb);
-	scsi_set_resid(srb, scsi_bufflen(srb) - buf_len);
+
+	if (dev_info_id == 0x15)
+		scsi_set_resid(srb, scsi_bufflen(srb) - 0x3C);
+	else
+		scsi_set_resid(srb, scsi_bufflen(srb) - 0x6C);
 
 	kfree(buf);
 	return STATUS_SUCCESS;

@@ -1,8 +1,20 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * USB Network driver infrastructure
  * Copyright (C) 2000-2005 by David Brownell
  * Copyright (C) 2003-2005 David Hollis <dhollis@davehollis.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 /*
@@ -33,6 +45,9 @@
 #include <linux/slab.h>
 #include <linux/kernel.h>
 #include <linux/pm_runtime.h>
+
+#define DRIVER_VERSION		"22-Aug-2005"
+
 
 /*-------------------------------------------------------------------------*/
 
@@ -97,17 +112,12 @@ int usbnet_get_endpoints(struct usbnet *dev, struct usb_interface *intf)
 			int				intr = 0;
 
 			e = alt->endpoint + ep;
-
-			/* ignore endpoints which cannot transfer data */
-			if (!usb_endpoint_maxp(&e->desc))
-				continue;
-
 			switch (e->desc.bmAttributes) {
 			case USB_ENDPOINT_XFER_INT:
 				if (!usb_endpoint_dir_in(&e->desc))
 					continue;
 				intr = 1;
-				fallthrough;
+				/* FALLTHROUGH */
 			case USB_ENDPOINT_XFER_BULK:
 				break;
 			default:
@@ -341,8 +351,6 @@ void usbnet_update_max_qlen(struct usbnet *dev)
 {
 	enum usb_device_speed speed = dev->udev->speed;
 
-	if (!dev->rx_urb_size || !dev->hard_mtu)
-		goto insanity;
 	switch (speed) {
 	case USB_SPEED_HIGH:
 		dev->rx_qlen = MAX_QUEUE_MEMORY / dev->rx_urb_size;
@@ -359,7 +367,6 @@ void usbnet_update_max_qlen(struct usbnet *dev)
 		dev->tx_qlen = 5 * MAX_QUEUE_MEMORY / dev->hard_mtu;
 		break;
 	default:
-insanity:
 		dev->rx_qlen = dev->tx_qlen = 4;
 	}
 }
@@ -499,7 +506,6 @@ static int rx_submit (struct usbnet *dev, struct urb *urb, gfp_t flags)
 
 	if (netif_running (dev->net) &&
 	    netif_device_present (dev->net) &&
-	    test_bit(EVENT_DEV_OPEN, &dev->flags) &&
 	    !test_bit (EVENT_RX_HALT, &dev->flags) &&
 	    !test_bit (EVENT_DEV_ASLEEP, &dev->flags)) {
 		switch (retval = usb_submit_urb (urb, GFP_ATOMIC)) {
@@ -594,7 +600,7 @@ static void rx_complete (struct urb *urb)
 	case -EPIPE:
 		dev->net->stats.rx_errors++;
 		usbnet_defer_kevent (dev, EVENT_RX_HALT);
-		fallthrough;
+		// FALLTHROUGH
 
 	/* software-driven interface shutdown */
 	case -ECONNRESET:		/* async unlink */
@@ -625,7 +631,7 @@ block:
 	/* data overrun ... flush fifo? */
 	case -EOVERFLOW:
 		dev->net->stats.rx_over_errors++;
-		fallthrough;
+		// FALLTHROUGH
 
 	default:
 		state = rx_cleanup;
@@ -983,9 +989,31 @@ EXPORT_SYMBOL_GPL(usbnet_set_link_ksettings);
 void usbnet_get_stats64(struct net_device *net, struct rtnl_link_stats64 *stats)
 {
 	struct usbnet *dev = netdev_priv(net);
+	unsigned int start;
+	int cpu;
 
 	netdev_stats_to_stats64(stats, &net->stats);
-	dev_fetch_sw_netstats(stats, dev->stats64);
+
+	for_each_possible_cpu(cpu) {
+		struct pcpu_sw_netstats *stats64;
+		u64 rx_packets, rx_bytes;
+		u64 tx_packets, tx_bytes;
+
+		stats64 = per_cpu_ptr(dev->stats64, cpu);
+
+		do {
+			start = u64_stats_fetch_begin_irq(&stats64->syncp);
+			rx_packets = stats64->rx_packets;
+			rx_bytes = stats64->rx_bytes;
+			tx_packets = stats64->tx_packets;
+			tx_bytes = stats64->tx_bytes;
+		} while (u64_stats_fetch_retry_irq(&stats64->syncp, start));
+
+		stats->rx_packets += rx_packets;
+		stats->rx_bytes += rx_bytes;
+		stats->tx_packets += tx_packets;
+		stats->tx_bytes += tx_bytes;
+	}
 }
 EXPORT_SYMBOL_GPL(usbnet_get_stats64);
 
@@ -1022,6 +1050,7 @@ void usbnet_get_drvinfo (struct net_device *net, struct ethtool_drvinfo *info)
 	struct usbnet *dev = netdev_priv(net);
 
 	strlcpy (info->driver, dev->driver_name, sizeof info->driver);
+	strlcpy (info->version, DRIVER_VERSION, sizeof info->version);
 	strlcpy (info->fw_version, dev->driver_info->description,
 		sizeof info->fw_version);
 	usb_make_path (dev->udev, info->bus_info, sizeof info->bus_info);
@@ -1082,13 +1111,12 @@ static void __handle_link_change(struct usbnet *dev)
 	clear_bit(EVENT_LINK_CHANGE, &dev->flags);
 }
 
-void usbnet_set_rx_mode(struct net_device *net)
+static void usbnet_set_rx_mode(struct net_device *net)
 {
 	struct usbnet		*dev = netdev_priv(net);
 
 	usbnet_defer_kevent(dev, EVENT_SET_RX_MODE);
 }
-EXPORT_SYMBOL_GPL(usbnet_set_rx_mode);
 
 static void __handle_set_rx_mode(struct usbnet *dev)
 {
@@ -1268,7 +1296,7 @@ static void tx_complete (struct urb *urb)
 
 /*-------------------------------------------------------------------------*/
 
-void usbnet_tx_timeout (struct net_device *net, unsigned int txqueue)
+void usbnet_tx_timeout (struct net_device *net)
 {
 	struct usbnet		*dev = netdev_priv(net);
 
@@ -1307,11 +1335,11 @@ static int build_dma_sg(const struct sk_buff *skb, struct urb *urb)
 	total_len += skb_headlen(skb);
 
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
-		skb_frag_t *f = &skb_shinfo(skb)->frags[i];
+		struct skb_frag_struct *f = &skb_shinfo(skb)->frags[i];
 
 		total_len += skb_frag_size(f);
-		sg_set_page(&urb->sg[i + s], skb_frag_page(f), skb_frag_size(f),
-			    skb_frag_off(f));
+		sg_set_page(&urb->sg[i + s], f->page.p, f->size,
+				f->page_offset);
 	}
 	urb->transfer_buffer_length = total_len;
 
@@ -1400,11 +1428,6 @@ netdev_tx_t usbnet_start_xmit (struct sk_buff *skb,
 	spin_lock_irqsave(&dev->txq.lock, flags);
 	retval = usb_autopm_get_interface_async(dev->intf);
 	if (retval < 0) {
-		spin_unlock_irqrestore(&dev->txq.lock, flags);
-		goto drop;
-	}
-	if (netif_queue_stopped(net)) {
-		usb_autopm_put_interface_async(dev->intf);
 		spin_unlock_irqrestore(&dev->txq.lock, flags);
 		goto drop;
 	}
@@ -1504,7 +1527,7 @@ static void usbnet_bh (struct timer_list *t)
 			continue;
 		case tx_done:
 			kfree(entry->urb->sg);
-			fallthrough;
+			/* fall through */
 		case rx_cleanup:
 			usb_free_urb (entry->urb);
 			dev_kfree_skb (skb);
@@ -1546,13 +1569,6 @@ static void usbnet_bh (struct timer_list *t)
 		if (dev->txq.qlen < TX_QLEN (dev))
 			netif_wake_queue (dev->net);
 	}
-}
-
-static void usbnet_bh_tasklet(unsigned long data)
-{
-	struct timer_list *t = (struct timer_list *)data;
-
-	usbnet_bh(t);
 }
 
 
@@ -1682,7 +1698,7 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	skb_queue_head_init (&dev->txq);
 	skb_queue_head_init (&dev->done);
 	skb_queue_head_init(&dev->rxq_pause);
-	dev->bh.func = usbnet_bh_tasklet;
+	dev->bh.func = (void (*)(unsigned long))usbnet_bh;
 	dev->bh.data = (unsigned long)&dev->delay;
 	INIT_WORK (&dev->kevent, usbnet_deferred_kevent);
 	init_usb_anchor(&dev->deferred);
@@ -1755,11 +1771,6 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	if (!dev->rx_urb_size)
 		dev->rx_urb_size = dev->hard_mtu;
 	dev->maxpacket = usb_maxpacket (dev->udev, dev->out, 1);
-	if (dev->maxpacket == 0) {
-		/* that is a broken device */
-		status = -ENODEV;
-		goto out4;
-	}
 
 	/* let userspace know we have a random address */
 	if (ether_addr_equal(net->dev_addr, node_id))
@@ -2164,7 +2175,7 @@ static int __init usbnet_init(void)
 {
 	/* Compiler should optimize this out. */
 	BUILD_BUG_ON(
-		sizeof_field(struct sk_buff, cb) < sizeof(struct skb_data));
+		FIELD_SIZEOF(struct sk_buff, cb) < sizeof(struct skb_data));
 
 	eth_random_addr(node_id);
 	return 0;

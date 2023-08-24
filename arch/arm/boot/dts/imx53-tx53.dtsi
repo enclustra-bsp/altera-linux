@@ -51,7 +51,6 @@
 
 	/* Will be filled by the bootloader */
 	memory@70000000 {
-		device_type = "memory";
 		reg = <0x70000000 0>;
 	};
 
@@ -542,6 +541,7 @@
 &pwm2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm2>;
+	#pwm-cells = <3>;
 };
 
 &sdma {

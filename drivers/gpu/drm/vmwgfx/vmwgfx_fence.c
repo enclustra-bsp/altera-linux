@@ -25,8 +25,7 @@
  *
  **************************************************************************/
 
-#include <linux/sched/signal.h>
-
+#include <drm/drmP.h>
 #include "vmwgfx_drv.h"
 
 #define VMW_FENCE_WRAP (1 << 31)
@@ -184,9 +183,6 @@ static long vmw_fence_wait(struct dma_fence *f, bool intr, signed long timeout)
 	vmw_seqno_waiter_add(dev_priv);
 
 	spin_lock(f->lock);
-
-	if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &f->flags))
-		goto out;
 
 	if (intr && signal_pending(current)) {
 		ret = -ERESTARTSYS;
@@ -515,7 +511,7 @@ bool vmw_fence_obj_signaled(struct vmw_fence_obj *fence)
 	struct vmw_fence_manager *fman = fman_from_fence(fence);
 
 	if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT, &fence->base.flags))
-		return true;
+		return 1;
 
 	vmw_fences_update(fman);
 
@@ -910,10 +906,13 @@ static void vmw_event_fence_action_seq_passed(struct vmw_fence_action *action)
 		container_of(action, struct vmw_event_fence_action, action);
 	struct drm_device *dev = eaction->dev;
 	struct drm_pending_event *event = eaction->event;
+	struct drm_file *file_priv;
+
 
 	if (unlikely(event == NULL))
 		return;
 
+	file_priv = event->file_priv;
 	spin_lock_irq(&dev->event_lock);
 
 	if (likely(eaction->tv_sec != NULL)) {
@@ -1171,7 +1170,7 @@ int vmw_fence_event_ioctl(struct drm_device *dev, void *data,
 	}
 
 	vmw_execbuf_copy_fence_user(dev_priv, vmw_fp, 0, user_fence_rep, fence,
-				    handle, -1);
+				    handle, -1, NULL);
 	vmw_fence_obj_unreference(&fence);
 	return 0;
 out_no_create:

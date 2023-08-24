@@ -86,11 +86,6 @@ static void hv_apic_write(u32 reg, u32 val)
 
 static void hv_apic_eoi_write(u32 reg, u32 val)
 {
-	struct hv_vp_assist_page *hvp = hv_vp_assist_page[smp_processor_id()];
-
-	if (hvp && (xchg(&hvp->apic_assist, 0) & 0x1))
-		return;
-
 	wrmsr(HV_X64_MSR_EOI, val, 0);
 }
 
@@ -194,20 +189,10 @@ do_ex_hypercall:
 
 static bool __send_ipi_one(int cpu, int vector)
 {
-	int vp = hv_cpu_number_to_vp_number(cpu);
+	struct cpumask mask = CPU_MASK_NONE;
 
-	trace_hyperv_send_ipi_one(cpu, vector);
-
-	if (!hv_hypercall_pg || (vp == VP_INVAL))
-		return false;
-
-	if ((vector < HV_IPI_LOW_VECTOR) || (vector > HV_IPI_HIGH_VECTOR))
-		return false;
-
-	if (vp >= 64)
-		return __send_ipi_mask_ex(cpumask_of(cpu), vector);
-
-	return !hv_do_fast_hypercall16(HVCALL_SEND_IPI, vector, BIT_ULL(vp));
+	cpumask_set_cpu(cpu, &mask);
+	return __send_ipi_mask(&mask, vector);
 }
 
 static void hv_send_ipi(int cpu, int vector)
@@ -270,25 +255,11 @@ void __init hv_apic_init(void)
 	}
 
 	if (ms_hyperv.hints & HV_X64_APIC_ACCESS_RECOMMENDED) {
-		pr_info("Hyper-V: Using enlightened APIC (%s mode)",
-			x2apic_enabled() ? "x2apic" : "xapic");
-		/*
-		 * When in x2apic mode, don't use the Hyper-V specific APIC
-		 * accessors since the field layout in the ICR register is
-		 * different in x2apic mode. Furthermore, the architectural
-		 * x2apic MSRs function just as well as the Hyper-V
-		 * synthetic APIC MSRs, so there's no benefit in having
-		 * separate Hyper-V accessors for x2apic mode. The only
-		 * exception is hv_apic_eoi_write, because it benefits from
-		 * lazy EOI when available, but the same accessor works for
-		 * both xapic and x2apic because the field layout is the same.
-		 */
+		pr_info("Hyper-V: Using MSR based APIC access\n");
 		apic_set_eoi_write(hv_apic_eoi_write);
-		if (!x2apic_enabled()) {
-			apic->read      = hv_apic_read;
-			apic->write     = hv_apic_write;
-			apic->icr_write = hv_apic_icr_write;
-			apic->icr_read  = hv_apic_icr_read;
-		}
+		apic->read      = hv_apic_read;
+		apic->write     = hv_apic_write;
+		apic->icr_write = hv_apic_icr_write;
+		apic->icr_read  = hv_apic_icr_read;
 	}
 }

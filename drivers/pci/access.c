@@ -204,13 +204,17 @@ EXPORT_SYMBOL(pci_bus_set_ops);
 static DECLARE_WAIT_QUEUE_HEAD(pci_cfg_wait);
 
 static noinline void pci_wait_cfg(struct pci_dev *dev)
-	__must_hold(&pci_lock)
 {
+	DECLARE_WAITQUEUE(wait, current);
+
+	__add_wait_queue(&pci_cfg_wait, &wait);
 	do {
+		set_current_state(TASK_UNINTERRUPTIBLE);
 		raw_spin_unlock_irq(&pci_lock);
-		wait_event(pci_cfg_wait, !dev->block_cfg_access);
+		schedule();
 		raw_spin_lock_irq(&pci_lock);
 	} while (dev->block_cfg_access);
+	__remove_wait_queue(&pci_cfg_wait, &wait);
 }
 
 /* Returns 0 on success, negative values indicate error. */
@@ -332,6 +336,15 @@ static inline int pcie_cap_version(const struct pci_dev *dev)
 	return pcie_caps_reg(dev) & PCI_EXP_FLAGS_VERS;
 }
 
+static bool pcie_downstream_port(const struct pci_dev *dev)
+{
+	int type = pci_pcie_type(dev);
+
+	return type == PCI_EXP_TYPE_ROOT_PORT ||
+	       type == PCI_EXP_TYPE_DOWNSTREAM ||
+	       type == PCI_EXP_TYPE_PCIE_BRIDGE;
+}
+
 bool pcie_cap_has_lnkctl(const struct pci_dev *dev)
 {
 	int type = pci_pcie_type(dev);
@@ -351,7 +364,7 @@ static inline bool pcie_cap_has_sltctl(const struct pci_dev *dev)
 	       pcie_caps_reg(dev) & PCI_EXP_FLAGS_SLOT;
 }
 
-bool pcie_cap_has_rtctl(const struct pci_dev *dev)
+static inline bool pcie_cap_has_rtctl(const struct pci_dev *dev)
 {
 	int type = pci_pcie_type(dev);
 
@@ -405,7 +418,7 @@ int pcie_capability_read_word(struct pci_dev *dev, int pos, u16 *val)
 
 	*val = 0;
 	if (pos & 1)
-		return PCIBIOS_BAD_REGISTER_NUMBER;
+		return -EINVAL;
 
 	if (pcie_capability_reg_implemented(dev, pos)) {
 		ret = pci_read_config_word(dev, pci_pcie_cap(dev) + pos, val);
@@ -440,7 +453,7 @@ int pcie_capability_read_dword(struct pci_dev *dev, int pos, u32 *val)
 
 	*val = 0;
 	if (pos & 3)
-		return PCIBIOS_BAD_REGISTER_NUMBER;
+		return -EINVAL;
 
 	if (pcie_capability_reg_implemented(dev, pos)) {
 		ret = pci_read_config_dword(dev, pci_pcie_cap(dev) + pos, val);
@@ -465,7 +478,7 @@ EXPORT_SYMBOL(pcie_capability_read_dword);
 int pcie_capability_write_word(struct pci_dev *dev, int pos, u16 val)
 {
 	if (pos & 1)
-		return PCIBIOS_BAD_REGISTER_NUMBER;
+		return -EINVAL;
 
 	if (!pcie_capability_reg_implemented(dev, pos))
 		return 0;
@@ -477,7 +490,7 @@ EXPORT_SYMBOL(pcie_capability_write_word);
 int pcie_capability_write_dword(struct pci_dev *dev, int pos, u32 val)
 {
 	if (pos & 3)
-		return PCIBIOS_BAD_REGISTER_NUMBER;
+		return -EINVAL;
 
 	if (!pcie_capability_reg_implemented(dev, pos))
 		return 0;

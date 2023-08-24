@@ -1,8 +1,20 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (C) 2006 - 2007 Ivo van Doorn
  * Copyright (C) 2007 Dmitry Torokhov
  * Copyright 2009 Johannes Berg <johannes@sipsolutions.net>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <linux/kernel.h>
@@ -876,9 +888,6 @@ static int rfkill_resume(struct device *dev)
 
 	rfkill->suspended = false;
 
-	if (!rfkill->registered)
-		return 0;
-
 	if (!rfkill->persistent) {
 		cur = !!(rfkill->state & RFKILL_BLOCK_SW);
 		rfkill_set_block(rfkill, cur);
@@ -1005,13 +1014,10 @@ static void rfkill_sync_work(struct work_struct *work)
 int __must_check rfkill_register(struct rfkill *rfkill)
 {
 	static unsigned long rfkill_no;
-	struct device *dev;
+	struct device *dev = &rfkill->dev;
 	int error;
 
-	if (!rfkill)
-		return -EINVAL;
-
-	dev = &rfkill->dev;
+	BUG_ON(!rfkill);
 
 	mutex_lock(&rfkill_global_mutex);
 
@@ -1137,7 +1143,7 @@ static int rfkill_fop_open(struct inode *inode, struct file *file)
 
 	file->private_data = data;
 
-	return stream_open(inode, file);
+	return nonseekable_open(inode, file);
 
  free:
 	mutex_unlock(&data->mtx);
@@ -1317,17 +1323,15 @@ static const struct file_operations rfkill_fops = {
 	.release	= rfkill_fop_release,
 #ifdef CONFIG_RFKILL_INPUT
 	.unlocked_ioctl	= rfkill_fop_ioctl,
-	.compat_ioctl	= compat_ptr_ioctl,
+	.compat_ioctl	= rfkill_fop_ioctl,
 #endif
 	.llseek		= no_llseek,
 };
 
-#define RFKILL_NAME "rfkill"
-
 static struct miscdevice rfkill_miscdev = {
+	.name	= "rfkill",
 	.fops	= &rfkill_fops,
-	.name	= RFKILL_NAME,
-	.minor	= RFKILL_MINOR,
+	.minor	= MISC_DYNAMIC_MINOR,
 };
 
 static int __init rfkill_init(void)
@@ -1379,6 +1383,3 @@ static void __exit rfkill_exit(void)
 	class_unregister(&rfkill_class);
 }
 module_exit(rfkill_exit);
-
-MODULE_ALIAS_MISCDEV(RFKILL_MINOR);
-MODULE_ALIAS("devname:" RFKILL_NAME);

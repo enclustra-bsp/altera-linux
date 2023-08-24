@@ -1,8 +1,21 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Process creation support for Hexagon
  *
  * Copyright (c) 2010-2012, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301, USA.
  */
 
 #include <linux/sched.h>
@@ -44,14 +57,14 @@ void arch_cpu_idle(void)
 {
 	__vmwait();
 	/*  interrupts wake us up, but irqs are still disabled */
-	raw_local_irq_enable();
+	local_irq_enable();
 }
 
 /*
  * Copy architecture-specific thread state
  */
-int copy_thread(unsigned long clone_flags, unsigned long usp, unsigned long arg,
-		struct task_struct *p, unsigned long tls)
+int copy_thread(unsigned long clone_flags, unsigned long usp,
+		unsigned long arg, struct task_struct *p)
 {
 	struct thread_info *ti = task_thread_info(p);
 	struct hexagon_switch_stack *ss;
@@ -100,7 +113,7 @@ int copy_thread(unsigned long clone_flags, unsigned long usp, unsigned long arg,
 	 * ugp is used to provide TLS support.
 	 */
 	if (clone_flags & CLONE_SETTLS)
-		childregs->ugp = tls;
+		childregs->ugp = childregs->r04;
 
 	/*
 	 * Parent sees new pid -- not necessary, not even possible at
@@ -154,6 +167,15 @@ unsigned long get_wchan(struct task_struct *p)
 }
 
 /*
+ * Required placeholder.
+ */
+int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
+{
+	return 0;
+}
+
+
+/*
  * Called on the exit path of event entry; see vm_entry.S
  *
  * Interrupts will already be disabled.
@@ -180,6 +202,7 @@ int do_work_pending(struct pt_regs *regs, u32 thread_info_flags)
 	}
 
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
+		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(regs);
 		return 1;
 	}

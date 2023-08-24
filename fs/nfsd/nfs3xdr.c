@@ -27,19 +27,18 @@ static u32	nfs3_ftypes[] = {
 	NF3SOCK, NF3BAD,  NF3LNK, NF3BAD,
 };
 
-
 /*
  * XDR functions for basic NFS types
  */
 static __be32 *
-encode_time3(__be32 *p, struct timespec64 *time)
+encode_time3(__be32 *p, struct timespec *time)
 {
 	*p++ = htonl((u32) time->tv_sec); *p++ = htonl(time->tv_nsec);
 	return p;
 }
 
 static __be32 *
-decode_time3(__be32 *p, struct timespec64 *time)
+decode_time3(__be32 *p, struct timespec *time)
 {
 	time->tv_sec = ntohl(*p++);
 	time->tv_nsec = ntohl(*p++);
@@ -97,7 +96,7 @@ decode_filename(__be32 *p, char **namp, unsigned int *lenp)
 }
 
 static __be32 *
-decode_sattr3(__be32 *p, struct iattr *iap, struct user_namespace *userns)
+decode_sattr3(__be32 *p, struct iattr *iap)
 {
 	u32	tmp;
 
@@ -108,12 +107,12 @@ decode_sattr3(__be32 *p, struct iattr *iap, struct user_namespace *userns)
 		iap->ia_mode = ntohl(*p++);
 	}
 	if (*p++) {
-		iap->ia_uid = make_kuid(userns, ntohl(*p++));
+		iap->ia_uid = make_kuid(&init_user_ns, ntohl(*p++));
 		if (uid_valid(iap->ia_uid))
 			iap->ia_valid |= ATTR_UID;
 	}
 	if (*p++) {
-		iap->ia_gid = make_kgid(userns, ntohl(*p++));
+		iap->ia_gid = make_kgid(&init_user_ns, ntohl(*p++));
 		if (gid_valid(iap->ia_gid))
 			iap->ia_valid |= ATTR_GID;
 	}
@@ -166,12 +165,12 @@ static __be32 *
 encode_fattr3(struct svc_rqst *rqstp, __be32 *p, struct svc_fh *fhp,
 	      struct kstat *stat)
 {
-	struct user_namespace *userns = nfsd_user_namespace(rqstp);
+	struct timespec ts;
 	*p++ = htonl(nfs3_ftypes[(stat->mode & S_IFMT) >> 12]);
 	*p++ = htonl((u32) (stat->mode & S_IALLUGO));
 	*p++ = htonl((u32) stat->nlink);
-	*p++ = htonl((u32) from_kuid_munged(userns, stat->uid));
-	*p++ = htonl((u32) from_kgid_munged(userns, stat->gid));
+	*p++ = htonl((u32) from_kuid(&init_user_ns, stat->uid));
+	*p++ = htonl((u32) from_kgid(&init_user_ns, stat->gid));
 	if (S_ISLNK(stat->mode) && stat->size > NFS3_MAXPATHLEN) {
 		p = xdr_encode_hyper(p, (u64) NFS3_MAXPATHLEN);
 	} else {
@@ -182,9 +181,12 @@ encode_fattr3(struct svc_rqst *rqstp, __be32 *p, struct svc_fh *fhp,
 	*p++ = htonl((u32) MINOR(stat->rdev));
 	p = encode_fsid(p, fhp);
 	p = xdr_encode_hyper(p, stat->ino);
-	p = encode_time3(p, &stat->atime);
-	p = encode_time3(p, &stat->mtime);
-	p = encode_time3(p, &stat->ctime);
+	ts = timespec64_to_timespec(stat->atime);
+	p = encode_time3(p, &ts);
+	ts = timespec64_to_timespec(stat->mtime);
+	p = encode_time3(p, &ts);
+	ts = timespec64_to_timespec(stat->ctime);
+	p = encode_time3(p, &ts);
 
 	return p;
 }
@@ -273,8 +275,8 @@ void fill_pre_wcc(struct svc_fh *fhp)
 		stat.size  = inode->i_size;
 	}
 
-	fhp->fh_pre_mtime = stat.mtime;
-	fhp->fh_pre_ctime = stat.ctime;
+	fhp->fh_pre_mtime = timespec64_to_timespec(stat.mtime);
+	fhp->fh_pre_ctime = timespec64_to_timespec(stat.ctime);
 	fhp->fh_pre_size  = stat.size;
 	fhp->fh_pre_change = nfsd4_change_attribute(&stat, inode);
 	fhp->fh_pre_saved = true;
@@ -305,12 +307,6 @@ void fill_post_wcc(struct svc_fh *fhp)
  * XDR decode functions
  */
 int
-nfs3svc_decode_voidarg(struct svc_rqst *rqstp, __be32 *p)
-{
-	return 1;
-}
-
-int
 nfs3svc_decode_fhandle(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd_fhandle *args = rqstp->rq_argp;
@@ -329,10 +325,10 @@ nfs3svc_decode_sattrargs(struct svc_rqst *rqstp, __be32 *p)
 	p = decode_fh(p, &args->fh);
 	if (!p)
 		return 0;
-	p = decode_sattr3(p, &args->attrs, nfsd_user_namespace(rqstp));
+	p = decode_sattr3(p, &args->attrs);
 
 	if ((args->check_guard = ntohl(*p++)) != 0) { 
-		struct timespec64 time;
+		struct timespec time; 
 		p = decode_time3(p, &time);
 		args->guardtime = time.tv_sec;
 	}
@@ -459,7 +455,7 @@ nfs3svc_decode_createargs(struct svc_rqst *rqstp, __be32 *p)
 	switch (args->createmode = ntohl(*p++)) {
 	case NFS3_CREATE_UNCHECKED:
 	case NFS3_CREATE_GUARDED:
-		p = decode_sattr3(p, &args->attrs, nfsd_user_namespace(rqstp));
+		p = decode_sattr3(p, &args->attrs);
 		break;
 	case NFS3_CREATE_EXCLUSIVE:
 		args->verf = p;
@@ -480,7 +476,7 @@ nfs3svc_decode_mkdirargs(struct svc_rqst *rqstp, __be32 *p)
 	if (!(p = decode_fh(p, &args->fh)) ||
 	    !(p = decode_filename(p, &args->name, &args->len)))
 		return 0;
-	p = decode_sattr3(p, &args->attrs, nfsd_user_namespace(rqstp));
+	p = decode_sattr3(p, &args->attrs);
 
 	return xdr_argsize_check(rqstp, p);
 }
@@ -495,7 +491,7 @@ nfs3svc_decode_symlinkargs(struct svc_rqst *rqstp, __be32 *p)
 	if (!(p = decode_fh(p, &args->ffh)) ||
 	    !(p = decode_filename(p, &args->fname, &args->flen)))
 		return 0;
-	p = decode_sattr3(p, &args->attrs, nfsd_user_namespace(rqstp));
+	p = decode_sattr3(p, &args->attrs);
 
 	args->tlen = ntohl(*p++);
 
@@ -523,7 +519,7 @@ nfs3svc_decode_mknodargs(struct svc_rqst *rqstp, __be32 *p)
 
 	if (args->ftype == NF3BLK  || args->ftype == NF3CHR
 	 || args->ftype == NF3SOCK || args->ftype == NF3FIFO)
-		p = decode_sattr3(p, &args->attrs, nfsd_user_namespace(rqstp));
+		p = decode_sattr3(p, &args->attrs);
 
 	if (args->ftype == NF3BLK || args->ftype == NF3CHR) {
 		args->major = ntohl(*p++);
@@ -577,9 +573,6 @@ int
 nfs3svc_decode_readdirargs(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_readdirargs *args = rqstp->rq_argp;
-	int len;
-	u32 max_blocksize = svc_max_payload(rqstp);
-
 	p = decode_fh(p, &args->fh);
 	if (!p)
 		return 0;
@@ -587,14 +580,8 @@ nfs3svc_decode_readdirargs(struct svc_rqst *rqstp, __be32 *p)
 	args->verf   = p; p += 2;
 	args->dircount = ~0;
 	args->count  = ntohl(*p++);
-	len = args->count  = min_t(u32, args->count, max_blocksize);
-
-	while (len > 0) {
-		struct page *p = *(rqstp->rq_next_page++);
-		if (!args->buffer)
-			args->buffer = page_address(p);
-		len -= PAGE_SIZE;
-	}
+	args->count  = min_t(u32, args->count, PAGE_SIZE);
+	args->buffer = page_address(*(rqstp->rq_next_page++));
 
 	return xdr_argsize_check(rqstp, p);
 }
@@ -641,7 +628,10 @@ nfs3svc_decode_commitargs(struct svc_rqst *rqstp, __be32 *p)
 /*
  * XDR encode functions
  */
-
+/*
+ * There must be an encoding function for void results so svc_process
+ * will work properly.
+ */
 int
 nfs3svc_encode_voidres(struct svc_rqst *rqstp, __be32 *p)
 {
@@ -654,7 +644,6 @@ nfs3svc_encode_attrstat(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_attrstat *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	if (resp->status == 0) {
 		lease_get_mtime(d_inode(resp->fh.fh_dentry),
 				&resp->stat.mtime);
@@ -669,7 +658,6 @@ nfs3svc_encode_wccstat(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_attrstat *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	p = encode_wcc_data(rqstp, p, &resp->fh);
 	return xdr_ressize_check(rqstp, p);
 }
@@ -680,7 +668,6 @@ nfs3svc_encode_diropres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_diropres *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	if (resp->status == 0) {
 		p = encode_fh(p, &resp->fh);
 		p = encode_post_op_attr(rqstp, p, &resp->fh);
@@ -695,7 +682,6 @@ nfs3svc_encode_accessres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_accessres *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	p = encode_post_op_attr(rqstp, p, &resp->fh);
 	if (resp->status == 0)
 		*p++ = htonl(resp->access);
@@ -708,7 +694,6 @@ nfs3svc_encode_readlinkres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_readlinkres *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	p = encode_post_op_attr(rqstp, p, &resp->fh);
 	if (resp->status == 0) {
 		*p++ = htonl(resp->len);
@@ -731,7 +716,6 @@ nfs3svc_encode_readres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_readres *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	p = encode_post_op_attr(rqstp, p, &resp->fh);
 	if (resp->status == 0) {
 		*p++ = htonl(resp->count);
@@ -756,14 +740,15 @@ int
 nfs3svc_encode_writeres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_writeres *resp = rqstp->rq_resp;
+	struct nfsd_net *nn = net_generic(SVC_NET(rqstp), nfsd_net_id);
 
-	*p++ = resp->status;
 	p = encode_wcc_data(rqstp, p, &resp->fh);
 	if (resp->status == 0) {
 		*p++ = htonl(resp->count);
 		*p++ = htonl(resp->committed);
-		*p++ = resp->verf[0];
-		*p++ = resp->verf[1];
+		/* unique identifier, y2038 overflow can be ignored */
+		*p++ = htonl((u32)nn->nfssvc_boot.tv_sec);
+		*p++ = htonl(nn->nfssvc_boot.tv_nsec);
 	}
 	return xdr_ressize_check(rqstp, p);
 }
@@ -774,7 +759,6 @@ nfs3svc_encode_createres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_diropres *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	if (resp->status == 0) {
 		*p++ = xdr_one;
 		p = encode_fh(p, &resp->fh);
@@ -790,7 +774,6 @@ nfs3svc_encode_renameres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_renameres *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	p = encode_wcc_data(rqstp, p, &resp->ffh);
 	p = encode_wcc_data(rqstp, p, &resp->tfh);
 	return xdr_ressize_check(rqstp, p);
@@ -802,7 +785,6 @@ nfs3svc_encode_linkres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_linkres *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	p = encode_post_op_attr(rqstp, p, &resp->fh);
 	p = encode_wcc_data(rqstp, p, &resp->tfh);
 	return xdr_ressize_check(rqstp, p);
@@ -814,7 +796,6 @@ nfs3svc_encode_readdirres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_readdirres *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	p = encode_post_op_attr(rqstp, p, &resp->fh);
 
 	if (resp->status == 0) {
@@ -863,21 +844,18 @@ compose_entry_fh(struct nfsd3_readdirres *cd, struct svc_fh *fhp,
 	if (isdotent(name, namlen)) {
 		if (namlen == 2) {
 			dchild = dget_parent(dparent);
-			/*
-			 * Don't return filehandle for ".." if we're at
-			 * the filesystem or export root:
-			 */
+			/* filesystem root - cannot return filehandle for ".." */
 			if (dchild == dparent)
-				goto out;
-			if (dparent == exp->ex_path.dentry)
 				goto out;
 		} else
 			dchild = dget(dparent);
 	} else
-		dchild = lookup_positive_unlocked(name, dparent, namlen);
+		dchild = lookup_one_len_unlocked(name, dparent, namlen);
 	if (IS_ERR(dchild))
 		return rv;
 	if (d_mountpoint(dchild))
+		goto out;
+	if (d_really_is_negative(dchild))
 		goto out;
 	if (dchild->d_inode->i_ino != ino)
 		goto out;
@@ -943,7 +921,6 @@ encode_entry(struct readdir_cd *ccd, const char *name, int namlen,
 		} else {
 			xdr_encode_hyper(cd->offset, offset64);
 		}
-		cd->offset = NULL;
 	}
 
 	/*
@@ -1072,7 +1049,6 @@ nfs3svc_encode_fsstatres(struct svc_rqst *rqstp, __be32 *p)
 	struct kstatfs	*s = &resp->stats;
 	u64		bs = s->f_bsize;
 
-	*p++ = resp->status;
 	*p++ = xdr_zero;	/* no post_op_attr */
 
 	if (resp->status == 0) {
@@ -1093,7 +1069,6 @@ nfs3svc_encode_fsinfores(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_fsinfores *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	*p++ = xdr_zero;	/* no post_op_attr */
 
 	if (resp->status == 0) {
@@ -1119,7 +1094,6 @@ nfs3svc_encode_pathconfres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_pathconfres *resp = rqstp->rq_resp;
 
-	*p++ = resp->status;
 	*p++ = xdr_zero;	/* no post_op_attr */
 
 	if (resp->status == 0) {
@@ -1139,13 +1113,14 @@ int
 nfs3svc_encode_commitres(struct svc_rqst *rqstp, __be32 *p)
 {
 	struct nfsd3_commitres *resp = rqstp->rq_resp;
+	struct nfsd_net *nn = net_generic(SVC_NET(rqstp), nfsd_net_id);
 
-	*p++ = resp->status;
 	p = encode_wcc_data(rqstp, p, &resp->fh);
 	/* Write verifier */
 	if (resp->status == 0) {
-		*p++ = resp->verf[0];
-		*p++ = resp->verf[1];
+		/* unique identifier, y2038 overflow can be ignored */
+		*p++ = htonl((u32)nn->nfssvc_boot.tv_sec);
+		*p++ = htonl(nn->nfssvc_boot.tv_nsec);
 	}
 	return xdr_ressize_check(rqstp, p);
 }

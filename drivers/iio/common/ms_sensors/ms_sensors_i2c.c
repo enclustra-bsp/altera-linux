@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Measurements Specialties driver common i2c functions
  *
  * Copyright (c) 2015 Measurement-Specialties
+ *
+ * Licensed under the GPL-2.
  */
 
 #include <linux/module.h>
@@ -165,7 +166,7 @@ static bool ms_sensors_crc_valid(u32 value)
 
 /**
  * ms_sensors_read_serial() - Serial number read function
- * @client:	pointer to i2c client
+ * @cli:	pointer to i2c client
  * @sn:		pointer to 64-bits destination value
  *
  * Generic i2c serial number read function for Measurement Specialties devices.

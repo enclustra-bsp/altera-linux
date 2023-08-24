@@ -25,10 +25,7 @@
  *          Alex Deucher
  *          Jerome Glisse
  */
-
-#include <linux/pci.h>
-#include <linux/vmalloc.h>
-
+#include <drm/drmP.h>
 #include <drm/radeon_drm.h>
 #ifdef CONFIG_X86
 #include <asm/set_memory.h>
@@ -72,8 +69,8 @@ int radeon_gart_table_ram_alloc(struct radeon_device *rdev)
 {
 	void *ptr;
 
-	ptr = dma_alloc_coherent(&rdev->pdev->dev, rdev->gart.table_size,
-				 &rdev->gart.table_addr, GFP_KERNEL);
+	ptr = pci_alloc_consistent(rdev->pdev, rdev->gart.table_size,
+				   &rdev->gart.table_addr);
 	if (ptr == NULL) {
 		return -ENOMEM;
 	}
@@ -85,6 +82,7 @@ int radeon_gart_table_ram_alloc(struct radeon_device *rdev)
 	}
 #endif
 	rdev->gart.ptr = ptr;
+	memset((void *)rdev->gart.ptr, 0, rdev->gart.table_size);
 	return 0;
 }
 
@@ -109,8 +107,9 @@ void radeon_gart_table_ram_free(struct radeon_device *rdev)
 			      rdev->gart.table_size >> PAGE_SHIFT);
 	}
 #endif
-	dma_free_coherent(&rdev->pdev->dev, rdev->gart.table_size,
-			  (void *)rdev->gart.ptr, rdev->gart.table_addr);
+	pci_free_consistent(rdev->pdev, rdev->gart.table_size,
+			    (void *)rdev->gart.ptr,
+			    rdev->gart.table_addr);
 	rdev->gart.ptr = NULL;
 	rdev->gart.table_addr = 0;
 }

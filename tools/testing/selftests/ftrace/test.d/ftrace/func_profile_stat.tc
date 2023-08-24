@@ -1,7 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 # description: ftrace - function profiling
-# requires: function_profile_enabled
+
+[ ! -f function_profile_enabled ] && exit_unsupported
 
 : "Enable function profile"
 echo 1 > function_profile_enabled

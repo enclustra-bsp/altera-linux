@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/module.h>
@@ -374,7 +373,7 @@ static int seq_show(struct seq_file *s, void *v)
 			continue;
 
 		logger = nft_log_dereference(loggers[*pos][i]);
-		seq_puts(s, logger->name);
+		seq_printf(s, "%s", logger->name);
 		if (i == 0 && loggers[*pos][i + 1] != NULL)
 			seq_puts(s, ",");
 
@@ -414,7 +413,7 @@ static struct ctl_table nf_log_sysctl_ftable[] = {
 };
 
 static int nf_log_proc_dostring(struct ctl_table *table, int write,
-			 void *buffer, size_t *lenp, loff_t *ppos)
+			 void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	const struct nf_logger *logger;
 	char buf[NFLOGGER_NAME_LEN];

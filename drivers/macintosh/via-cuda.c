@@ -569,7 +569,6 @@ cuda_interrupt(int irq, void *arg)
     unsigned char ibuf[16];
     int ibuf_len = 0;
     int complete = 0;
-    bool full;
     
     spin_lock_irqsave(&cuda_lock, flags);
 
@@ -657,13 +656,12 @@ idle_state:
 	break;
 
     case reading:
-	full = reading_reply ? ARRAY_FULL(current_req->reply, reply_ptr)
-	                     : ARRAY_FULL(cuda_rbuf, reply_ptr);
-	if (full)
+	if (reading_reply ? ARRAY_FULL(current_req->reply, reply_ptr)
+	                  : ARRAY_FULL(cuda_rbuf, reply_ptr))
 	    (void)in_8(&via[SR]);
 	else
 	    *reply_ptr++ = in_8(&via[SR]);
-	if (!TREQ_asserted(status) || full) {
+	if (!TREQ_asserted(status)) {
 	    if (mcu_is_egret)
 		assert_TACK();
 	    /* that's all folks */

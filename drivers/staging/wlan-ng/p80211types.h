@@ -204,7 +204,7 @@ struct p80211pstr {
 
 struct p80211pstrd {
 	u8 len;
-	u8 data[];
+	u8 data[0];
 } __packed;
 
 /* Maximum pascal string */
@@ -249,7 +249,7 @@ struct p80211itemd {
 	u32 did;
 	u16 status;
 	u16 len;
-	u8 data[];
+	u8 data[0];
 } __packed;
 
 /* message data item for int, BOUNDEDINT, ENUMINT */

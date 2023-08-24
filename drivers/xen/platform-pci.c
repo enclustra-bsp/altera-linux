@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /******************************************************************************
  * platform-pci.c
  *
@@ -9,6 +8,20 @@
  * Copyright (c) 2005, Intel Corporation.
  * Copyright (c) 2007, XenSource Inc.
  * Copyright (c) 2010, Citrix
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 59 Temple
+ * Place - Suite 330, Boston, MA 02111-1307 USA.
+ *
  */
 
 
@@ -74,7 +87,7 @@ static int xen_allocate_irq(struct pci_dev *pdev)
 			"xen-platform-pci", pdev);
 }
 
-static int platform_pci_resume(struct device *dev)
+static int platform_pci_resume(struct pci_dev *pdev)
 {
 	int err;
 
@@ -83,7 +96,7 @@ static int platform_pci_resume(struct device *dev)
 
 	err = xen_set_callback_via(callback_via);
 	if (err) {
-		dev_err(dev, "platform_pci_resume failure!\n");
+		dev_err(&pdev->dev, "platform_pci_resume failure!\n");
 		return err;
 	}
 	return 0;
@@ -149,6 +162,7 @@ static int platform_pci_probe(struct pci_dev *pdev,
 	ret = gnttab_init();
 	if (ret)
 		goto grant_out;
+	xenbus_probe(NULL);
 	return 0;
 grant_out:
 	gnttab_free_auto_xlat_frames();
@@ -167,17 +181,13 @@ static const struct pci_device_id platform_pci_tbl[] = {
 	{0,}
 };
 
-static const struct dev_pm_ops platform_pm_ops = {
-	.resume_noirq =   platform_pci_resume,
-};
-
 static struct pci_driver platform_driver = {
 	.name =           DRV_NAME,
 	.probe =          platform_pci_probe,
 	.id_table =       platform_pci_tbl,
-	.driver = {
-		.pm =     &platform_pm_ops,
-	},
+#ifdef CONFIG_PM
+	.resume_early =   platform_pci_resume,
+#endif
 };
 
 builtin_pci_driver(platform_driver);

@@ -18,7 +18,6 @@
 #include <linux/extable.h>
 #include <linux/uaccess.h>
 #include <linux/hugetlb.h>
-#include <linux/perf_event.h>
 
 #include <asm/traps.h>
 
@@ -67,7 +66,6 @@ parisc_acctyp(unsigned long code, unsigned int inst)
 	case 0x30000000: /* coproc2 */
 		if (bit22set(inst))
 			return VM_WRITE;
-		fallthrough;
 
 	case 0x0: /* indexed/memory management */
 		if (bit22set(inst)) {
@@ -275,16 +273,15 @@ void do_page_fault(struct pt_regs *regs, unsigned long code,
 	if (!mm)
 		goto no_context;
 
-	flags = FAULT_FLAG_DEFAULT;
+	flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 	if (user_mode(regs))
 		flags |= FAULT_FLAG_USER;
 
 	acc_type = parisc_acctyp(code, regs->iir);
 	if (acc_type & VM_WRITE)
 		flags |= FAULT_FLAG_WRITE;
-	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
 retry:
-	mmap_read_lock(mm);
+	down_read(&mm->mmap_sem);
 	vma = find_vma_prev(mm, address, &prev_vma);
 	if (!vma || address < vma->vm_start)
 		goto check_expansion;
@@ -304,9 +301,9 @@ good_area:
 	 * fault.
 	 */
 
-	fault = handle_mm_fault(vma, address, flags, regs);
+	fault = handle_mm_fault(vma, address, flags);
 
-	if (fault_signal_pending(fault, regs))
+	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
 		return;
 
 	if (unlikely(fault & VM_FAULT_ERROR)) {
@@ -325,17 +322,23 @@ good_area:
 		BUG();
 	}
 	if (flags & FAULT_FLAG_ALLOW_RETRY) {
+		if (fault & VM_FAULT_MAJOR)
+			current->maj_flt++;
+		else
+			current->min_flt++;
 		if (fault & VM_FAULT_RETRY) {
+			flags &= ~FAULT_FLAG_ALLOW_RETRY;
+
 			/*
-			 * No need to mmap_read_unlock(mm) as we would
+			 * No need to up_read(&mm->mmap_sem) as we would
 			 * have already released it in __lock_page_or_retry
 			 * in mm/filemap.c.
 			 */
-			flags |= FAULT_FLAG_TRIED;
+
 			goto retry;
 		}
 	}
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 	return;
 
 check_expansion:
@@ -347,7 +350,7 @@ check_expansion:
  * Something tried to access memory that isn't in our memory map..
  */
 bad_area:
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 
 	if (user_mode(regs)) {
 		int signo, si_code;
@@ -370,7 +373,7 @@ bad_area:
 			}
 
 			/* probably address is outside of mapped file */
-			fallthrough;
+			/* fall through */
 		case 17:	/* NA data TLB miss / page fault */
 		case 18:	/* Unaligned access - PCXS only */
 			signo = SIGBUS;
@@ -400,13 +403,13 @@ bad_area:
 				lsb = PAGE_SHIFT;
 
 			force_sig_mceerr(BUS_MCEERR_AR, (void __user *) address,
-					 lsb);
+					 lsb, current);
 			return;
 		}
 #endif
 		show_signal_msg(regs, code, address, tsk, vma);
 
-		force_sig_fault(signo, si_code, (void __user *) address);
+		force_sig_fault(signo, si_code, (void __user *) address, current);
 		return;
 	}
 
@@ -419,7 +422,7 @@ no_context:
 	parisc_terminate("Bad Address (null pointer deref?)", regs, code, address);
 
   out_of_memory:
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 	if (!user_mode(regs))
 		goto no_context;
 	pagefault_out_of_memory();

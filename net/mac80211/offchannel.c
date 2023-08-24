@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Off-channel operation helpers
  *
@@ -8,7 +7,10 @@
  * Copyright 2006-2007	Jiri Benc <jbenc@suse.cz>
  * Copyright 2007, Michael Wu <flamingice@sourmilk.net>
  * Copyright 2009	Johannes Berg <johannes@sipsolutions.net>
- * Copyright (C) 2019 Intel Corporation
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 #include <linux/export.h>
 #include <net/mac80211.h>
@@ -26,7 +28,8 @@ static void ieee80211_offchannel_ps_enable(struct ieee80211_sub_if_data *sdata)
 {
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_if_managed *ifmgd = &sdata->u.mgd;
-	bool offchannel_ps_enabled = false;
+
+	local->offchannel_ps_enabled = false;
 
 	/* FIXME: what to do when local->pspolling is true? */
 
@@ -37,12 +40,12 @@ static void ieee80211_offchannel_ps_enable(struct ieee80211_sub_if_data *sdata)
 	cancel_work_sync(&local->dynamic_ps_enable_work);
 
 	if (local->hw.conf.flags & IEEE80211_CONF_PS) {
-		offchannel_ps_enabled = true;
+		local->offchannel_ps_enabled = true;
 		local->hw.conf.flags &= ~IEEE80211_CONF_PS;
 		ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_PS);
 	}
 
-	if (!offchannel_ps_enabled ||
+	if (!local->offchannel_ps_enabled ||
 	    !ieee80211_hw_check(&local->hw, PS_NULLFUNC_STACK))
 		/*
 		 * If power save was enabled, no need to send a nullfunc
@@ -57,19 +60,38 @@ static void ieee80211_offchannel_ps_enable(struct ieee80211_sub_if_data *sdata)
 		ieee80211_send_nullfunc(local, sdata, true);
 }
 
-/* inform AP that we are awake again */
+/* inform AP that we are awake again, unless power save is enabled */
 static void ieee80211_offchannel_ps_disable(struct ieee80211_sub_if_data *sdata)
 {
 	struct ieee80211_local *local = sdata->local;
 
 	if (!local->ps_sdata)
 		ieee80211_send_nullfunc(local, sdata, false);
-	else if (local->hw.conf.dynamic_ps_timeout > 0) {
+	else if (local->offchannel_ps_enabled) {
 		/*
-		 * the dynamic_ps_timer had been running before leaving the
-		 * operating channel, restart the timer now and send a nullfunc
-		 * frame to inform the AP that we are awake so that AP sends
-		 * the buffered packets (if any).
+		 * In !IEEE80211_HW_PS_NULLFUNC_STACK case the hardware
+		 * will send a nullfunc frame with the powersave bit set
+		 * even though the AP already knows that we are sleeping.
+		 * This could be avoided by sending a null frame with power
+		 * save bit disabled before enabling the power save, but
+		 * this doesn't gain anything.
+		 *
+		 * When IEEE80211_HW_PS_NULLFUNC_STACK is enabled, no need
+		 * to send a nullfunc frame because AP already knows that
+		 * we are sleeping, let's just enable power save mode in
+		 * hardware.
+		 */
+		/* TODO:  Only set hardware if CONF_PS changed?
+		 * TODO:  Should we set offchannel_ps_enabled to false?
+		 */
+		local->hw.conf.flags |= IEEE80211_CONF_PS;
+		ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_PS);
+	} else if (local->hw.conf.dynamic_ps_timeout > 0) {
+		/*
+		 * If IEEE80211_CONF_PS was not set and the dynamic_ps_timer
+		 * had been running before leaving the operating channel,
+		 * restart the timer now and send a nullfunc frame to inform
+		 * the AP that we are awake.
 		 */
 		ieee80211_send_nullfunc(local, sdata, false);
 		mod_timer(&local->dynamic_ps_timer, jiffies +
@@ -180,10 +202,6 @@ static void ieee80211_roc_notify_destroy(struct ieee80211_roc_work *roc)
 		cfg80211_remain_on_channel_expired(&roc->sdata->wdev,
 						   roc->cookie, roc->chan,
 						   GFP_KERNEL);
-	else
-		cfg80211_tx_mgmt_expired(&roc->sdata->wdev,
-					 roc->mgmt_tx_cookie,
-					 roc->chan, GFP_KERNEL);
 
 	list_del(&roc->list);
 	kfree(roc);
@@ -244,7 +262,7 @@ static void ieee80211_handle_roc_started(struct ieee80211_roc_work *roc,
 	if (roc->mgmt_tx_cookie) {
 		if (!WARN_ON(!roc->frame)) {
 			ieee80211_tx_skb_tid_band(roc->sdata, roc->frame, 7,
-						  roc->chan->band);
+						  roc->chan->band, 0);
 			roc->frame = NULL;
 		}
 	} else {
@@ -537,10 +555,6 @@ static int ieee80211_start_roc_work(struct ieee80211_local *local,
 
 	lockdep_assert_held(&local->mtx);
 
-	if (channel->freq_offset)
-		/* this may work, but is untested */
-		return -EOPNOTSUPP;
-
 	if (local->use_chanctx && !local->ops->remain_on_channel)
 		return -EOPNOTSUPP;
 
@@ -717,7 +731,7 @@ static int ieee80211_cancel_roc(struct ieee80211_local *local,
 	}
 
 	if (local->ops->remain_on_channel) {
-		ret = drv_cancel_remain_on_channel(local, roc->sdata);
+		ret = drv_cancel_remain_on_channel(local);
 		if (WARN_ON_ONCE(ret)) {
 			mutex_unlock(&local->mtx);
 			return ret;
@@ -788,13 +802,13 @@ int ieee80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 		if (!sdata->vif.bss_conf.ibss_joined)
 			need_offchan = true;
 #ifdef CONFIG_MAC80211_MESH
-		fallthrough;
+		/* fall through */
 	case NL80211_IFTYPE_MESH_POINT:
 		if (ieee80211_vif_is_mesh(&sdata->vif) &&
 		    !sdata->u.mesh.mesh_id_len)
 			need_offchan = true;
 #endif
-		fallthrough;
+		/* fall through */
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_AP_VLAN:
 	case NL80211_IFTYPE_P2P_GO:
@@ -896,7 +910,7 @@ int ieee80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 		if (beacon)
 			for (i = 0; i < params->n_csa_offsets; i++)
 				data[params->csa_offsets[i]] =
-					beacon->cntdwn_current_counter;
+					beacon->csa_current_counter;
 
 		rcu_read_unlock();
 	}
@@ -976,7 +990,7 @@ void ieee80211_roc_purge(struct ieee80211_local *local,
 		if (roc->started) {
 			if (local->ops->remain_on_channel) {
 				/* can race, so ignore return value */
-				drv_cancel_remain_on_channel(local, sdata);
+				drv_cancel_remain_on_channel(local);
 				ieee80211_roc_notify_destroy(roc);
 			} else {
 				roc->abort = true;

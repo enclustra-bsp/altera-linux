@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0 OR BSD-3-Clause)
 /*
- * Copyright(c) 2018 - 2020 Intel Corporation.
+ * Copyright(c) 2018 Intel Corporation.
  *
  * This file is provided under a dual BSD/GPLv2 license.  When using or
  * redistributing this file, you may do so under either license.
@@ -49,7 +49,6 @@
 #include "hfi.h"
 #include "affinity.h"
 #include "sdma.h"
-#include "netdev.h"
 
 /**
  * msix_initialize() - Calculate, request and configure MSIx IRQs
@@ -70,7 +69,7 @@ int msix_initialize(struct hfi1_devdata *dd)
 	 *	one for each VNIC context
 	 *      ...any new IRQs should be added here.
 	 */
-	total = 1 + dd->num_sdma + dd->n_krcv_queues + dd->num_netdev_contexts;
+	total = 1 + dd->num_sdma + dd->n_krcv_queues + dd->num_vnic_contexts;
 
 	if (total >= CCE_NUM_MSIX_VECTORS)
 		return -EINVAL;
@@ -116,11 +115,13 @@ int msix_initialize(struct hfi1_devdata *dd)
  */
 static int msix_request_irq(struct hfi1_devdata *dd, void *arg,
 			    irq_handler_t handler, irq_handler_t thread,
-			    enum irq_type type, const char *name)
+			    u32 idx, enum irq_type type)
 {
 	unsigned long nr;
 	int irq;
 	int ret;
+	const char *err_info;
+	char name[MAX_NAME_SIZE];
 	struct hfi1_msix_entry *me;
 
 	/* Allocate an MSIx vector */
@@ -134,15 +135,43 @@ static int msix_request_irq(struct hfi1_devdata *dd, void *arg,
 	if (nr == dd->msix_info.max_requested)
 		return -ENOSPC;
 
-	if (type < IRQ_SDMA || type >= IRQ_OTHER)
+	/* Specific verification and determine the name */
+	switch (type) {
+	case IRQ_GENERAL:
+		/* general interrupt must be MSIx vector 0 */
+		if (nr) {
+			spin_lock(&dd->msix_info.msix_lock);
+			__clear_bit(nr, dd->msix_info.in_use_msix);
+			spin_unlock(&dd->msix_info.msix_lock);
+			dd_dev_err(dd, "Invalid index %lu for GENERAL IRQ\n",
+				   nr);
+			return -EINVAL;
+		}
+		snprintf(name, sizeof(name), DRIVER_NAME "_%d", dd->unit);
+		err_info = "general";
+		break;
+	case IRQ_SDMA:
+		snprintf(name, sizeof(name), DRIVER_NAME "_%d sdma%d",
+			 dd->unit, idx);
+		err_info = "sdma";
+		break;
+	case IRQ_RCVCTXT:
+		snprintf(name, sizeof(name), DRIVER_NAME "_%d kctxt%d",
+			 dd->unit, idx);
+		err_info = "receive context";
+		break;
+	case IRQ_OTHER:
+	default:
 		return -EINVAL;
+	}
+	name[sizeof(name) - 1] = 0;
 
 	irq = pci_irq_vector(dd->pcidev, nr);
 	ret = pci_request_irq(dd->pcidev, nr, handler, thread, arg, name);
 	if (ret) {
 		dd_dev_err(dd,
-			   "%s: request for IRQ %d failed, MSIx %lx, err %d\n",
-			   name, irq, nr, ret);
+			   "%s: request for IRQ %d failed, MSIx %d, err %d\n",
+			   err_info, irq, idx, ret);
 		spin_lock(&dd->msix_info.msix_lock);
 		__clear_bit(nr, dd->msix_info.in_use_msix);
 		spin_unlock(&dd->msix_info.msix_lock);
@@ -161,19 +190,22 @@ static int msix_request_irq(struct hfi1_devdata *dd, void *arg,
 	/* This is a request, so a failure is not fatal */
 	ret = hfi1_get_irq_affinity(dd, me);
 	if (ret)
-		dd_dev_err(dd, "%s: unable to pin IRQ %d\n", name, ret);
+		dd_dev_err(dd, "unable to pin IRQ %d\n", ret);
 
 	return nr;
 }
 
-static int msix_request_rcd_irq_common(struct hfi1_ctxtdata *rcd,
-				       irq_handler_t handler,
-				       irq_handler_t thread,
-				       const char *name)
+/**
+ * msix_request_rcd_irq() - Helper function for RCVAVAIL IRQs
+ * @rcd: valid rcd context
+ *
+ */
+int msix_request_rcd_irq(struct hfi1_ctxtdata *rcd)
 {
-	int nr = msix_request_irq(rcd->dd, rcd, handler, thread,
-				  rcd->is_vnic ? IRQ_NETDEVCTXT : IRQ_RCVCTXT,
-				  name);
+	int nr;
+
+	nr = msix_request_irq(rcd->dd, rcd, receive_context_interrupt,
+			      receive_context_thread, rcd->ctxt, IRQ_RCVCTXT);
 	if (nr < 0)
 		return nr;
 
@@ -190,37 +222,6 @@ static int msix_request_rcd_irq_common(struct hfi1_ctxtdata *rcd,
 }
 
 /**
- * msix_request_rcd_irq() - Helper function for RCVAVAIL IRQs
- * @rcd: valid rcd context
- *
- */
-int msix_request_rcd_irq(struct hfi1_ctxtdata *rcd)
-{
-	char name[MAX_NAME_SIZE];
-
-	snprintf(name, sizeof(name), DRIVER_NAME "_%d kctxt%d",
-		 rcd->dd->unit, rcd->ctxt);
-
-	return msix_request_rcd_irq_common(rcd, receive_context_interrupt,
-					   receive_context_thread, name);
-}
-
-/**
- * msix_request_rcd_irq() - Helper function for RCVAVAIL IRQs
- * for netdev context
- * @rcd: valid netdev contexti
- */
-int msix_netdev_request_rcd_irq(struct hfi1_ctxtdata *rcd)
-{
-	char name[MAX_NAME_SIZE];
-
-	snprintf(name, sizeof(name), DRIVER_NAME "_%d nd kctxt%d",
-		 rcd->dd->unit, rcd->ctxt);
-	return msix_request_rcd_irq_common(rcd, receive_context_interrupt_napi,
-					   NULL, name);
-}
-
-/**
  * msix_request_smda_ira() - Helper for getting SDMA IRQ resources
  * @sde: valid sdma engine
  *
@@ -228,42 +229,13 @@ int msix_netdev_request_rcd_irq(struct hfi1_ctxtdata *rcd)
 int msix_request_sdma_irq(struct sdma_engine *sde)
 {
 	int nr;
-	char name[MAX_NAME_SIZE];
 
-	snprintf(name, sizeof(name), DRIVER_NAME "_%d sdma%d",
-		 sde->dd->unit, sde->this_idx);
 	nr = msix_request_irq(sde->dd, sde, sdma_interrupt, NULL,
-			      IRQ_SDMA, name);
+			      sde->this_idx, IRQ_SDMA);
 	if (nr < 0)
 		return nr;
 	sde->msix_intr = nr;
 	remap_sdma_interrupts(sde->dd, sde->this_idx, nr);
-
-	return 0;
-}
-
-/**
- * msix_request_general_irq(void) - Helper for getting general IRQ
- * resources
- * @dd: valid device data
- */
-int msix_request_general_irq(struct hfi1_devdata *dd)
-{
-	int nr;
-	char name[MAX_NAME_SIZE];
-
-	snprintf(name, sizeof(name), DRIVER_NAME "_%d", dd->unit);
-	nr = msix_request_irq(dd, dd, general_interrupt, NULL, IRQ_GENERAL,
-			      name);
-	if (nr < 0)
-		return nr;
-
-	/* general interrupt must be MSIx vector 0 */
-	if (nr) {
-		msix_free_irq(dd, (u8)nr);
-		dd_dev_err(dd, "Invalid index %d for GENERAL IRQ\n", nr);
-		return -EINVAL;
-	}
 
 	return 0;
 }
@@ -293,9 +265,10 @@ static void enable_sdma_srcs(struct hfi1_devdata *dd, int i)
 int msix_request_irqs(struct hfi1_devdata *dd)
 {
 	int i;
-	int ret = msix_request_general_irq(dd);
+	int ret;
 
-	if (ret)
+	ret = msix_request_irq(dd, dd, general_interrupt, NULL, 0, IRQ_GENERAL);
+	if (ret < 0)
 		return ret;
 
 	for (i = 0; i < dd->num_sdma; i++) {
@@ -372,16 +345,15 @@ void msix_clean_up_interrupts(struct hfi1_devdata *dd)
 }
 
 /**
- * msix_netdev_syncrhonize_irq() - netdev IRQ synchronize
+ * msix_vnic_syncrhonize_irq() - Vnic IRQ synchronize
  * @dd: valid devdata
  */
-void msix_netdev_synchronize_irq(struct hfi1_devdata *dd)
+void msix_vnic_synchronize_irq(struct hfi1_devdata *dd)
 {
 	int i;
-	int ctxt_count = hfi1_netdev_ctxt_count(dd);
 
-	for (i = 0; i < ctxt_count; i++) {
-		struct hfi1_ctxtdata *rcd = hfi1_netdev_get_ctxt(dd, i);
+	for (i = 0; i < dd->vnic.num_ctxt; i++) {
+		struct hfi1_ctxtdata *rcd = dd->vnic.ctxt[i];
 		struct hfi1_msix_entry *me;
 
 		me = &dd->msix_info.msix_entries[rcd->msix_intr];

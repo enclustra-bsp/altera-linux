@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *
  * device driver for Conexant 2388x based TV cards
@@ -10,6 +9,16 @@
  *	- Multituner support
  *	- video_ioctl2 conversion
  *	- PAL/M fixes
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
  */
 
 #include "cx88.h"
@@ -33,7 +42,7 @@
 
 MODULE_DESCRIPTION("v4l2 driver module for cx2388x based TV cards");
 MODULE_AUTHOR("Gerd Knorr <kraxel@bytesex.org> [SuSE Labs]");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
 MODULE_VERSION(CX88_VERSION);
 
 /* ------------------------------------------------------------------ */
@@ -69,52 +78,62 @@ MODULE_PARM_DESC(irq_debug, "enable debug messages [IRQ handler]");
 
 static const struct cx8800_fmt formats[] = {
 	{
+		.name     = "8 bpp, gray",
 		.fourcc   = V4L2_PIX_FMT_GREY,
 		.cxformat = ColorFormatY8,
 		.depth    = 8,
 		.flags    = FORMAT_FLAGS_PACKED,
 	}, {
+		.name     = "15 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_RGB555,
 		.cxformat = ColorFormatRGB15,
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	}, {
+		.name     = "15 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB555X,
 		.cxformat = ColorFormatRGB15 | ColorFormatBSWAP,
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	}, {
+		.name     = "16 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_RGB565,
 		.cxformat = ColorFormatRGB16,
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	}, {
+		.name     = "16 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB565X,
 		.cxformat = ColorFormatRGB16 | ColorFormatBSWAP,
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	}, {
+		.name     = "24 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_BGR24,
 		.cxformat = ColorFormatRGB24,
 		.depth    = 24,
 		.flags    = FORMAT_FLAGS_PACKED,
 	}, {
+		.name     = "32 bpp RGB, le",
 		.fourcc   = V4L2_PIX_FMT_BGR32,
 		.cxformat = ColorFormatRGB32,
 		.depth    = 32,
 		.flags    = FORMAT_FLAGS_PACKED,
 	}, {
+		.name     = "32 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB32,
 		.cxformat = ColorFormatRGB32 | ColorFormatBSWAP |
 			    ColorFormatWSWAP,
 		.depth    = 32,
 		.flags    = FORMAT_FLAGS_PACKED,
 	}, {
+		.name     = "4:2:2, packed, YUYV",
 		.fourcc   = V4L2_PIX_FMT_YUYV,
 		.cxformat = ColorFormatYUY2,
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	}, {
+		.name     = "4:2:2, packed, UYVY",
 		.fourcc   = V4L2_PIX_FMT_UYVY,
 		.cxformat = ColorFormatYUY2 | ColorFormatBSWAP,
 		.depth    = 16,
@@ -385,7 +404,8 @@ static int start_video_dma(struct cx8800_dev    *dev,
 	return 0;
 }
 
-static int __maybe_unused stop_video_dma(struct cx8800_dev    *dev)
+#ifdef CONFIG_PM
+static int stop_video_dma(struct cx8800_dev    *dev)
 {
 	struct cx88_core *core = dev->core;
 
@@ -401,8 +421,8 @@ static int __maybe_unused stop_video_dma(struct cx8800_dev    *dev)
 	return 0;
 }
 
-static int __maybe_unused restart_video_queue(struct cx8800_dev *dev,
-					      struct cx88_dmaqueue *q)
+static int restart_video_queue(struct cx8800_dev    *dev,
+			       struct cx88_dmaqueue *q)
 {
 	struct cx88_buffer *buf;
 
@@ -414,6 +434,7 @@ static int __maybe_unused restart_video_queue(struct cx8800_dev *dev,
 	}
 	return 0;
 }
+#endif
 
 /* ------------------------------------------------------------------ */
 
@@ -477,9 +498,9 @@ static int buffer_prepare(struct vb2_buffer *vb)
 		break;
 	}
 	dprintk(2,
-		"[%p/%d] %s - %dx%d %dbpp 0x%08x - dma=0x%08lx\n",
-		buf, buf->vb.vb2_buf.index, __func__,
-		core->width, core->height, dev->fmt->depth, dev->fmt->fourcc,
+		"[%p/%d] buffer_prepare - %dx%d %dbpp \"%s\" - dma=0x%08lx\n",
+		buf, buf->vb.vb2_buf.index,
+		core->width, core->height, dev->fmt->depth, dev->fmt->name,
 		(unsigned long)buf->risc.dma);
 	return 0;
 }
@@ -788,12 +809,27 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 int cx88_querycap(struct file *file, struct cx88_core *core,
 		  struct v4l2_capability *cap)
 {
+	struct video_device *vdev = video_devdata(file);
+
 	strscpy(cap->card, core->board.name, sizeof(cap->card));
-	cap->capabilities = V4L2_CAP_READWRITE | V4L2_CAP_STREAMING |
-			    V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VBI_CAPTURE |
-			    V4L2_CAP_DEVICE_CAPS;
+	cap->device_caps = V4L2_CAP_READWRITE | V4L2_CAP_STREAMING;
 	if (core->board.tuner_type != UNSET)
-		cap->capabilities |= V4L2_CAP_TUNER;
+		cap->device_caps |= V4L2_CAP_TUNER;
+	switch (vdev->vfl_type) {
+	case VFL_TYPE_RADIO:
+		cap->device_caps = V4L2_CAP_RADIO | V4L2_CAP_TUNER;
+		break;
+	case VFL_TYPE_GRABBER:
+		cap->device_caps |= V4L2_CAP_VIDEO_CAPTURE;
+		break;
+	case VFL_TYPE_VBI:
+		cap->device_caps |= V4L2_CAP_VBI_CAPTURE;
+		break;
+	default:
+		return -EINVAL;
+	}
+	cap->capabilities = cap->device_caps | V4L2_CAP_VIDEO_CAPTURE |
+		V4L2_CAP_VBI_CAPTURE | V4L2_CAP_DEVICE_CAPS;
 	if (core->board.radio.type == CX88_RADIO)
 		cap->capabilities |= V4L2_CAP_RADIO;
 	return 0;
@@ -817,6 +853,7 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void  *priv,
 	if (unlikely(f->index >= ARRAY_SIZE(formats)))
 		return -EINVAL;
 
+	strscpy(f->description, formats[f->index].name, sizeof(f->description));
 	f->pixelformat = formats[f->index].fourcc;
 
 	return 0;
@@ -1275,7 +1312,7 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 	core = cx88_core_get(dev->pci);
 	if (!core) {
 		err = -EINVAL;
-		goto fail_disable;
+		goto fail_free;
 	}
 	dev->core = core;
 
@@ -1321,7 +1358,7 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 				       cc->step, cc->default_value);
 		if (!vc) {
 			err = core->audio_hdl.error;
-			goto fail_irq;
+			goto fail_core;
 		}
 		vc->priv = (void *)cc;
 	}
@@ -1335,7 +1372,7 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 				       cc->step, cc->default_value);
 		if (!vc) {
 			err = core->video_hdl.error;
-			goto fail_irq;
+			goto fail_core;
 		}
 		vc->priv = (void *)cc;
 		if (vc->id == V4L2_CID_CHROMA_AGC)
@@ -1383,9 +1420,9 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 		};
 
 		request_module("rtc-isl1208");
-		core->i2c_rtc = i2c_new_client_device(&core->i2c_adap, &rtc_info);
+		core->i2c_rtc = i2c_new_device(&core->i2c_adap, &rtc_info);
 	}
-		fallthrough;
+		/* fall-through */
 	case CX88_BOARD_DVICO_FUSIONHDTV_5_PCI_NANO:
 		request_module("ir-kbd-i2c");
 	}
@@ -1445,11 +1482,7 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 	video_set_drvdata(&dev->video_dev, dev);
 	dev->video_dev.ctrl_handler = &core->video_hdl;
 	dev->video_dev.queue = &dev->vb2_vidq;
-	dev->video_dev.device_caps = V4L2_CAP_READWRITE | V4L2_CAP_STREAMING |
-				     V4L2_CAP_VIDEO_CAPTURE;
-	if (core->board.tuner_type != UNSET)
-		dev->video_dev.device_caps |= V4L2_CAP_TUNER;
-	err = video_register_device(&dev->video_dev, VFL_TYPE_VIDEO,
+	err = video_register_device(&dev->video_dev, VFL_TYPE_GRABBER,
 				    video_nr[core->nr]);
 	if (err < 0) {
 		pr_err("can't register video device\n");
@@ -1462,10 +1495,6 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 		       &cx8800_vbi_template, "vbi");
 	video_set_drvdata(&dev->vbi_dev, dev);
 	dev->vbi_dev.queue = &dev->vb2_vbiq;
-	dev->vbi_dev.device_caps = V4L2_CAP_READWRITE | V4L2_CAP_STREAMING |
-				   V4L2_CAP_VBI_CAPTURE;
-	if (core->board.tuner_type != UNSET)
-		dev->vbi_dev.device_caps |= V4L2_CAP_TUNER;
 	err = video_register_device(&dev->vbi_dev, VFL_TYPE_VBI,
 				    vbi_nr[core->nr]);
 	if (err < 0) {
@@ -1480,7 +1509,6 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 			       &cx8800_radio_template, "radio");
 		video_set_drvdata(&dev->radio_dev, dev);
 		dev->radio_dev.ctrl_handler = &core->audio_hdl;
-		dev->radio_dev.device_caps = V4L2_CAP_RADIO | V4L2_CAP_TUNER;
 		err = video_register_device(&dev->radio_dev, VFL_TYPE_RADIO,
 					    radio_nr[core->nr]);
 		if (err < 0) {
@@ -1507,14 +1535,11 @@ static int cx8800_initdev(struct pci_dev *pci_dev,
 
 fail_unreg:
 	cx8800_unregister_video(dev);
-	mutex_unlock(&core->lock);
-fail_irq:
 	free_irq(pci_dev->irq, dev);
+	mutex_unlock(&core->lock);
 fail_core:
 	core->v4ldev = NULL;
 	cx88_core_put(core, dev->pci);
-fail_disable:
-	pci_disable_device(pci_dev);
 fail_free:
 	kfree(dev);
 	return err;
@@ -1549,9 +1574,10 @@ static void cx8800_finidev(struct pci_dev *pci_dev)
 	kfree(dev);
 }
 
-static int __maybe_unused cx8800_suspend(struct device *dev_d)
+#ifdef CONFIG_PM
+static int cx8800_suspend(struct pci_dev *pci_dev, pm_message_t state)
 {
-	struct cx8800_dev *dev = dev_get_drvdata(dev_d);
+	struct cx8800_dev *dev = pci_get_drvdata(pci_dev);
 	struct cx88_core *core = dev->core;
 	unsigned long flags;
 
@@ -1572,17 +1598,40 @@ static int __maybe_unused cx8800_suspend(struct device *dev_d)
 	/* FIXME -- shutdown device */
 	cx88_shutdown(core);
 
-	dev->state.disabled = 1;
+	pci_save_state(pci_dev);
+	if (pci_set_power_state(pci_dev,
+				pci_choose_state(pci_dev, state)) != 0) {
+		pci_disable_device(pci_dev);
+		dev->state.disabled = 1;
+	}
 	return 0;
 }
 
-static int __maybe_unused cx8800_resume(struct device *dev_d)
+static int cx8800_resume(struct pci_dev *pci_dev)
 {
-	struct cx8800_dev *dev = dev_get_drvdata(dev_d);
+	struct cx8800_dev *dev = pci_get_drvdata(pci_dev);
 	struct cx88_core *core = dev->core;
 	unsigned long flags;
+	int err;
 
-	dev->state.disabled = 0;
+	if (dev->state.disabled) {
+		err = pci_enable_device(pci_dev);
+		if (err) {
+			pr_err("can't enable device\n");
+			return err;
+		}
+
+		dev->state.disabled = 0;
+	}
+	err = pci_set_power_state(pci_dev, PCI_D0);
+	if (err) {
+		pr_err("can't set power state\n");
+		pci_disable_device(pci_dev);
+		dev->state.disabled = 1;
+
+		return err;
+	}
+	pci_restore_state(pci_dev);
 
 	/* FIXME: re-initialize hardware */
 	cx88_reset(core);
@@ -1605,6 +1654,7 @@ static int __maybe_unused cx8800_resume(struct device *dev_d)
 
 	return 0;
 }
+#endif
 
 /* ----------------------------------------------------------- */
 
@@ -1620,14 +1670,15 @@ static const struct pci_device_id cx8800_pci_tbl[] = {
 };
 MODULE_DEVICE_TABLE(pci, cx8800_pci_tbl);
 
-static SIMPLE_DEV_PM_OPS(cx8800_pm_ops, cx8800_suspend, cx8800_resume);
-
 static struct pci_driver cx8800_pci_driver = {
-	.name      = "cx8800",
-	.id_table  = cx8800_pci_tbl,
-	.probe     = cx8800_initdev,
-	.remove    = cx8800_finidev,
-	.driver.pm = &cx8800_pm_ops,
+	.name     = "cx8800",
+	.id_table = cx8800_pci_tbl,
+	.probe    = cx8800_initdev,
+	.remove   = cx8800_finidev,
+#ifdef CONFIG_PM
+	.suspend  = cx8800_suspend,
+	.resume   = cx8800_resume,
+#endif
 };
 
 module_pci_driver(cx8800_pci_driver);

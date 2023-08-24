@@ -26,13 +26,13 @@
  *         PREEMPT_MASK:	0x000000ff
  *         SOFTIRQ_MASK:	0x0000ff00
  *         HARDIRQ_MASK:	0x000f0000
- *             NMI_MASK:	0x00f00000
+ *             NMI_MASK:	0x00100000
  * PREEMPT_NEED_RESCHED:	0x80000000
  */
 #define PREEMPT_BITS	8
 #define SOFTIRQ_BITS	8
 #define HARDIRQ_BITS	4
-#define NMI_BITS	4
+#define NMI_BITS	1
 
 #define PREEMPT_SHIFT	0
 #define SOFTIRQ_SHIFT	(PREEMPT_SHIFT + PREEMPT_BITS)
@@ -52,6 +52,9 @@
 #define NMI_OFFSET	(1UL << NMI_SHIFT)
 
 #define SOFTIRQ_DISABLE_OFFSET	(2 * SOFTIRQ_OFFSET)
+
+/* We use the MSB mostly because its available */
+#define PREEMPT_NEED_RESCHED	0x80000000
 
 #define PREEMPT_DISABLED	(PREEMPT_DISABLE_OFFSET + PREEMPT_ENABLED)
 
@@ -182,7 +185,7 @@ do { \
 
 #define preemptible()	(preempt_count() == 0 && !irqs_disabled())
 
-#ifdef CONFIG_PREEMPTION
+#ifdef CONFIG_PREEMPT
 #define preempt_enable() \
 do { \
 	barrier(); \
@@ -203,7 +206,7 @@ do { \
 		__preempt_schedule(); \
 } while (0)
 
-#else /* !CONFIG_PREEMPTION */
+#else /* !CONFIG_PREEMPT */
 #define preempt_enable() \
 do { \
 	barrier(); \
@@ -217,7 +220,7 @@ do { \
 } while (0)
 
 #define preempt_check_resched() do { } while (0)
-#endif /* CONFIG_PREEMPTION */
+#endif /* CONFIG_PREEMPT */
 
 #define preempt_disable_notrace() \
 do { \
@@ -321,35 +324,5 @@ static inline void preempt_notifier_init(struct preempt_notifier *notifier,
 }
 
 #endif
-
-/**
- * migrate_disable - Prevent migration of the current task
- *
- * Maps to preempt_disable() which also disables preemption. Use
- * migrate_disable() to annotate that the intent is to prevent migration,
- * but not necessarily preemption.
- *
- * Can be invoked nested like preempt_disable() and needs the corresponding
- * number of migrate_enable() invocations.
- */
-static __always_inline void migrate_disable(void)
-{
-	preempt_disable();
-}
-
-/**
- * migrate_enable - Allow migration of the current task
- *
- * Counterpart to migrate_disable().
- *
- * As migrate_disable() can be invoked nested, only the outermost invocation
- * reenables migration.
- *
- * Currently mapped to preempt_enable().
- */
-static __always_inline void migrate_enable(void)
-{
-	preempt_enable();
-}
 
 #endif /* __LINUX_PREEMPT_H */

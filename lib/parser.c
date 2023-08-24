@@ -1,6 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * lib/parser.c - simple parser for mount, etc. options.
+ *
+ * This source code is licensed under the GNU General Public License,
+ * Version 2.  See the file COPYING for more details.
  */
 
 #include <linux/ctype.h>

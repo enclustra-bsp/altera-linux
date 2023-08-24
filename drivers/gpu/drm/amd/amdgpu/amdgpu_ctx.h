@@ -29,12 +29,10 @@ struct drm_device;
 struct drm_file;
 struct amdgpu_fpriv;
 
-#define AMDGPU_MAX_ENTITY_NUM 4
-
 struct amdgpu_ctx_entity {
 	uint64_t		sequence;
+	struct dma_fence	**fences;
 	struct drm_sched_entity	entity;
-	struct dma_fence	*fences[];
 };
 
 struct amdgpu_ctx {
@@ -44,14 +42,13 @@ struct amdgpu_ctx {
 	unsigned			reset_counter_query;
 	uint32_t			vram_lost_counter;
 	spinlock_t			ring_lock;
-	struct amdgpu_ctx_entity	*entities[AMDGPU_HW_IP_NUM][AMDGPU_MAX_ENTITY_NUM];
+	struct dma_fence		**fences;
+	struct amdgpu_ctx_entity	*entities[AMDGPU_HW_IP_NUM];
 	bool				preamble_presented;
 	enum drm_sched_priority		init_priority;
 	enum drm_sched_priority		override_priority;
 	struct mutex			lock;
 	atomic_t			guilty;
-	unsigned long			ras_counter_ce;
-	unsigned long			ras_counter_ue;
 };
 
 struct amdgpu_ctx_mgr {
@@ -85,7 +82,7 @@ int amdgpu_ctx_wait_prev_fence(struct amdgpu_ctx *ctx,
 
 void amdgpu_ctx_mgr_init(struct amdgpu_ctx_mgr *mgr);
 void amdgpu_ctx_mgr_entity_fini(struct amdgpu_ctx_mgr *mgr);
-long amdgpu_ctx_mgr_entity_flush(struct amdgpu_ctx_mgr *mgr, long timeout);
+void amdgpu_ctx_mgr_entity_flush(struct amdgpu_ctx_mgr *mgr);
 void amdgpu_ctx_mgr_fini(struct amdgpu_ctx_mgr *mgr);
 
 #endif

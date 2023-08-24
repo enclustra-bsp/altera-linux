@@ -27,7 +27,7 @@ static struct tep_format_field cpu = {
 
 struct event_list {
 	struct event_list	*next;
-	struct tep_event	*event;
+	struct tep_event_format	*event;
 };
 
 static void show_error(char *error_buf, const char *fmt, ...)
@@ -38,8 +38,8 @@ static void show_error(char *error_buf, const char *fmt, ...)
 	int len;
 	int i;
 
-	input = get_input_buf();
-	index = get_input_buf_ptr();
+	input = tep_get_input_buf();
+	index = tep_get_input_buf_ptr();
 	len = input ? strlen(input) : 0;
 
 	if (len) {
@@ -57,20 +57,25 @@ static void show_error(char *error_buf, const char *fmt, ...)
 	va_end(ap);
 }
 
-static enum tep_event_type filter_read_token(char **tok)
+static void free_token(char *token)
+{
+	tep_free_token(token);
+}
+
+static enum tep_event_type read_token(char **tok)
 {
 	enum tep_event_type type;
 	char *token = NULL;
 
 	do {
 		free_token(token);
-		type = read_token(&token);
+		type = tep_read_token(&token);
 	} while (type == TEP_EVENT_NEWLINE || type == TEP_EVENT_SPACE);
 
 	/* If token is = or ! check to see if the next char is ~ */
 	if (token &&
 	    (strcmp(token, "=") == 0 || strcmp(token, "!") == 0) &&
-	    peek_char() == '~') {
+	    tep_peek_char() == '~') {
 		/* append it */
 		*tok = malloc(3);
 		if (*tok == NULL) {
@@ -80,7 +85,7 @@ static enum tep_event_type filter_read_token(char **tok)
 		sprintf(*tok, "%c%c", *token, '~');
 		free_token(token);
 		/* Now remove the '~' from the buffer */
-		read_token(&token);
+		tep_read_token(&token);
 		free_token(token);
 	} else
 		*tok = token;
@@ -149,7 +154,7 @@ add_filter_type(struct tep_event_filter *filter, int id)
 
 	filter_type = &filter->event_filters[i];
 	filter_type->event_id = id;
-	filter_type->event = tep_find_event(filter->tep, id);
+	filter_type->event = tep_find_event(filter->pevent, id);
 	filter_type->filter = NULL;
 
 	filter->filters++;
@@ -159,9 +164,9 @@ add_filter_type(struct tep_event_filter *filter, int id)
 
 /**
  * tep_filter_alloc - create a new event filter
- * @tep: The tep that this filter is associated with
+ * @pevent: The pevent that this filter is associated with
  */
-struct tep_event_filter *tep_filter_alloc(struct tep_handle *tep)
+struct tep_event_filter *tep_filter_alloc(struct tep_handle *pevent)
 {
 	struct tep_event_filter *filter;
 
@@ -170,8 +175,8 @@ struct tep_event_filter *tep_filter_alloc(struct tep_handle *tep)
 		return NULL;
 
 	memset(filter, 0, sizeof(*filter));
-	filter->tep = tep;
-	tep_ref(tep);
+	filter->pevent = pevent;
+	tep_ref(pevent);
 
 	return filter;
 }
@@ -224,7 +229,7 @@ static void free_arg(struct tep_filter_arg *arg)
 }
 
 static int add_event(struct event_list **events,
-		     struct tep_event *event)
+		     struct tep_event_format *event)
 {
 	struct event_list *list;
 
@@ -238,7 +243,7 @@ static int add_event(struct event_list **events,
 	return 0;
 }
 
-static int event_match(struct tep_event *event,
+static int event_match(struct tep_event_format *event,
 		       regex_t *sreg, regex_t *ereg)
 {
 	if (sreg) {
@@ -251,10 +256,10 @@ static int event_match(struct tep_event *event,
 }
 
 static enum tep_errno
-find_event(struct tep_handle *tep, struct event_list **events,
+find_event(struct tep_handle *pevent, struct event_list **events,
 	   char *sys_name, char *event_name)
 {
-	struct tep_event *event;
+	struct tep_event_format *event;
 	regex_t ereg;
 	regex_t sreg;
 	int match = 0;
@@ -294,8 +299,8 @@ find_event(struct tep_handle *tep, struct event_list **events,
 		}
 	}
 
-	for (i = 0; i < tep->nr_events; i++) {
-		event = tep->events[i];
+	for (i = 0; i < pevent->nr_events; i++) {
+		event = pevent->events[i];
 		if (event_match(event, sys_name ? &sreg : NULL, &ereg)) {
 			match = 1;
 			if (add_event(events, event) < 0) {
@@ -329,7 +334,7 @@ static void free_events(struct event_list *events)
 }
 
 static enum tep_errno
-create_arg_item(struct tep_event *event, const char *token,
+create_arg_item(struct tep_event_format *event, const char *token,
 		enum tep_event_type type, struct tep_filter_arg **parg, char *error_str)
 {
 	struct tep_format_field *field;
@@ -935,7 +940,7 @@ static int collapse_tree(struct tep_filter_arg *arg,
 }
 
 static enum tep_errno
-process_filter(struct tep_event *event, struct tep_filter_arg **parg,
+process_filter(struct tep_event_format *event, struct tep_filter_arg **parg,
 	       char *error_str, int not)
 {
 	enum tep_event_type type;
@@ -954,7 +959,7 @@ process_filter(struct tep_event *event, struct tep_filter_arg **parg,
 
 	do {
 		free(token);
-		type = filter_read_token(&token);
+		type = read_token(&token);
 		switch (type) {
 		case TEP_EVENT_SQUOTE:
 		case TEP_EVENT_DQUOTE:
@@ -1175,12 +1180,12 @@ process_filter(struct tep_event *event, struct tep_filter_arg **parg,
 }
 
 static enum tep_errno
-process_event(struct tep_event *event, const char *filter_str,
+process_event(struct tep_event_format *event, const char *filter_str,
 	      struct tep_filter_arg **parg, char *error_str)
 {
 	int ret;
 
-	init_input_buf(filter_str, strlen(filter_str));
+	tep_buffer_init(filter_str, strlen(filter_str));
 
 	ret = process_filter(event, parg, error_str, 0);
 	if (ret < 0)
@@ -1200,7 +1205,7 @@ process_event(struct tep_event *event, const char *filter_str,
 }
 
 static enum tep_errno
-filter_event(struct tep_event_filter *filter, struct tep_event *event,
+filter_event(struct tep_event_filter *filter, struct tep_event_format *event,
 	     const char *filter_str, char *error_str)
 {
 	struct tep_filter_type *filter_type;
@@ -1223,10 +1228,8 @@ filter_event(struct tep_event_filter *filter, struct tep_event *event,
 	}
 
 	filter_type = add_filter_type(filter, event->id);
-	if (filter_type == NULL) {
-		free_arg(arg);
+	if (filter_type == NULL)
 		return TEP_ERRNO__MEM_ALLOC_FAILED;
-	}
 
 	if (filter_type->filter)
 		free_arg(filter_type->filter);
@@ -1238,7 +1241,7 @@ filter_event(struct tep_event_filter *filter, struct tep_event *event,
 static void filter_init_error_buf(struct tep_event_filter *filter)
 {
 	/* clear buffer to reset show error */
-	init_input_buf("", 0);
+	tep_buffer_init("", 0);
 	filter->error_buffer[0] = '\0';
 }
 
@@ -1254,7 +1257,7 @@ static void filter_init_error_buf(struct tep_event_filter *filter)
 enum tep_errno tep_filter_add_filter_str(struct tep_event_filter *filter,
 					 const char *filter_str)
 {
-	struct tep_handle *tep = filter->tep;
+	struct tep_handle *pevent = filter->pevent;
 	struct event_list *event;
 	struct event_list *events = NULL;
 	const char *filter_start;
@@ -1310,7 +1313,7 @@ enum tep_errno tep_filter_add_filter_str(struct tep_event_filter *filter,
 		}
 
 		/* Find this event */
-		ret = find_event(tep, &events, strim(sys_name), strim(event_name));
+		ret = find_event(pevent, &events, strim(sys_name), strim(event_name));
 		if (ret < 0) {
 			free_events(events);
 			free(this_event);
@@ -1331,7 +1334,7 @@ enum tep_errno tep_filter_add_filter_str(struct tep_event_filter *filter,
 		if (ret < 0)
 			rtn = ret;
 
-		if (ret >= 0 && tep->test_filters) {
+		if (ret >= 0 && pevent->test_filters) {
 			char *test;
 			test = tep_filter_make_string(filter, event->event->id);
 			if (test) {
@@ -1342,6 +1345,9 @@ enum tep_errno tep_filter_add_filter_str(struct tep_event_filter *filter,
 	}
 
 	free_events(events);
+
+	if (rtn >= 0 && pevent->test_filters)
+		exit(0);
 
 	return rtn;
 }
@@ -1374,7 +1380,7 @@ int tep_filter_strerror(struct tep_event_filter *filter, enum tep_errno err,
 		return 0;
 	}
 
-	return tep_strerror(filter->tep, err, buf, buflen);
+	return tep_strerror(filter->pevent, err, buf, buflen);
 }
 
 /**
@@ -1437,7 +1443,7 @@ void tep_filter_reset(struct tep_event_filter *filter)
 
 void tep_filter_free(struct tep_event_filter *filter)
 {
-	tep_unref(filter->tep);
+	tep_unref(filter->pevent);
 
 	tep_filter_reset(filter);
 
@@ -1451,15 +1457,15 @@ static int copy_filter_type(struct tep_event_filter *filter,
 			    struct tep_filter_type *filter_type)
 {
 	struct tep_filter_arg *arg;
-	struct tep_event *event;
+	struct tep_event_format *event;
 	const char *sys;
 	const char *name;
 	char *str;
 
-	/* Can't assume that the tep's are the same */
+	/* Can't assume that the pevent's are the same */
 	sys = filter_type->event->system;
 	name = filter_type->event->name;
-	event = tep_find_event_by_name(filter->tep, sys, name);
+	event = tep_find_event_by_name(filter->pevent, sys, name);
 	if (!event)
 		return -1;
 
@@ -1470,10 +1476,8 @@ static int copy_filter_type(struct tep_event_filter *filter,
 	if (strcmp(str, "TRUE") == 0 || strcmp(str, "FALSE") == 0) {
 		/* Add trivial event */
 		arg = allocate_arg();
-		if (arg == NULL) {
-			free(str);
+		if (arg == NULL)
 			return -1;
-		}
 
 		arg->type = TEP_FILTER_ARG_BOOLEAN;
 		if (strcmp(str, "TRUE") == 0)
@@ -1482,11 +1486,8 @@ static int copy_filter_type(struct tep_event_filter *filter,
 			arg->boolean.value = 0;
 
 		filter_type = add_filter_type(filter, event->id);
-		if (filter_type == NULL) {
-			free(str);
-			free_arg(arg);
+		if (filter_type == NULL)
 			return -1;
-		}
 
 		filter_type->filter = arg;
 
@@ -1521,22 +1522,183 @@ int tep_filter_copy(struct tep_event_filter *dest, struct tep_event_filter *sour
 	return ret;
 }
 
-static int test_filter(struct tep_event *event, struct tep_filter_arg *arg,
+
+/**
+ * tep_update_trivial - update the trivial filters with the given filter
+ * @dest - the filter to update
+ * @source - the filter as the source of the update
+ * @type - the type of trivial filter to update.
+ *
+ * Scan dest for trivial events matching @type to replace with the source.
+ *
+ * Returns 0 on success and -1 if there was a problem updating, but
+ *   events may have still been updated on error.
+ */
+int tep_update_trivial(struct tep_event_filter *dest, struct tep_event_filter *source,
+		       enum tep_filter_trivial_type type)
+{
+	struct tep_handle *src_pevent;
+	struct tep_handle *dest_pevent;
+	struct tep_event_format *event;
+	struct tep_filter_type *filter_type;
+	struct tep_filter_arg *arg;
+	char *str;
+	int i;
+
+	src_pevent = source->pevent;
+	dest_pevent = dest->pevent;
+
+	/* Do nothing if either of the filters has nothing to filter */
+	if (!dest->filters || !source->filters)
+		return 0;
+
+	for (i = 0; i < dest->filters; i++) {
+		filter_type = &dest->event_filters[i];
+		arg = filter_type->filter;
+		if (arg->type != TEP_FILTER_ARG_BOOLEAN)
+			continue;
+		if ((arg->boolean.value && type == TEP_FILTER_TRIVIAL_FALSE) ||
+		    (!arg->boolean.value && type == TEP_FILTER_TRIVIAL_TRUE))
+			continue;
+
+		event = filter_type->event;
+
+		if (src_pevent != dest_pevent) {
+			/* do a look up */
+			event = tep_find_event_by_name(src_pevent,
+						       event->system,
+						       event->name);
+			if (!event)
+				return -1;
+		}
+
+		str = tep_filter_make_string(source, event->id);
+		if (!str)
+			continue;
+
+		/* Don't bother if the filter is trivial too */
+		if (strcmp(str, "TRUE") != 0 && strcmp(str, "FALSE") != 0)
+			filter_event(dest, event, str, NULL);
+		free(str);
+	}
+	return 0;
+}
+
+/**
+ * tep_filter_clear_trivial - clear TRUE and FALSE filters
+ * @filter: the filter to remove trivial filters from
+ * @type: remove only true, false, or both
+ *
+ * Removes filters that only contain a TRUE or FALES boolean arg.
+ *
+ * Returns 0 on success and -1 if there was a problem.
+ */
+int tep_filter_clear_trivial(struct tep_event_filter *filter,
+			     enum tep_filter_trivial_type type)
+{
+	struct tep_filter_type *filter_type;
+	int count = 0;
+	int *ids = NULL;
+	int i;
+
+	if (!filter->filters)
+		return 0;
+
+	/*
+	 * Two steps, first get all ids with trivial filters.
+	 *  then remove those ids.
+	 */
+	for (i = 0; i < filter->filters; i++) {
+		int *new_ids;
+
+		filter_type = &filter->event_filters[i];
+		if (filter_type->filter->type != TEP_FILTER_ARG_BOOLEAN)
+			continue;
+		switch (type) {
+		case TEP_FILTER_TRIVIAL_FALSE:
+			if (filter_type->filter->boolean.value)
+				continue;
+			break;
+		case TEP_FILTER_TRIVIAL_TRUE:
+			if (!filter_type->filter->boolean.value)
+				continue;
+		default:
+			break;
+		}
+
+		new_ids = realloc(ids, sizeof(*ids) * (count + 1));
+		if (!new_ids) {
+			free(ids);
+			return -1;
+		}
+
+		ids = new_ids;
+		ids[count++] = filter_type->event_id;
+	}
+
+	if (!count)
+		return 0;
+
+	for (i = 0; i < count; i++)
+		tep_filter_remove_event(filter, ids[i]);
+
+	free(ids);
+	return 0;
+}
+
+/**
+ * tep_filter_event_has_trivial - return true event contains trivial filter
+ * @filter: the filter with the information
+ * @event_id: the id of the event to test
+ * @type: trivial type to test for (TRUE, FALSE, EITHER)
+ *
+ * Returns 1 if the event contains a matching trivial type
+ *  otherwise 0.
+ */
+int tep_filter_event_has_trivial(struct tep_event_filter *filter,
+				 int event_id,
+				 enum tep_filter_trivial_type type)
+{
+	struct tep_filter_type *filter_type;
+
+	if (!filter->filters)
+		return 0;
+
+	filter_type = find_filter_type(filter, event_id);
+
+	if (!filter_type)
+		return 0;
+
+	if (filter_type->filter->type != TEP_FILTER_ARG_BOOLEAN)
+		return 0;
+
+	switch (type) {
+	case TEP_FILTER_TRIVIAL_FALSE:
+		return !filter_type->filter->boolean.value;
+
+	case TEP_FILTER_TRIVIAL_TRUE:
+		return filter_type->filter->boolean.value;
+	default:
+		return 1;
+	}
+}
+
+static int test_filter(struct tep_event_format *event, struct tep_filter_arg *arg,
 		       struct tep_record *record, enum tep_errno *err);
 
 static const char *
-get_comm(struct tep_event *event, struct tep_record *record)
+get_comm(struct tep_event_format *event, struct tep_record *record)
 {
 	const char *comm;
 	int pid;
 
-	pid = tep_data_pid(event->tep, record);
-	comm = tep_data_comm_from_pid(event->tep, pid);
+	pid = tep_data_pid(event->pevent, record);
+	comm = tep_data_comm_from_pid(event->pevent, pid);
 	return comm;
 }
 
 static unsigned long long
-get_value(struct tep_event *event,
+get_value(struct tep_event_format *event,
 	  struct tep_format_field *field, struct tep_record *record)
 {
 	unsigned long long val;
@@ -1572,11 +1734,11 @@ get_value(struct tep_event *event,
 }
 
 static unsigned long long
-get_arg_value(struct tep_event *event, struct tep_filter_arg *arg,
+get_arg_value(struct tep_event_format *event, struct tep_filter_arg *arg,
 	      struct tep_record *record, enum tep_errno *err);
 
 static unsigned long long
-get_exp_value(struct tep_event *event, struct tep_filter_arg *arg,
+get_exp_value(struct tep_event_format *event, struct tep_filter_arg *arg,
 	      struct tep_record *record, enum tep_errno *err)
 {
 	unsigned long long lval, rval;
@@ -1631,7 +1793,7 @@ get_exp_value(struct tep_event *event, struct tep_filter_arg *arg,
 }
 
 static unsigned long long
-get_arg_value(struct tep_event *event, struct tep_filter_arg *arg,
+get_arg_value(struct tep_event_format *event, struct tep_filter_arg *arg,
 	      struct tep_record *record, enum tep_errno *err)
 {
 	switch (arg->type) {
@@ -1655,7 +1817,7 @@ get_arg_value(struct tep_event *event, struct tep_filter_arg *arg,
 	return 0;
 }
 
-static int test_num(struct tep_event *event, struct tep_filter_arg *arg,
+static int test_num(struct tep_event_format *event, struct tep_filter_arg *arg,
 		    struct tep_record *record, enum tep_errno *err)
 {
 	unsigned long long lval, rval;
@@ -1698,8 +1860,8 @@ static int test_num(struct tep_event *event, struct tep_filter_arg *arg,
 
 static const char *get_field_str(struct tep_filter_arg *arg, struct tep_record *record)
 {
-	struct tep_event *event;
-	struct tep_handle *tep;
+	struct tep_event_format *event;
+	struct tep_handle *pevent;
 	unsigned long long addr;
 	const char *val = NULL;
 	unsigned int size;
@@ -1729,12 +1891,12 @@ static const char *get_field_str(struct tep_filter_arg *arg, struct tep_record *
 
 	} else {
 		event = arg->str.field->event;
-		tep = event->tep;
+		pevent = event->pevent;
 		addr = get_value(event, arg->str.field, record);
 
 		if (arg->str.field->flags & (TEP_FIELD_IS_POINTER | TEP_FIELD_IS_LONG))
 			/* convert to a kernel symbol */
-			val = tep_find_function(tep, addr);
+			val = tep_find_function(pevent, addr);
 
 		if (val == NULL) {
 			/* just use the hex of the string name */
@@ -1746,7 +1908,7 @@ static const char *get_field_str(struct tep_filter_arg *arg, struct tep_record *
 	return val;
 }
 
-static int test_str(struct tep_event *event, struct tep_filter_arg *arg,
+static int test_str(struct tep_event_format *event, struct tep_filter_arg *arg,
 		    struct tep_record *record, enum tep_errno *err)
 {
 	const char *val;
@@ -1777,7 +1939,7 @@ static int test_str(struct tep_event *event, struct tep_filter_arg *arg,
 	}
 }
 
-static int test_op(struct tep_event *event, struct tep_filter_arg *arg,
+static int test_op(struct tep_event_format *event, struct tep_filter_arg *arg,
 		   struct tep_record *record, enum tep_errno *err)
 {
 	switch (arg->op.type) {
@@ -1799,7 +1961,7 @@ static int test_op(struct tep_event *event, struct tep_filter_arg *arg,
 	}
 }
 
-static int test_filter(struct tep_event *event, struct tep_filter_arg *arg,
+static int test_filter(struct tep_event_format *event, struct tep_filter_arg *arg,
 		       struct tep_record *record, enum tep_errno *err)
 {
 	if (*err) {
@@ -1874,7 +2036,7 @@ int tep_event_filtered(struct tep_event_filter *filter, int event_id)
 enum tep_errno tep_filter_match(struct tep_event_filter *filter,
 				struct tep_record *record)
 {
-	struct tep_handle *tep = filter->tep;
+	struct tep_handle *pevent = filter->pevent;
 	struct tep_filter_type *filter_type;
 	int event_id;
 	int ret;
@@ -1885,7 +2047,7 @@ enum tep_errno tep_filter_match(struct tep_event_filter *filter,
 	if (!filter->filters)
 		return TEP_ERRNO__NO_FILTER;
 
-	event_id = tep_data_type(tep, record);
+	event_id = tep_data_type(pevent, record);
 
 	filter_type = find_filter_type(filter, event_id);
 	if (!filter_type)
@@ -1953,8 +2115,7 @@ static char *op_to_str(struct tep_event_filter *filter, struct tep_filter_arg *a
 				default:
 					break;
 				}
-				if (asprintf(&str, val ? "TRUE" : "FALSE") < 0)
-					str = NULL;
+				asprintf(&str, val ? "TRUE" : "FALSE");
 				break;
 			}
 		}
@@ -1972,8 +2133,7 @@ static char *op_to_str(struct tep_event_filter *filter, struct tep_filter_arg *a
 			break;
 		}
 
-		if (asprintf(&str, "(%s) %s (%s)", left, op, right) < 0)
-			str = NULL;
+		asprintf(&str, "(%s) %s (%s)", left, op, right);
 		break;
 
 	case TEP_FILTER_OP_NOT:
@@ -1989,12 +2149,10 @@ static char *op_to_str(struct tep_event_filter *filter, struct tep_filter_arg *a
 			right_val = 0;
 		if (right_val >= 0) {
 			/* just return the opposite */
-			if (asprintf(&str, right_val ? "FALSE" : "TRUE") < 0)
-				str = NULL;
+			asprintf(&str, right_val ? "FALSE" : "TRUE");
 			break;
 		}
-		if (asprintf(&str, "%s(%s)", op, right) < 0)
-			str = NULL;
+		asprintf(&str, "%s(%s)", op, right);
 		break;
 
 	default:
@@ -2010,8 +2168,7 @@ static char *val_to_str(struct tep_event_filter *filter, struct tep_filter_arg *
 {
 	char *str = NULL;
 
-	if (asprintf(&str, "%lld", arg->value.val) < 0)
-		str = NULL;
+	asprintf(&str, "%lld", arg->value.val);
 
 	return str;
 }
@@ -2069,8 +2226,7 @@ static char *exp_to_str(struct tep_event_filter *filter, struct tep_filter_arg *
 		break;
 	}
 
-	if (asprintf(&str, "%s %s %s", lstr, op, rstr) < 0)
-		str = NULL;
+	asprintf(&str, "%s %s %s", lstr, op, rstr);
 out:
 	free(lstr);
 	free(rstr);
@@ -2114,8 +2270,7 @@ static char *num_to_str(struct tep_event_filter *filter, struct tep_filter_arg *
 		if (!op)
 			op = "<=";
 
-		if (asprintf(&str, "%s %s %s", lstr, op, rstr) < 0)
-			str = NULL;
+		asprintf(&str, "%s %s %s", lstr, op, rstr);
 		break;
 
 	default:
@@ -2150,9 +2305,8 @@ static char *str_to_str(struct tep_event_filter *filter, struct tep_filter_arg *
 		if (!op)
 			op = "!~";
 
-		if (asprintf(&str, "%s %s \"%s\"",
-			 arg->str.field->name, op, arg->str.val) < 0)
-			str = NULL;
+		asprintf(&str, "%s %s \"%s\"",
+			 arg->str.field->name, op, arg->str.val);
 		break;
 
 	default:
@@ -2168,8 +2322,7 @@ static char *arg_to_str(struct tep_event_filter *filter, struct tep_filter_arg *
 
 	switch (arg->type) {
 	case TEP_FILTER_ARG_BOOLEAN:
-		if (asprintf(&str, arg->boolean.value ? "TRUE" : "FALSE") < 0)
-			str = NULL;
+		asprintf(&str, arg->boolean.value ? "TRUE" : "FALSE");
 		return str;
 
 	case TEP_FILTER_ARG_OP:
@@ -2256,6 +2409,14 @@ int tep_filter_compare(struct tep_event_filter *filter1, struct tep_event_filter
 			break;
 		if (filter_type1->filter->type != filter_type2->filter->type)
 			break;
+		switch (filter_type1->filter->type) {
+		case TEP_FILTER_TRIVIAL_FALSE:
+		case TEP_FILTER_TRIVIAL_TRUE:
+			/* trivial types just need the type compared */
+			continue;
+		default:
+			break;
+		}
 		/* The best way to compare complex filters is with strings */
 		str1 = arg_to_str(filter1, filter_type1->filter);
 		str2 = arg_to_str(filter2, filter_type2->filter);

@@ -228,7 +228,7 @@ int mr_fill_mroute(struct mr_table *mrt, struct sk_buff *skb,
 	if (c->mfc_flags & MFC_OFFLOAD)
 		rtm->rtm_flags |= RTNH_F_OFFLOAD;
 
-	mp_attr = nla_nest_start_noflag(skb, RTA_MULTIPATH);
+	mp_attr = nla_nest_start(skb, RTA_MULTIPATH);
 	if (!mp_attr)
 		return -EMSGSIZE;
 
@@ -335,6 +335,8 @@ next_entry2:
 	}
 	spin_unlock_bh(lock);
 	err = 0;
+	e = 0;
+
 out:
 	cb->args[1] = e;
 	return err;
@@ -372,7 +374,6 @@ int mr_rtm_dumproute(struct sk_buff *skb, struct netlink_callback *cb,
 		err = mr_table_dump(mrt, skb, cb, fill, lock, filter);
 		if (err < 0)
 			break;
-		cb->args[1] = 0;
 next_table:
 		t++;
 	}
@@ -386,17 +387,15 @@ EXPORT_SYMBOL(mr_rtm_dumproute);
 
 int mr_dump(struct net *net, struct notifier_block *nb, unsigned short family,
 	    int (*rules_dump)(struct net *net,
-			      struct notifier_block *nb,
-			      struct netlink_ext_ack *extack),
+			      struct notifier_block *nb),
 	    struct mr_table *(*mr_iter)(struct net *net,
 					struct mr_table *mrt),
-	    rwlock_t *mrt_lock,
-	    struct netlink_ext_ack *extack)
+	    rwlock_t *mrt_lock)
 {
 	struct mr_table *mrt;
 	int err;
 
-	err = rules_dump(net, nb, extack);
+	err = rules_dump(net, nb);
 	if (err)
 		return err;
 
@@ -411,25 +410,17 @@ int mr_dump(struct net *net, struct notifier_block *nb, unsigned short family,
 			if (!v->dev)
 				continue;
 
-			err = mr_call_vif_notifier(nb, family,
-						   FIB_EVENT_VIF_ADD,
-						   v, vifi, mrt->id, extack);
-			if (err)
-				break;
+			mr_call_vif_notifier(nb, net, family,
+					     FIB_EVENT_VIF_ADD,
+					     v, vifi, mrt->id);
 		}
 		read_unlock(mrt_lock);
 
-		if (err)
-			return err;
-
 		/* Notify on table MFC entries */
-		list_for_each_entry_rcu(mfc, &mrt->mfc_cache_list, list) {
-			err = mr_call_mfc_notifier(nb, family,
-						   FIB_EVENT_ENTRY_ADD,
-						   mfc, mrt->id, extack);
-			if (err)
-				return err;
-		}
+		list_for_each_entry_rcu(mfc, &mrt->mfc_cache_list, list)
+			mr_call_mfc_notifier(nb, net, family,
+					     FIB_EVENT_ENTRY_ADD,
+					     mfc, mrt->id);
 	}
 
 	return 0;

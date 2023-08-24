@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 // Copyright (C) 2005-2017 Andes Technology Corporation
 
 #ifndef _ASMANDES_UACCESS_H
@@ -11,6 +11,10 @@
 #include <asm/errno.h>
 #include <asm/memory.h>
 #include <asm/types.h>
+#include <linux/mm.h>
+
+#define VERIFY_READ	0
+#define VERIFY_WRITE	1
 
 #define __asmeq(x, y)  ".ifnc " x "," y " ; .err ; .endif\n\t"
 
@@ -36,6 +40,7 @@ extern int fixup_exception(struct pt_regs *regs);
 #define KERNEL_DS 	((mm_segment_t) { ~0UL })
 #define USER_DS		((mm_segment_t) {TASK_SIZE - 1})
 
+#define get_ds()	(KERNEL_DS)
 #define get_fs()	(current_thread_info()->addr_limit)
 #define user_addr_max	get_fs
 
@@ -44,11 +49,11 @@ static inline void set_fs(mm_segment_t fs)
 	current_thread_info()->addr_limit = fs;
 }
 
-#define uaccess_kernel()	(get_fs() == KERNEL_DS)
+#define segment_eq(a, b)	((a) == (b))
 
 #define __range_ok(addr, size) (size <= get_fs() && addr <= (get_fs() -size))
 
-#define access_ok(addr, size)	\
+#define access_ok(type, addr, size)	\
 	__range_ok((unsigned long)addr, (unsigned long)size)
 /*
  * Single-value transfer routines.  They automatically use the right
@@ -89,7 +94,7 @@ static inline void set_fs(mm_segment_t fs)
 ({									\
 	const __typeof__(*(ptr)) __user *__p = (ptr);			\
 	might_fault();							\
-	if (access_ok(__p, sizeof(*__p))) {		\
+	if (access_ok(VERIFY_READ, __p, sizeof(*__p))) {		\
 		__get_user_err((x), __p, (err));			\
 	} else {							\
 		(x) = 0; (err) = -EFAULT;				\
@@ -184,7 +189,7 @@ do {									\
 ({									\
 	__typeof__(*(ptr)) __user *__p = (ptr);				\
 	might_fault();							\
-	if (access_ok(__p, sizeof(*__p))) {		\
+	if (access_ok(VERIFY_WRITE, __p, sizeof(*__p))) {		\
 		__put_user_err((x), __p, (err));			\
 	} else	{							\
 		(err) = -EFAULT;					\
@@ -274,7 +279,7 @@ extern unsigned long __arch_copy_to_user(void __user * to, const void *from,
 #define INLINE_COPY_TO_USER
 static inline unsigned long clear_user(void __user * to, unsigned long n)
 {
-	if (access_ok(to, n))
+	if (access_ok(VERIFY_WRITE, to, n))
 		n = __arch_clear_user(to, n);
 	return n;
 }

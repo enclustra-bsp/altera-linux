@@ -1,8 +1,11 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  *  arch/arm/include/asm/processor.h
  *
  *  Copyright (C) 1995-1999 Russell King
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #ifndef __ASM_ARM_PROCESSOR_H
@@ -14,7 +17,6 @@
 #include <asm/ptrace.h>
 #include <asm/types.h>
 #include <asm/unified.h>
-#include <asm/vdso/processor.h>
 
 #ifdef __KERNEL__
 #define STACK_TOP	((current->personality & ADDR_LIMIT_32BIT) ? \
@@ -86,6 +88,12 @@ extern void release_thread(struct task_struct *);
 
 unsigned long get_wchan(struct task_struct *p);
 
+#if __LINUX_ARM_ARCH__ == 6 || defined(CONFIG_ARM_ERRATA_754327)
+#define cpu_relax()			smp_mb()
+#else
+#define cpu_relax()			barrier()
+#endif
+
 #define task_pt_regs(p) \
 	((struct pt_regs *)(THREAD_START_SP + task_stack_page(p)) - 1)
 
@@ -123,13 +131,15 @@ static inline void prefetchw(const void *ptr)
 	__asm__ __volatile__(
 		".arch_extension	mp\n"
 		__ALT_SMP_ASM(
-			"pldw\t%a0",
-			"pld\t%a0"
+			WASM(pldw)		"\t%a0",
+			WASM(pld)		"\t%a0"
 		)
 		:: "p" (ptr));
 }
 #endif
 #endif
+
+#define HAVE_ARCH_PICK_MMAP_LAYOUT
 
 #endif
 

@@ -11,11 +11,7 @@
 #define SCIF_PHYS	CONFIG_DEBUG_UART_PHYS
 #define SCIF_VIRT	((SCIF_PHYS & 0x00ffffff) | 0xfd000000)
 
-#if defined(CONFIG_DEBUG_R7S9210_SCIF2) || defined(CONFIG_DEBUG_R7S9210_SCIF4)
-/* RZ/A2 SCIFA */
-#define FTDR		0x06
-#define FSR		0x08
-#elif CONFIG_DEBUG_UART_PHYS < 0xe6e00000
+#if CONFIG_DEBUG_UART_PHYS < 0xe6e00000
 /* SCIFA */
 #define FTDR		0x20
 #define FSR		0x14
@@ -33,10 +29,7 @@
 	ldr	\rv, =SCIF_VIRT
 	.endm
 
-	.macro	waituartcts,rd,rx
-	.endm
-
-	.macro	waituarttxrdy, rd, rx
+	.macro	waituart, rd, rx
 1001:	ldrh	\rd, [\rx, #FSR]
 	tst	\rd, #TDFE
 	beq	1001b

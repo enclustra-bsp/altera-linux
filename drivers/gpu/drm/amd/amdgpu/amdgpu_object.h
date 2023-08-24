@@ -30,9 +30,6 @@
 
 #include <drm/amdgpu_drm.h>
 #include "amdgpu.h"
-#ifdef CONFIG_MMU_NOTIFIER
-#include <linux/mmu_notifier.h>
-#endif
 
 #define AMDGPU_BO_INVALID_OFFSET	LONG_MAX
 #define AMDGPU_BO_MAX_PLACEMENTS	3
@@ -44,8 +41,7 @@ struct amdgpu_bo_param {
 	u32				preferred_domain;
 	u64				flags;
 	enum ttm_bo_type		type;
-	bool				no_wait_gpu;
-	struct dma_resv	*resv;
+	struct reservation_object	*resv;
 };
 
 /* bo virtual addresses in a vm */
@@ -76,8 +72,6 @@ struct amdgpu_bo_va {
 
 	/* If the mappings are cleared or filled */
 	bool				cleared;
-
-	bool				is_xgmi;
 };
 
 struct amdgpu_bo {
@@ -98,18 +92,17 @@ struct amdgpu_bo {
 	/* per VM structure for page tables and with virtual addresses */
 	struct amdgpu_vm_bo_base	*vm_bo;
 	/* Constant after initialization */
+	struct drm_gem_object		gem_base;
 	struct amdgpu_bo		*parent;
 	struct amdgpu_bo		*shadow;
 
 	struct ttm_bo_kmap_obj		dma_buf_vmap;
 	struct amdgpu_mn		*mn;
 
-
-#ifdef CONFIG_MMU_NOTIFIER
-	struct mmu_interval_notifier	notifier;
-#endif
-
-	struct list_head		shadow_list;
+	union {
+		struct list_head	mn_list;
+		struct list_head	shadow_list;
+	};
 
 	struct kgd_mem                  *kfd_bo;
 };
@@ -197,7 +190,7 @@ static inline unsigned amdgpu_bo_gpu_page_alignment(struct amdgpu_bo *bo)
  */
 static inline u64 amdgpu_bo_mmap_offset(struct amdgpu_bo *bo)
 {
-	return drm_vma_node_offset_addr(&bo->tbo.base.vma_node);
+	return drm_vma_node_offset_addr(&bo->tbo.vma_node);
 }
 
 /**
@@ -229,17 +222,6 @@ static inline bool amdgpu_bo_explicit_sync(struct amdgpu_bo *bo)
 	return bo->flags & AMDGPU_GEM_CREATE_EXPLICIT_SYNC;
 }
 
-/**
- * amdgpu_bo_encrypted - test if the BO is encrypted
- * @bo: pointer to a buffer object
- *
- * Return true if the buffer object is encrypted, false otherwise.
- */
-static inline bool amdgpu_bo_encrypted(struct amdgpu_bo *bo)
-{
-	return bo->flags & AMDGPU_GEM_CREATE_ENCRYPTED;
-}
-
 bool amdgpu_bo_is_amdgpu_bo(struct ttm_buffer_object *bo);
 void amdgpu_bo_placement_from_domain(struct amdgpu_bo *abo, u32 domain);
 
@@ -254,9 +236,6 @@ int amdgpu_bo_create_kernel(struct amdgpu_device *adev,
 			    unsigned long size, int align,
 			    u32 domain, struct amdgpu_bo **bo_ptr,
 			    u64 *gpu_addr, void **cpu_addr);
-int amdgpu_bo_create_kernel_at(struct amdgpu_device *adev,
-			       uint64_t offset, uint64_t size, uint32_t domain,
-			       struct amdgpu_bo **bo_ptr, void **cpu_addr);
 void amdgpu_bo_free_kernel(struct amdgpu_bo **bo, u64 *gpu_addr,
 			   void **cpu_addr);
 int amdgpu_bo_kmap(struct amdgpu_bo *bo, void **ptr);
@@ -283,17 +262,16 @@ int amdgpu_bo_get_metadata(struct amdgpu_bo *bo, void *buffer,
 			   uint64_t *flags);
 void amdgpu_bo_move_notify(struct ttm_buffer_object *bo,
 			   bool evict,
-			   struct ttm_resource *new_mem);
-void amdgpu_bo_release_notify(struct ttm_buffer_object *bo);
+			   struct ttm_mem_reg *new_mem);
 int amdgpu_bo_fault_reserve_notify(struct ttm_buffer_object *bo);
 void amdgpu_bo_fence(struct amdgpu_bo *bo, struct dma_fence *fence,
 		     bool shared);
-int amdgpu_bo_sync_wait_resv(struct amdgpu_device *adev, struct dma_resv *resv,
-			     enum amdgpu_sync_mode sync_mode, void *owner,
-			     bool intr);
-int amdgpu_bo_sync_wait(struct amdgpu_bo *bo, void *owner, bool intr);
 u64 amdgpu_bo_gpu_offset(struct amdgpu_bo *bo);
-u64 amdgpu_bo_gpu_offset_no_check(struct amdgpu_bo *bo);
+int amdgpu_bo_backup_to_shadow(struct amdgpu_device *adev,
+			       struct amdgpu_ring *ring,
+			       struct amdgpu_bo *bo,
+			       struct reservation_object *resv,
+			       struct dma_fence **fence, bool direct);
 int amdgpu_bo_validate(struct amdgpu_bo *bo);
 int amdgpu_bo_restore_shadow(struct amdgpu_bo *shadow,
 			     struct dma_fence **fence);
@@ -331,9 +309,6 @@ void amdgpu_sa_bo_free(struct amdgpu_device *adev,
 void amdgpu_sa_bo_dump_debug_info(struct amdgpu_sa_manager *sa_manager,
 					 struct seq_file *m);
 #endif
-int amdgpu_debugfs_sa_init(struct amdgpu_device *adev);
-
-bool amdgpu_bo_support_uswc(u64 bo_flags);
 
 
 #endif

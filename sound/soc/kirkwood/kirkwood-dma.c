@@ -1,9 +1,13 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * kirkwood-dma.c
  *
  * (c) 2010 Arnaud Patard <apatard@mandriva.com>
  * (c) 2010 Arnaud Patard <arnaud.patard@rtp-net.org>
+ *
+ *  This program is free software; you can redistribute  it and/or modify it
+ *  under  the terms of  the GNU General  Public License as published by the
+ *  Free Software Foundation;  either version 2 of the  License, or (at your
+ *  option) any later version.
  */
 
 #include <linux/init.h>
@@ -20,7 +24,7 @@
 static struct kirkwood_dma_data *kirkwood_priv(struct snd_pcm_substream *subs)
 {
 	struct snd_soc_pcm_runtime *soc_runtime = subs->private_data;
-	return snd_soc_dai_get_drvdata(asoc_rtd_to_cpu(soc_runtime, 0));
+	return snd_soc_dai_get_drvdata(soc_runtime->cpu_dai);
 }
 
 static const struct snd_pcm_hardware kirkwood_dma_snd_hw = {
@@ -98,8 +102,7 @@ kirkwood_dma_conf_mbus_windows(void __iomem *base, int win,
 	}
 }
 
-static int kirkwood_dma_open(struct snd_soc_component *component,
-			     struct snd_pcm_substream *substream)
+static int kirkwood_dma_open(struct snd_pcm_substream *substream)
 {
 	int err;
 	struct snd_pcm_runtime *runtime = substream->runtime;
@@ -133,7 +136,7 @@ static int kirkwood_dma_open(struct snd_soc_component *component,
 		err = request_irq(priv->irq, kirkwood_dma_irq, IRQF_SHARED,
 				  "kirkwood-i2s", priv);
 		if (err)
-			return err;
+			return -EBUSY;
 
 		/*
 		 * Enable Error interrupts. We're only ack'ing them but
@@ -161,8 +164,7 @@ static int kirkwood_dma_open(struct snd_soc_component *component,
 	return 0;
 }
 
-static int kirkwood_dma_close(struct snd_soc_component *component,
-			      struct snd_pcm_substream *substream)
+static int kirkwood_dma_close(struct snd_pcm_substream *substream)
 {
 	struct kirkwood_dma_data *priv = kirkwood_priv(substream);
 
@@ -182,9 +184,8 @@ static int kirkwood_dma_close(struct snd_soc_component *component,
 	return 0;
 }
 
-static int kirkwood_dma_hw_params(struct snd_soc_component *component,
-				  struct snd_pcm_substream *substream,
-				  struct snd_pcm_hw_params *params)
+static int kirkwood_dma_hw_params(struct snd_pcm_substream *substream,
+				struct snd_pcm_hw_params *params)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
@@ -194,15 +195,13 @@ static int kirkwood_dma_hw_params(struct snd_soc_component *component,
 	return 0;
 }
 
-static int kirkwood_dma_hw_free(struct snd_soc_component *component,
-				struct snd_pcm_substream *substream)
+static int kirkwood_dma_hw_free(struct snd_pcm_substream *substream)
 {
 	snd_pcm_set_runtime_buffer(substream, NULL);
 	return 0;
 }
 
-static int kirkwood_dma_prepare(struct snd_soc_component *component,
-				struct snd_pcm_substream *substream)
+static int kirkwood_dma_prepare(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct kirkwood_dma_data *priv = kirkwood_priv(substream);
@@ -227,9 +226,8 @@ static int kirkwood_dma_prepare(struct snd_soc_component *component,
 	return 0;
 }
 
-static snd_pcm_uframes_t kirkwood_dma_pointer(
-	struct snd_soc_component *component,
-	struct snd_pcm_substream *substream)
+static snd_pcm_uframes_t kirkwood_dma_pointer(struct snd_pcm_substream
+						*substream)
 {
 	struct kirkwood_dma_data *priv = kirkwood_priv(substream);
 	snd_pcm_uframes_t count;
@@ -243,6 +241,16 @@ static snd_pcm_uframes_t kirkwood_dma_pointer(
 
 	return count;
 }
+
+static const struct snd_pcm_ops kirkwood_dma_ops = {
+	.open =		kirkwood_dma_open,
+	.close =        kirkwood_dma_close,
+	.ioctl =	snd_pcm_lib_ioctl,
+	.hw_params =	kirkwood_dma_hw_params,
+	.hw_free =      kirkwood_dma_hw_free,
+	.prepare =      kirkwood_dma_prepare,
+	.pointer =	kirkwood_dma_pointer,
+};
 
 static int kirkwood_dma_preallocate_dma_buffer(struct snd_pcm *pcm,
 		int stream)
@@ -263,8 +271,7 @@ static int kirkwood_dma_preallocate_dma_buffer(struct snd_pcm *pcm,
 	return 0;
 }
 
-static int kirkwood_dma_new(struct snd_soc_component *component,
-			    struct snd_soc_pcm_runtime *rtd)
+static int kirkwood_dma_new(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_card *card = rtd->card->snd_card;
 	struct snd_pcm *pcm = rtd->pcm;
@@ -291,8 +298,7 @@ static int kirkwood_dma_new(struct snd_soc_component *component,
 	return 0;
 }
 
-static void kirkwood_dma_free_dma_buffers(struct snd_soc_component *component,
-					  struct snd_pcm *pcm)
+static void kirkwood_dma_free_dma_buffers(struct snd_pcm *pcm)
 {
 	struct snd_pcm_substream *substream;
 	struct snd_dma_buffer *buf;
@@ -314,12 +320,7 @@ static void kirkwood_dma_free_dma_buffers(struct snd_soc_component *component,
 
 const struct snd_soc_component_driver kirkwood_soc_component = {
 	.name		= DRV_NAME,
-	.open		= kirkwood_dma_open,
-	.close		= kirkwood_dma_close,
-	.hw_params	= kirkwood_dma_hw_params,
-	.hw_free	= kirkwood_dma_hw_free,
-	.prepare	= kirkwood_dma_prepare,
-	.pointer	= kirkwood_dma_pointer,
-	.pcm_construct	= kirkwood_dma_new,
-	.pcm_destruct	= kirkwood_dma_free_dma_buffers,
+	.ops		= &kirkwood_dma_ops,
+	.pcm_new	= kirkwood_dma_new,
+	.pcm_free	= kirkwood_dma_free_dma_buffers,
 };

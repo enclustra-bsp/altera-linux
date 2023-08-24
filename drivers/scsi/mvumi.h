@@ -1,8 +1,24 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
   * Marvell UMI head file
   *
   * Copyright 2011 Marvell. <jyli@marvell.com>
+  *
+  * This file is licensed under GPLv2.
+  *
+  * This program is free software; you can redistribute it and/or
+  * modify it under the terms of the GNU General Public License as
+  * published by the Free Software Foundation; version 2 of the
+  * License.
+  *
+  * This program is distributed in the hope that it will be useful,
+  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  * General Public License for more details.
+  *
+  * You should have received a copy of the GNU General Public License
+  * along with this program; if not, write to the Free Software
+  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
+  * USA
  */
 
 #ifndef MVUMI_H
@@ -130,7 +146,7 @@ enum {
 struct mvumi_hotplug_event {
 	u16 size;
 	u8 dummy[2];
-	u8 bitmap[];
+	u8 bitmap[0];
 };
 
 struct mvumi_driver_event {
@@ -290,7 +306,7 @@ struct mvumi_rsp_frame {
 
 struct mvumi_ob_data {
 	struct list_head list;
-	unsigned char data[];
+	unsigned char data[0];
 };
 
 struct version_info {

@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/types.h>
 #include <linux/string.h>
-#include <linux/zalloc.h>
 
-#include "../../../util/event.h"
-#include "../../../util/synthetic-events.h"
-#include "../../../util/machine.h"
-#include "../../../util/tool.h"
-#include "../../../util/map.h"
-#include "../../../util/debug.h"
+#include "../../util/machine.h"
+#include "../../util/tool.h"
+#include "../../util/map.h"
+#include "../../util/util.h"
+#include "../../util/debug.h"
 
 #if defined(__x86_64__)
 
@@ -18,7 +16,8 @@ int perf_event__synthesize_extra_kmaps(struct perf_tool *tool,
 {
 	int rc = 0;
 	struct map *pos;
-	struct maps *kmaps = &machine->kmaps;
+	struct map_groups *kmaps = &machine->kmaps;
+	struct maps *maps = &kmaps->maps;
 	union perf_event *event = zalloc(sizeof(event->mmap) +
 					 machine->id_hdr_size);
 
@@ -28,7 +27,7 @@ int perf_event__synthesize_extra_kmaps(struct perf_tool *tool,
 		return -1;
 	}
 
-	maps__for_each_entry(kmaps, pos) {
+	for (pos = maps__first(maps); pos; pos = map__next(pos)) {
 		struct kmap *kmap;
 		size_t size;
 

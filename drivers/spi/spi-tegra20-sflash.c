@@ -1,10 +1,21 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * SPI driver for Nvidia's Tegra20 Serial Flash Controller.
  *
  * Copyright (c) 2012, NVIDIA CORPORATION.  All rights reserved.
  *
  * Author: Laxman Dewangan <ldewangan@nvidia.com>
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <linux/clk.h>
@@ -341,11 +352,10 @@ static int tegra_sflash_transfer_one_message(struct spi_master *master,
 			goto exit;
 		}
 		msg->actual_length += xfer->len;
-		if (xfer->cs_change &&
-		    (xfer->delay_usecs || xfer->delay.value)) {
+		if (xfer->cs_change && xfer->delay_usecs) {
 			tegra_sflash_writel(tsd, tsd->def_command_reg,
 					SPI_COMMAND);
-			spi_transfer_delay_exec(xfer);
+			udelay(xfer->delay_usecs);
 		}
 	}
 	ret = 0;
@@ -359,8 +369,9 @@ exit:
 static irqreturn_t handle_cpu_based_xfer(struct tegra_sflash_data *tsd)
 {
 	struct spi_transfer *t = tsd->curr_xfer;
+	unsigned long flags;
 
-	spin_lock(&tsd->lock);
+	spin_lock_irqsave(&tsd->lock, flags);
 	if (tsd->tx_status || tsd->rx_status || (tsd->status_reg & SPI_BSY)) {
 		dev_err(tsd->dev,
 			"CpuXfer ERROR bit set 0x%x\n", tsd->status_reg);
@@ -390,7 +401,7 @@ static irqreturn_t handle_cpu_based_xfer(struct tegra_sflash_data *tsd)
 	tegra_sflash_calculate_curr_xfer_param(tsd->cur_spi, tsd, t);
 	tegra_sflash_start_cpu_based_transfer(tsd, t);
 exit:
-	spin_unlock(&tsd->lock);
+	spin_unlock_irqrestore(&tsd->lock, flags);
 	return IRQ_HANDLED;
 }
 
@@ -419,6 +430,7 @@ static int tegra_sflash_probe(struct platform_device *pdev)
 {
 	struct spi_master	*master;
 	struct tegra_sflash_data	*tsd;
+	struct resource		*r;
 	int ret;
 	const struct of_device_id *match;
 
@@ -450,7 +462,8 @@ static int tegra_sflash_probe(struct platform_device *pdev)
 				 &master->max_speed_hz))
 		master->max_speed_hz = 25000000; /* 25MHz */
 
-	tsd->base = devm_platform_ioremap_resource(pdev, 0);
+	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	tsd->base = devm_ioremap_resource(&pdev->dev, r);
 	if (IS_ERR(tsd->base)) {
 		ret = PTR_ERR(tsd->base);
 		goto exit_free_master;
@@ -490,7 +503,6 @@ static int tegra_sflash_probe(struct platform_device *pdev)
 	ret = pm_runtime_get_sync(&pdev->dev);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "pm runtime get failed, e = %d\n", ret);
-		pm_runtime_put_noidle(&pdev->dev);
 		goto exit_pm_disable;
 	}
 
@@ -552,7 +564,6 @@ static int tegra_sflash_resume(struct device *dev)
 
 	ret = pm_runtime_get_sync(dev);
 	if (ret < 0) {
-		pm_runtime_put_noidle(dev);
 		dev_err(dev, "pm runtime failed, e = %d\n", ret);
 		return ret;
 	}

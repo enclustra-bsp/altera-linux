@@ -1,9 +1,34 @@
-/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause) */
 /* QLogic qed NIC Driver
  * Copyright (c) 2015-2017  QLogic Corporation
- * Copyright (c) 2019-2020 Marvell International Ltd.
+ *
+ * This software is available to you under a choice of one of two
+ * licenses.  You may choose to be licensed under the terms of the GNU
+ * General Public License (GPL) Version 2, available from the file
+ * COPYING in the main directory of this source tree, or the
+ * OpenIB.org BSD license below:
+ *
+ *     Redistribution and use in source and binary forms, with or
+ *     without modification, are permitted provided that the following
+ *     conditions are met:
+ *
+ *      - Redistributions of source code must retain the above
+ *        copyright notice, this list of conditions and the following
+ *        disclaimer.
+ *
+ *      - Redistributions in binary form must reproduce the above
+ *        copyright notice, this list of conditions and the following
+ *        disclaimer in the documentation and /or other materials
+ *        provided with the distribution.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+ * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
-
 #ifndef _QED_RDMA_IF_H
 #define _QED_RDMA_IF_H
 #include <linux/types.h>
@@ -26,13 +51,6 @@ enum qed_roce_qp_state {
 	QED_ROCE_QP_STATE_SQD,
 	QED_ROCE_QP_STATE_ERR,
 	QED_ROCE_QP_STATE_SQE
-};
-
-enum qed_rdma_qp_type {
-	QED_RDMA_QP_TYPE_RC,
-	QED_RDMA_QP_TYPE_XRC_INI,
-	QED_RDMA_QP_TYPE_XRC_TGT,
-	QED_RDMA_QP_TYPE_INVAL = 0xffff,
 };
 
 enum qed_rdma_tid_type {
@@ -73,6 +91,7 @@ struct qed_rdma_device {
 	u64 max_mr_size;
 	u32 max_cqe;
 	u32 max_mw;
+	u32 max_fmr;
 	u32 max_mr_mw_fmr_pbl;
 	u64 max_mr_mw_fmr_size;
 	u32 max_pd;
@@ -206,7 +225,7 @@ struct qed_rdma_start_in_params {
 
 struct qed_rdma_add_user_out_params {
 	u16 dpi;
-	void __iomem *dpi_addr;
+	u64 dpi_addr;
 	u64 dpi_phys_addr;
 	u32 dpi_size;
 	u16 wid_count;
@@ -242,8 +261,10 @@ struct qed_rdma_register_tid_in_params {
 	bool pbl_two_level;
 	u8 pbl_page_size_log;
 	u8 page_size_log;
+	u32 fbo;
 	u64 length;
 	u64 vaddr;
+	bool zbva;
 	bool phy_mr;
 	bool dma_mr;
 
@@ -270,12 +291,6 @@ struct qed_rdma_create_srq_in_params {
 	u16 num_pages;
 	u16 pd_id;
 	u16 page_size;
-
-	/* XRC related only */
-	bool reserved_key_en;
-	bool is_xrc;
-	u32 cq_cid;
-	u16 xrcd_id;
 };
 
 struct qed_rdma_destroy_cq_in_params {
@@ -304,12 +319,7 @@ struct qed_rdma_create_qp_in_params {
 	u16 rq_num_pages;
 	u64 rq_pbl_ptr;
 	u16 srq_id;
-	u16 xrcd_id;
 	u8 stats_queue;
-	enum qed_rdma_qp_type qp_type;
-	u8 flags;
-#define QED_ROCE_EDPM_MODE_MASK      0x1
-#define QED_ROCE_EDPM_MODE_SHIFT     0
 };
 
 struct qed_rdma_create_qp_out_params {
@@ -419,13 +429,11 @@ struct qed_rdma_create_srq_out_params {
 
 struct qed_rdma_destroy_srq_in_params {
 	u16 srq_id;
-	bool is_xrc;
 };
 
 struct qed_rdma_modify_srq_in_params {
 	u32 wqe_limit;
 	u16 srq_id;
-	bool is_xrc;
 };
 
 struct qed_rdma_stats_out_params {
@@ -603,8 +611,6 @@ struct qed_rdma_ops {
 	int (*rdma_set_rdma_int)(struct qed_dev *cdev, u16 cnt);
 	int (*rdma_alloc_pd)(void *rdma_cxt, u16 *pd);
 	void (*rdma_dealloc_pd)(void *rdma_cxt, u16 pd);
-	int (*rdma_alloc_xrcd)(void *rdma_cxt, u16 *xrcd);
-	void (*rdma_dealloc_xrcd)(void *rdma_cxt, u16 xrcd);
 	int (*rdma_create_cq)(void *rdma_cxt,
 			      struct qed_rdma_create_cq_in_params *params,
 			      u16 *icid);
@@ -663,8 +669,6 @@ struct qed_rdma_ops {
 			     struct qed_ll2_stats *p_stats);
 	int (*ll2_set_mac_filter)(struct qed_dev *cdev,
 				  u8 *old_mac_address, u8 *new_mac_address);
-
-	int (*iwarp_set_engine_affin)(struct qed_dev *cdev, bool b_reset);
 
 	int (*iwarp_connect)(void *rdma_cxt,
 			     struct qed_iwarp_connect_in *iparams,

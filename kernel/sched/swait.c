@@ -32,19 +32,6 @@ void swake_up_locked(struct swait_queue_head *q)
 }
 EXPORT_SYMBOL(swake_up_locked);
 
-/*
- * Wake up all waiters. This is an interface which is solely exposed for
- * completions and not for general usage.
- *
- * It is intentionally different from swake_up_all() to allow usage from
- * hard interrupt context and interrupt disabled regions.
- */
-void swake_up_all_locked(struct swait_queue_head *q)
-{
-	while (!list_empty(&q->task_list))
-		swake_up_locked(q);
-}
-
 void swake_up_one(struct swait_queue_head *q)
 {
 	unsigned long flags;
@@ -82,7 +69,7 @@ void swake_up_all(struct swait_queue_head *q)
 }
 EXPORT_SYMBOL(swake_up_all);
 
-void __prepare_to_swait(struct swait_queue_head *q, struct swait_queue *wait)
+static void __prepare_to_swait(struct swait_queue_head *q, struct swait_queue *wait)
 {
 	wait->task = current;
 	if (list_empty(&wait->task_list))
@@ -106,7 +93,7 @@ long prepare_to_swait_event(struct swait_queue_head *q, struct swait_queue *wait
 	long ret = 0;
 
 	raw_spin_lock_irqsave(&q->lock, flags);
-	if (signal_pending_state(state, current)) {
+	if (unlikely(signal_pending_state(state, current))) {
 		/*
 		 * See prepare_to_wait_event(). TL;DR, subsequent swake_up_one()
 		 * must not see us.

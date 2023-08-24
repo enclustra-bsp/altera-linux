@@ -16,7 +16,8 @@
 	#include <linux/mmc/card.h>
 #endif
 
-struct sdio_data {
+typedef struct sdio_data
+{
 	u8  func_number;
 
 	u8  tx_block_mode;
@@ -25,6 +26,6 @@ struct sdio_data {
 
 	struct sdio_func	 *func;
 	void *sys_sdio_irq_thd;
-};
+} SDIO_DATA, *PSDIO_DATA;
 
 #endif

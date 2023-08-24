@@ -1,8 +1,18 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Driver for the NXP SAA7164 PCIe bridge
  *
  *  Copyright (c) 2010-2015 Steven Toth <stoth@kernellabs.com>
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *
+ *  GNU General Public License for more details.
  */
 
 #include <linux/init.h>
@@ -13,10 +23,12 @@
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/interrupt.h>
-#include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <asm/div64.h>
 
+#ifdef CONFIG_PROC_FS
+#include <linux/proc_fs.h>
+#endif
 #include "saa7164.h"
 
 MODULE_DESCRIPTION("Driver for NXP SAA7164 based TV cards");
@@ -145,7 +157,7 @@ static void saa7164_ts_verifier(struct saa7164_buffer *buf)
 
 	}
 
-	/* Only report errors if we've been through this function at least
+	/* Only report errors if we've been through this function atleast
 	 * once already and the cached cc values are primed. First time through
 	 * always generates errors.
 	 */
@@ -575,8 +587,8 @@ static irqreturn_t saa7164_irq_ts(struct saa7164_port *port)
 
 	/* Find the current write point from the hardware */
 	wp = saa7164_readl(port->bufcounter);
-
-	BUG_ON(wp > (port->hwcfg.buffercount - 1));
+	if (wp > (port->hwcfg.buffercount - 1))
+		BUG();
 
 	/* Find the previous buffer to the current write point */
 	if (wp == 0)
@@ -588,8 +600,8 @@ static irqreturn_t saa7164_irq_ts(struct saa7164_port *port)
 	/* TODO: turn this into a worker thread */
 	list_for_each_safe(c, n, &port->dmaqueue.list) {
 		buf = list_entry(c, struct saa7164_buffer, list);
-		BUG_ON(i > port->hwcfg.buffercount);
-		i++;
+		if (i++ > port->hwcfg.buffercount)
+			BUG();
 
 		if (buf->idx == rp) {
 			/* Found the buffer, deal with it */
@@ -894,7 +906,8 @@ static int saa7164_port_init(struct saa7164_dev *dev, int portnr)
 {
 	struct saa7164_port *port = NULL;
 
-	BUG_ON((portnr < 0) || (portnr >= SAA7164_MAX_PORTS));
+	if ((portnr < 0) || (portnr >= SAA7164_MAX_PORTS))
+		BUG();
 
 	port = &dev->ports[portnr];
 
@@ -1007,7 +1020,7 @@ static int saa7164_dev_setup(struct saa7164_dev *dev)
 	dev->bmmio = (u8 __iomem *)dev->lmmio;
 	dev->bmmio2 = (u8 __iomem *)dev->lmmio2;
 
-	/* Interrupt and ack register locations offset of bmmio */
+	/* Inerrupt and ack register locations offset of bmmio */
 	dev->int_status = 0x183000 + 0xf80;
 	dev->int_ack = 0x183000 + 0xf90;
 
@@ -1042,138 +1055,83 @@ static void saa7164_dev_unregister(struct saa7164_dev *dev)
 	return;
 }
 
-#ifdef CONFIG_DEBUG_FS
-static void *saa7164_seq_start(struct seq_file *s, loff_t *pos)
+#ifdef CONFIG_PROC_FS
+static int saa7164_proc_show(struct seq_file *m, void *v)
 {
 	struct saa7164_dev *dev;
-	loff_t index = *pos;
-
-	mutex_lock(&devlist);
-	list_for_each_entry(dev, &saa7164_devlist, devlist) {
-		if (index-- == 0) {
-			mutex_unlock(&devlist);
-			return dev;
-		}
-	}
-	mutex_unlock(&devlist);
-
-	return NULL;
-}
-
-static void *saa7164_seq_next(struct seq_file *s, void *v, loff_t *pos)
-{
-	struct saa7164_dev *dev = v;
-	void *ret;
-
-	mutex_lock(&devlist);
-	if (list_is_last(&dev->devlist, &saa7164_devlist))
-		ret = NULL;
-	else
-		ret = list_next_entry(dev, devlist);
-	mutex_unlock(&devlist);
-
-	++*pos;
-
-	return ret;
-}
-
-static void saa7164_seq_stop(struct seq_file *s, void *v)
-{
-}
-
-static int saa7164_seq_show(struct seq_file *m, void *v)
-{
-	struct saa7164_dev *dev = v;
 	struct tmComResBusInfo *b;
+	struct list_head *list;
 	int i, c;
 
-	seq_printf(m, "%s = %p\n", dev->name, dev);
+	if (saa7164_devcount == 0)
+		return 0;
 
-	/* Lock the bus from any other access */
-	b = &dev->bus;
-	mutex_lock(&b->lock);
+	list_for_each(list, &saa7164_devlist) {
+		dev = list_entry(list, struct saa7164_dev, devlist);
+		seq_printf(m, "%s = %p\n", dev->name, dev);
 
-	seq_printf(m, " .m_pdwSetWritePos = 0x%x (0x%08x)\n",
-		   b->m_dwSetReadPos, saa7164_readl(b->m_dwSetReadPos));
+		/* Lock the bus from any other access */
+		b = &dev->bus;
+		mutex_lock(&b->lock);
 
-	seq_printf(m, " .m_pdwSetReadPos  = 0x%x (0x%08x)\n",
-		   b->m_dwSetWritePos, saa7164_readl(b->m_dwSetWritePos));
+		seq_printf(m, " .m_pdwSetWritePos = 0x%x (0x%08x)\n",
+			b->m_dwSetReadPos, saa7164_readl(b->m_dwSetReadPos));
 
-	seq_printf(m, " .m_pdwGetWritePos = 0x%x (0x%08x)\n",
-		   b->m_dwGetReadPos, saa7164_readl(b->m_dwGetReadPos));
+		seq_printf(m, " .m_pdwSetReadPos  = 0x%x (0x%08x)\n",
+			b->m_dwSetWritePos, saa7164_readl(b->m_dwSetWritePos));
 
-	seq_printf(m, " .m_pdwGetReadPos  = 0x%x (0x%08x)\n",
-		   b->m_dwGetWritePos, saa7164_readl(b->m_dwGetWritePos));
-	c = 0;
-	seq_puts(m, "\n  Set Ring:\n");
-	seq_puts(m, "\n addr  00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f\n");
-	for (i = 0; i < b->m_dwSizeSetRing; i++) {
-		if (c == 0)
-			seq_printf(m, " %04x:", i);
+		seq_printf(m, " .m_pdwGetWritePos = 0x%x (0x%08x)\n",
+			b->m_dwGetReadPos, saa7164_readl(b->m_dwGetReadPos));
 
-		seq_printf(m, " %02x", readb(b->m_pdwSetRing + i));
+		seq_printf(m, " .m_pdwGetReadPos  = 0x%x (0x%08x)\n",
+			b->m_dwGetWritePos, saa7164_readl(b->m_dwGetWritePos));
+		c = 0;
+		seq_printf(m, "\n  Set Ring:\n");
+		seq_printf(m, "\n addr  00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f\n");
+		for (i = 0; i < b->m_dwSizeSetRing; i++) {
+			if (c == 0)
+				seq_printf(m, " %04x:", i);
 
-		if (++c == 16) {
-			seq_puts(m, "\n");
-			c = 0;
+			seq_printf(m, " %02x", readb(b->m_pdwSetRing + i));
+
+			if (++c == 16) {
+				seq_printf(m, "\n");
+				c = 0;
+			}
 		}
-	}
 
-	c = 0;
-	seq_puts(m, "\n  Get Ring:\n");
-	seq_puts(m, "\n addr  00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f\n");
-	for (i = 0; i < b->m_dwSizeGetRing; i++) {
-		if (c == 0)
-			seq_printf(m, " %04x:", i);
+		c = 0;
+		seq_printf(m, "\n  Get Ring:\n");
+		seq_printf(m, "\n addr  00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f\n");
+		for (i = 0; i < b->m_dwSizeGetRing; i++) {
+			if (c == 0)
+				seq_printf(m, " %04x:", i);
 
-		seq_printf(m, " %02x", readb(b->m_pdwGetRing + i));
+			seq_printf(m, " %02x", readb(b->m_pdwGetRing + i));
 
-		if (++c == 16) {
-			seq_puts(m, "\n");
-			c = 0;
+			if (++c == 16) {
+				seq_printf(m, "\n");
+				c = 0;
+			}
 		}
-	}
 
-	mutex_unlock(&b->lock);
+		mutex_unlock(&b->lock);
+
+	}
 
 	return 0;
 }
 
-static const struct seq_operations saa7164_seq_ops = {
-	.start = saa7164_seq_start,
-	.next = saa7164_seq_next,
-	.stop = saa7164_seq_stop,
-	.show = saa7164_seq_show,
-};
-
-static int saa7164_open(struct inode *inode, struct file *file)
+static int saa7164_proc_create(void)
 {
-	return seq_open(file, &saa7164_seq_ops);
+	struct proc_dir_entry *pe;
+
+	pe = proc_create_single("saa7164", S_IRUGO, NULL, saa7164_proc_show);
+	if (!pe)
+		return -ENOMEM;
+
+	return 0;
 }
-
-static const struct file_operations saa7164_operations = {
-	.owner          = THIS_MODULE,
-	.open           = saa7164_open,
-	.read           = seq_read,
-	.llseek         = seq_lseek,
-	.release        = seq_release,
-};
-
-static struct dentry *saa7614_dentry;
-
-static void __init saa7164_debugfs_create(void)
-{
-	saa7614_dentry = debugfs_create_file("saa7164", 0444, NULL, NULL,
-					     &saa7164_operations);
-}
-
-static void __exit saa7164_debugfs_remove(void)
-{
-	debugfs_remove(saa7614_dentry);
-}
-#else
-static void saa7164_debugfs_create(void) { }
-static void saa7164_debugfs_remove(void) { }
 #endif
 
 static int saa7164_thread_function(void *data)
@@ -1538,27 +1496,29 @@ static struct pci_driver saa7164_pci_driver = {
 	.id_table = saa7164_pci_tbl,
 	.probe    = saa7164_initdev,
 	.remove   = saa7164_finidev,
+	/* TODO */
+	.suspend  = NULL,
+	.resume   = NULL,
 };
 
 static int __init saa7164_init(void)
 {
-	int ret = pci_register_driver(&saa7164_pci_driver);
+	printk(KERN_INFO "saa7164 driver loaded\n");
 
-	if (ret)
-		return ret;
-
-	saa7164_debugfs_create();
-
-	pr_info("saa7164 driver loaded\n");
-
-	return 0;
+#ifdef CONFIG_PROC_FS
+	saa7164_proc_create();
+#endif
+	return pci_register_driver(&saa7164_pci_driver);
 }
 
 static void __exit saa7164_fini(void)
 {
-	saa7164_debugfs_remove();
+#ifdef CONFIG_PROC_FS
+	remove_proc_entry("saa7164", NULL);
+#endif
 	pci_unregister_driver(&saa7164_pci_driver);
 }
 
 module_init(saa7164_init);
 module_exit(saa7164_fini);
+

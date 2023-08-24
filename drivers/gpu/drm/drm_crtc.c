@@ -93,6 +93,15 @@ struct drm_crtc *drm_crtc_from_index(struct drm_device *dev, int idx)
 }
 EXPORT_SYMBOL(drm_crtc_from_index);
 
+/**
+ * drm_crtc_force_disable - Forcibly turn off a CRTC
+ * @crtc: CRTC to turn off
+ *
+ * Note: This should only be used by non-atomic legacy drivers.
+ *
+ * Returns:
+ * Zero on success, error code on failure.
+ */
 int drm_crtc_force_disable(struct drm_crtc *crtc)
 {
 	struct drm_mode_set set = {
@@ -103,6 +112,38 @@ int drm_crtc_force_disable(struct drm_crtc *crtc)
 
 	return drm_mode_set_config_internal(&set);
 }
+EXPORT_SYMBOL(drm_crtc_force_disable);
+
+/**
+ * drm_crtc_force_disable_all - Forcibly turn off all enabled CRTCs
+ * @dev: DRM device whose CRTCs to turn off
+ *
+ * Drivers may want to call this on unload to ensure that all displays are
+ * unlit and the GPU is in a consistent, low power state. Takes modeset locks.
+ *
+ * Note: This should only be used by non-atomic legacy drivers. For an atomic
+ * version look at drm_atomic_helper_shutdown().
+ *
+ * Returns:
+ * Zero on success, error code on failure.
+ */
+int drm_crtc_force_disable_all(struct drm_device *dev)
+{
+	struct drm_crtc *crtc;
+	int ret = 0;
+
+	drm_modeset_lock_all(dev);
+	drm_for_each_crtc(crtc, dev)
+		if (crtc->enabled) {
+			ret = drm_crtc_force_disable(crtc);
+			if (ret)
+				goto out;
+		}
+out:
+	drm_modeset_unlock_all(dev);
+	return ret;
+}
+EXPORT_SYMBOL(drm_crtc_force_disable_all);
 
 static unsigned int drm_num_crtcs(struct drm_device *dev)
 {
@@ -122,7 +163,9 @@ int drm_crtc_register_all(struct drm_device *dev)
 	int ret = 0;
 
 	drm_for_each_crtc(crtc, dev) {
-		drm_debugfs_crtc_add(crtc);
+		if (drm_debugfs_crtc_add(crtc))
+			DRM_ERROR("Failed to initialize debugfs entry for CRTC '%s'.\n",
+				  crtc->name);
 
 		if (crtc->funcs->late_register)
 			ret = crtc->funcs->late_register(crtc);
@@ -203,33 +246,6 @@ struct dma_fence *drm_crtc_create_fence(struct drm_crtc *crtc)
 
 	return fence;
 }
-
-/**
- * DOC: standard CRTC properties
- *
- * DRM CRTCs have a few standardized properties:
- *
- * ACTIVE:
- * 	Atomic property for setting the power state of the CRTC. When set to 1
- * 	the CRTC will actively display content. When set to 0 the CRTC will be
- * 	powered off. There is no expectation that user-space will reset CRTC
- * 	resources like the mode and planes when setting ACTIVE to 0.
- *
- * 	User-space can rely on an ACTIVE change to 1 to never fail an atomic
- * 	test as long as no other property has changed. If a change to ACTIVE
- * 	fails an atomic test, this is a driver bug. For this reason setting
- * 	ACTIVE to 0 must not release internal resources (like reserved memory
- * 	bandwidth or clock generators).
- *
- * 	Note that the legacy DPMS property on connectors is internally routed
- * 	to control this property for atomic drivers.
- * MODE_ID:
- * 	Atomic property for setting the CRTC display timings. The value is the
- * 	ID of a blob containing the DRM mode info. To disable the CRTC,
- * 	user-space must set this property to 0.
- *
- * 	Setting MODE_ID to 0 will release reserved resources for the CRTC.
- */
 
 /**
  * drm_crtc_init_with_planes - Initialise a new CRTC object with
@@ -324,8 +340,6 @@ int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc,
 		drm_object_attach_property(&crtc->base, config->prop_mode_id, 0);
 		drm_object_attach_property(&crtc->base,
 					   config->prop_out_fence_ptr, 0);
-		drm_object_attach_property(&crtc->base,
-					   config->prop_vrr_enabled, 0);
 	}
 
 	return 0;
@@ -556,9 +570,9 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data,
 	struct drm_mode_crtc *crtc_req = data;
 	struct drm_crtc *crtc;
 	struct drm_plane *plane;
-	struct drm_connector **connector_set = NULL, *connector;
-	struct drm_framebuffer *fb = NULL;
-	struct drm_display_mode *mode = NULL;
+	struct drm_connector **connector_set, *connector;
+	struct drm_framebuffer *fb;
+	struct drm_display_mode *mode;
 	struct drm_mode_set set;
 	uint32_t __user *set_connectors_ptr;
 	struct drm_modeset_acquire_ctx ctx;
@@ -584,12 +598,16 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data,
 
 	plane = crtc->primary;
 
-	/* allow disabling with the primary plane leased */
-	if (crtc_req->mode_valid && !drm_lease_held(file_priv, plane->base.id))
-		return -EACCES;
+	mutex_lock(&crtc->dev->mode_config.mutex);
+	drm_modeset_acquire_init(&ctx, DRM_MODESET_ACQUIRE_INTERRUPTIBLE);
+retry:
+	connector_set = NULL;
+	fb = NULL;
+	mode = NULL;
 
-	DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx,
-				   DRM_MODESET_ACQUIRE_INTERRUPTIBLE, ret);
+	ret = drm_modeset_lock_all_ctx(crtc->dev, &ctx);
+	if (ret)
+		goto out;
 
 	if (crtc_req->mode_valid) {
 		/* If we have a mode we need a framebuffer. */
@@ -655,7 +673,6 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data,
 							   fb->modifier);
 			if (ret) {
 				struct drm_format_name_buf format_name;
-
 				DRM_DEBUG_KMS("Invalid pixel format %s, modifier 0x%llx\n",
 					      drm_get_format_name(fb->format->format,
 								  &format_name),
@@ -749,13 +766,14 @@ out:
 	}
 	kfree(connector_set);
 	drm_mode_destroy(dev, mode);
-
-	/* In case we need to retry... */
-	connector_set = NULL;
-	fb = NULL;
-	mode = NULL;
-
-	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
+	if (ret == -EDEADLK) {
+		ret = drm_modeset_backoff(&ctx);
+		if (!ret)
+			goto retry;
+	}
+	drm_modeset_drop_locks(&ctx);
+	drm_modeset_acquire_fini(&ctx);
+	mutex_unlock(&crtc->dev->mode_config.mutex);
 
 	return ret;
 }

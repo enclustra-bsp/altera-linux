@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * smc91x.c
  * This is a driver for SMSC's 91C9x/91C1xx single-chip Ethernet devices.
@@ -8,6 +7,19 @@
  *	Developed by Simple Network Magic Corporation
  * Copyright (C) 2003 Monta Vista Software, Inc.
  *	Unified SMC91x driver by Nicolas Pitre
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  * Arguments:
  * 	io	= for the base address
@@ -378,7 +390,8 @@ static void smc_shutdown(struct net_device *dev)
 	pending_skb = lp->pending_tx_skb;
 	lp->pending_tx_skb = NULL;
 	spin_unlock_irq(&lp->lock);
-	dev_kfree_skb(pending_skb);
+	if (pending_skb)
+		dev_kfree_skb(pending_skb);
 
 	/* and tell the card to stay away from that nasty outside world */
 	SMC_SELECT_BANK(lp, 0);
@@ -535,10 +548,10 @@ static inline void  smc_rcv(struct net_device *dev)
 /*
  * This is called to actually send a packet to the chip.
  */
-static void smc_hardware_send_pkt(struct tasklet_struct *t)
+static void smc_hardware_send_pkt(unsigned long data)
 {
-	struct smc_local *lp = from_tasklet(lp, t, tx_task);
-	struct net_device *dev = lp->dev;
+	struct net_device *dev = (struct net_device *)data;
+	struct smc_local *lp = netdev_priv(dev);
 	void __iomem *ioaddr = lp->base;
 	struct sk_buff *skb;
 	unsigned int packet_no, len;
@@ -688,7 +701,7 @@ smc_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		 * Allocation succeeded: push packet to the chip's own memory
 		 * immediately.
 		 */
-		smc_hardware_send_pkt(&lp->tx_task);
+		smc_hardware_send_pkt((unsigned long)dev);
 	}
 
 	return NETDEV_TX_OK;
@@ -1036,6 +1049,7 @@ static void smc_phy_configure(struct work_struct *work)
 	int phyaddr = lp->mii.phy_id;
 	int my_phy_caps; /* My PHY capabilities */
 	int my_ad_caps; /* My Advertised capabilities */
+	int status;
 
 	DBG(3, dev, "smc_program_phy()\n");
 
@@ -1109,7 +1123,7 @@ static void smc_phy_configure(struct work_struct *work)
 	 * auto-negotiation is restarted, sometimes it isn't ready and
 	 * the link does not come up.
 	 */
-	smc_phy_read(dev, phyaddr, MII_ADVERTISE);
+	status = smc_phy_read(dev, phyaddr, MII_ADVERTISE);
 
 	DBG(2, dev, "phy caps=%x\n", my_phy_caps);
 	DBG(2, dev, "phy advertised caps=%x\n", my_ad_caps);
@@ -1320,7 +1334,7 @@ static void smc_poll_controller(struct net_device *dev)
 #endif
 
 /* Our watchdog timed out. Called by the networking layer */
-static void smc_timeout(struct net_device *dev, unsigned int txqueue)
+static void smc_timeout(struct net_device *dev)
 {
 	struct smc_local *lp = netdev_priv(dev);
 	void __iomem *ioaddr = lp->base;
@@ -1964,7 +1978,7 @@ static int smc_probe(struct net_device *dev, void __iomem *ioaddr,
 	dev->netdev_ops = &smc_netdev_ops;
 	dev->ethtool_ops = &smc_ethtool_ops;
 
-	tasklet_setup(&lp->tx_task, smc_hardware_send_pkt);
+	tasklet_init(&lp->tx_task, smc_hardware_send_pkt, (unsigned long)dev);
 	INIT_WORK(&lp->phy_configure, smc_phy_configure);
 	lp->dev = dev;
 	lp->mii.phy_id_mask = 0x1f;
@@ -2273,7 +2287,7 @@ static int smc_drv_probe(struct platform_device *pdev)
 		ret = try_toggle_control_gpio(&pdev->dev, &lp->power_gpio,
 					      "power", 0, 0, 100);
 		if (ret)
-			goto out_free_netdev;
+			return ret;
 
 		/*
 		 * Optional reset GPIO configured? Minimum 100 ns reset needed
@@ -2282,7 +2296,7 @@ static int smc_drv_probe(struct platform_device *pdev)
 		ret = try_toggle_control_gpio(&pdev->dev, &lp->reset_gpio,
 					      "reset", 0, 0, 100);
 		if (ret)
-			goto out_free_netdev;
+			return ret;
 
 		/*
 		 * Need to wait for optional EEPROM to load, max 750 us according

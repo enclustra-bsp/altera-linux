@@ -276,10 +276,8 @@ unregisters the partitions in the MTD layer.
     #ifdef MODULE
     static void __exit board_cleanup (void)
     {
-        /* Unregister device */
-        WARN_ON(mtd_device_unregister(board_mtd));
-        /* Release resources */
-        nand_cleanup(mtd_to_nand(board_mtd));
+        /* Release resources, unregister device */
+        nand_release (mtd_to_nand(board_mtd));
 
         /* unmap physical address */
         iounmap(baseaddr);

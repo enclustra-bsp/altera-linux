@@ -38,21 +38,8 @@
 #define CR_ENABLE_BIT_OFFSET		0xF3F04
 #define MAX_NUM_OF_DUMPS_TO_STORE	(8)
 
-#define REGION_CR_SPACE "cr-space"
-#define REGION_FW_HEALTH "fw-health"
-
-static const char * const region_cr_space_str = REGION_CR_SPACE;
-static const char * const region_fw_health_str = REGION_FW_HEALTH;
-
-static const struct devlink_region_ops region_cr_space_ops = {
-	.name = REGION_CR_SPACE,
-	.destructor = &kvfree,
-};
-
-static const struct devlink_region_ops region_fw_health_ops = {
-	.name = REGION_FW_HEALTH,
-	.destructor = &kvfree,
-};
+static const char *region_cr_space_str = "cr-space";
+static const char *region_fw_health_str = "fw-health";
 
 /* Set to true in case cr enable bit was set to true before crdump */
 static bool crdump_enbale_bit_set;
@@ -112,7 +99,8 @@ static void mlx4_crdump_collect_crspace(struct mlx4_dev *dev,
 					readl(cr_space + offset);
 
 		err = devlink_region_snapshot_create(crdump->region_crspace,
-						     crspace_data, id);
+						     cr_res_size, crspace_data,
+						     id, &kvfree);
 		if (err) {
 			kvfree(crspace_data);
 			mlx4_warn(dev, "crdump: devlink create %s snapshot id %d err %d\n",
@@ -151,7 +139,9 @@ static void mlx4_crdump_collect_fw_health(struct mlx4_dev *dev,
 					readl(health_buf_start + offset);
 
 		err = devlink_region_snapshot_create(crdump->region_fw_health,
-						     health_data, id);
+						     HEALTH_BUFFER_SIZE,
+						     health_data,
+						     id, &kvfree);
 		if (err) {
 			kvfree(health_data);
 			mlx4_warn(dev, "crdump: devlink create %s snapshot id %d err %d\n",
@@ -172,7 +162,6 @@ int mlx4_crdump_collect(struct mlx4_dev *dev)
 	struct pci_dev *pdev = dev->persist->pdev;
 	unsigned long cr_res_size;
 	u8 __iomem *cr_space;
-	int err;
 	u32 id;
 
 	if (!dev->caps.health_buffer_addrs) {
@@ -193,22 +182,14 @@ int mlx4_crdump_collect(struct mlx4_dev *dev)
 		return -ENODEV;
 	}
 
-	/* Get the available snapshot ID for the dumps */
-	err = devlink_region_snapshot_id_get(devlink, &id);
-	if (err) {
-		mlx4_err(dev, "crdump: devlink get snapshot id err %d\n", err);
-		iounmap(cr_space);
-		return err;
-	}
-
 	crdump_enable_crspace_access(dev, cr_space);
+
+	/* Get the available snapshot ID for the dumps */
+	id = devlink_region_shapshot_id_get(devlink);
 
 	/* Try to capture dumps */
 	mlx4_crdump_collect_crspace(dev, cr_space, id);
 	mlx4_crdump_collect_fw_health(dev, cr_space, id);
-
-	/* Release reference on the snapshot id */
-	devlink_region_snapshot_id_put(devlink, id);
 
 	crdump_disable_crspace_access(dev, cr_space);
 
@@ -227,7 +208,7 @@ int mlx4_crdump_init(struct mlx4_dev *dev)
 	/* Create cr-space region */
 	crdump->region_crspace =
 		devlink_region_create(devlink,
-				      &region_cr_space_ops,
+				      region_cr_space_str,
 				      MAX_NUM_OF_DUMPS_TO_STORE,
 				      pci_resource_len(pdev, 0));
 	if (IS_ERR(crdump->region_crspace))
@@ -238,7 +219,7 @@ int mlx4_crdump_init(struct mlx4_dev *dev)
 	/* Create fw-health region */
 	crdump->region_fw_health =
 		devlink_region_create(devlink,
-				      &region_fw_health_ops,
+				      region_fw_health_str,
 				      MAX_NUM_OF_DUMPS_TO_STORE,
 				      HEALTH_BUFFER_SIZE);
 	if (IS_ERR(crdump->region_fw_health))

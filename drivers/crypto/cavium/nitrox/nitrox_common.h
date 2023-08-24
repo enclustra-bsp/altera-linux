@@ -7,10 +7,6 @@
 
 int nitrox_crypto_register(void);
 void nitrox_crypto_unregister(void);
-int nitrox_register_aeads(void);
-void nitrox_unregister_aeads(void);
-int nitrox_register_skciphers(void);
-void nitrox_unregister_skciphers(void);
 void *crypto_alloc_context(struct nitrox_device *ndev);
 void crypto_free_context(void *ctx);
 struct nitrox_device *nitrox_get_first_device(void);
@@ -23,7 +19,7 @@ void pkt_slc_resp_tasklet(unsigned long data);
 int nitrox_process_se_request(struct nitrox_device *ndev,
 			      struct se_crypto_request *req,
 			      completion_t cb,
-			      void *cb_arg);
+			      struct skcipher_request *skreq);
 void backlog_qflush_work(struct work_struct *work);
 
 

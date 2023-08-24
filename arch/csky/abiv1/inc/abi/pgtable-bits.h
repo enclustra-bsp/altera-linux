@@ -26,7 +26,6 @@
 
 #define _PAGE_CACHE		(3<<9)
 #define _PAGE_UNCACHE		(2<<9)
-#define _PAGE_SO		_PAGE_UNCACHE
 
 #define _CACHE_MASK		(7<<9)
 

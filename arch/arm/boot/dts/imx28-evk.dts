@@ -10,7 +10,6 @@
 	compatible = "fsl,imx28-evk", "fsl,imx28";
 
 	memory@40000000 {
-		device_type = "memory";
 		reg = <0x40000000 0x08000000>;
 	};
 
@@ -97,7 +96,7 @@
 
 	apb@80000000 {
 		apbh@80000000 {
-			nand-controller@8000c000 {
+			gpmi-nand@8000c000 {
 				pinctrl-names = "default";
 				pinctrl-0 = <&gpmi_pins_a &gpmi_status_cfg
 					     &gpmi_pins_evk>;

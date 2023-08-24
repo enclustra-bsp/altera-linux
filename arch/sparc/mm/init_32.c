@@ -29,7 +29,9 @@
 
 #include <asm/sections.h>
 #include <asm/page.h>
+#include <asm/pgtable.h>
 #include <asm/vaddrs.h>
+#include <asm/pgalloc.h>	/* bug in asm-generic/tlb.h: check_pgt_cache */
 #include <asm/setup.h>
 #include <asm/tlb.h>
 #include <asm/prom.h>
@@ -192,13 +194,9 @@ unsigned long __init bootmem_init(unsigned long *pages_avail)
 	/* Reserve the kernel text/data/bss. */
 	size = (start_pfn << PAGE_SHIFT) - phys_base;
 	memblock_reserve(phys_base, size);
-	memblock_add(phys_base, size);
 
 	size = memblock_phys_mem_size() - memblock_reserved_size();
 	*pages_avail = (size >> PAGE_SHIFT) - high_pages;
-
-	/* Only allow low memory to be allocated via memblock allocation */
-	memblock_set_current_limit(max_low_pfn << PAGE_SHIFT);
 
 	return max_pfn;
 }
@@ -266,7 +264,7 @@ void __init mem_init(void)
 	i = last_valid_pfn >> ((20 - PAGE_SHIFT) + 5);
 	i += 1;
 	sparc_valid_addr_bitmap = (unsigned long *)
-		memblock_alloc(i << 2, SMP_CACHE_BYTES);
+		memblock_alloc_from(i << 2, SMP_CACHE_BYTES, 0UL);
 
 	if (sparc_valid_addr_bitmap == NULL) {
 		prom_printf("mem_init: Cannot alloc valid_addr_bitmap.\n");
@@ -295,6 +293,19 @@ void __init mem_init(void)
 
 	mem_init_print_info(NULL);
 }
+
+void free_initmem (void)
+{
+	free_initmem_default(POISON_FREE_INITMEM);
+}
+
+#ifdef CONFIG_BLK_DEV_INITRD
+void free_initrd_mem(unsigned long start, unsigned long end)
+{
+	free_reserved_area((void *)start, (void *)end, POISON_FREE_INITMEM,
+			   "initrd");
+}
+#endif
 
 void sparc_flush_page_to_ram(struct page *page)
 {

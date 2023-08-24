@@ -7,18 +7,14 @@
  * Copyright (C) 2009, 2010 Red Hat Inc.
  * Copyright (C) 2009, 2010 Arnaldo Carvalho de Melo <acme@redhat.com>
  */
-#include "util.h" // lsdir(), mkdir_p(), rm_rf()
+#include "util.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "util/copyfile.h"
-#include "dso.h"
 #include "build-id.h"
 #include "event.h"
-#include "namespaces.h"
-#include "map.h"
 #include "symbol.h"
 #include "thread.h"
 #include <linux/kernel.h>
@@ -31,20 +27,14 @@
 #include "probe-file.h"
 #include "strlist.h"
 
-#ifdef HAVE_DEBUGINFOD_SUPPORT
-#include <elfutils/debuginfod.h>
-#endif
-
-#include <linux/ctype.h>
-#include <linux/zalloc.h>
-#include <asm/bug.h>
+#include "sane_ctype.h"
 
 static bool no_buildid_cache;
 
 int build_id__mark_dso_hit(struct perf_tool *tool __maybe_unused,
 			   union perf_event *event,
 			   struct perf_sample *sample,
-			   struct evsel *evsel __maybe_unused,
+			   struct perf_evsel *evsel __maybe_unused,
 			   struct machine *machine)
 {
 	struct addr_location al;
@@ -96,15 +86,13 @@ struct perf_tool build_id__mark_dso_hit_ops = {
 	.ordered_events	 = true,
 };
 
-int build_id__sprintf(const struct build_id *build_id, char *bf)
+int build_id__sprintf(const u8 *build_id, int len, char *bf)
 {
 	char *bid = bf;
-	const u8 *raw = build_id->data;
-	size_t i;
+	const u8 *raw = build_id;
+	int i;
 
-	bf[0] = 0x0;
-
-	for (i = 0; i < build_id->size; ++i) {
+	for (i = 0; i < len; ++i) {
 		sprintf(bid, "%02x", *raw);
 		++raw;
 		bid += 2;
@@ -116,7 +104,7 @@ int build_id__sprintf(const struct build_id *build_id, char *bf)
 int sysfs__sprintf_build_id(const char *root_dir, char *sbuild_id)
 {
 	char notes[PATH_MAX];
-	struct build_id bid;
+	u8 build_id[BUILD_ID_SIZE];
 	int ret;
 
 	if (!root_dir)
@@ -124,23 +112,25 @@ int sysfs__sprintf_build_id(const char *root_dir, char *sbuild_id)
 
 	scnprintf(notes, sizeof(notes), "%s/sys/kernel/notes", root_dir);
 
-	ret = sysfs__read_build_id(notes, &bid);
+	ret = sysfs__read_build_id(notes, build_id, sizeof(build_id));
 	if (ret < 0)
 		return ret;
 
-	return build_id__sprintf(&bid, sbuild_id);
+	return build_id__sprintf(build_id, sizeof(build_id), sbuild_id);
 }
 
 int filename__sprintf_build_id(const char *pathname, char *sbuild_id)
 {
-	struct build_id bid;
+	u8 build_id[BUILD_ID_SIZE];
 	int ret;
 
-	ret = filename__read_build_id(pathname, &bid);
+	ret = filename__read_build_id(pathname, build_id, sizeof(build_id));
 	if (ret < 0)
 		return ret;
+	else if (ret != sizeof(build_id))
+		return -EINVAL;
 
-	return build_id__sprintf(&bid, sbuild_id);
+	return build_id__sprintf(build_id, sizeof(build_id), sbuild_id);
 }
 
 /* asnprintf consolidates asprintf and snprintf */
@@ -193,7 +183,6 @@ char *build_id_cache__linkname(const char *sbuild_id, char *bf, size_t size)
 	return bf;
 }
 
-/* The caller is responsible to free the returned buffer. */
 char *build_id_cache__origname(const char *sbuild_id)
 {
 	char *linkname;
@@ -273,7 +262,7 @@ char *dso__build_id_filename(const struct dso *dso, char *bf, size_t size,
 	if (!dso->has_build_id)
 		return NULL;
 
-	build_id__sprintf(&dso->bid, sbuild_id);
+	build_id__sprintf(dso->build_id, sizeof(dso->build_id), sbuild_id);
 	linkname = build_id_cache__linkname(sbuild_id, NULL, 0);
 	if (!linkname)
 		return NULL;
@@ -298,20 +287,18 @@ char *dso__build_id_filename(const struct dso *dso, char *bf, size_t size,
 			continue;		\
 		else
 
-static int write_buildid(const char *name, size_t name_len, struct build_id *bid,
+static int write_buildid(const char *name, size_t name_len, u8 *build_id,
 			 pid_t pid, u16 misc, struct feat_fd *fd)
 {
 	int err;
-	struct perf_record_header_build_id b;
+	struct build_id_event b;
 	size_t len;
 
 	len = name_len + 1;
 	len = PERF_ALIGN(len, NAME_ALIGN);
 
 	memset(&b, 0, sizeof(b));
-	memcpy(&b.data, bid->data, bid->size);
-	b.size = (u8) bid->size;
-	misc |= PERF_RECORD_MISC_BUILD_ID_SIZE;
+	memcpy(&b.build_id, build_id, BUILD_ID_SIZE);
 	b.pid = pid;
 	b.header.misc = misc;
 	b.header.size = sizeof(b) + len;
@@ -358,7 +345,7 @@ static int machine__write_buildid_table(struct machine *machine,
 		in_kernel = pos->kernel ||
 				is_kernel_module(name,
 					PERF_RECORD_MISC_CPUMODE_UNKNOWN);
-		err = write_buildid(name, name_len, &pos->bid, machine->pid,
+		err = write_buildid(name, name_len, pos->build_id, machine->pid,
 				    in_kernel ? kmisc : umisc, fd);
 		if (err)
 			break;
@@ -376,8 +363,7 @@ int perf_session__write_buildid_table(struct perf_session *session,
 	if (err)
 		return err;
 
-	for (nd = rb_first_cached(&session->machines.guests); nd;
-	     nd = rb_next(nd)) {
+	for (nd = rb_first(&session->machines.guests); nd; nd = rb_next(nd)) {
 		struct machine *pos = rb_entry(nd, struct machine, rb_node);
 		err = machine__write_buildid_table(pos, fd);
 		if (err)
@@ -410,8 +396,7 @@ int dsos__hit_all(struct perf_session *session)
 	if (err)
 		return err;
 
-	for (nd = rb_first_cached(&session->machines.guests); nd;
-	     nd = rb_next(nd)) {
+	for (nd = rb_first(&session->machines.guests); nd; nd = rb_next(nd)) {
 		struct machine *pos = rb_entry(nd, struct machine, rb_node);
 
 		err = machine__hit_all_dsos(pos);
@@ -643,21 +628,6 @@ static char *build_id_cache__find_debug(const char *sbuild_id,
 	if (realname && access(realname, R_OK))
 		zfree(&realname);
 	nsinfo__mountns_exit(&nsc);
-
-#ifdef HAVE_DEBUGINFOD_SUPPORT
-        if (realname == NULL) {
-                debuginfod_client* c = debuginfod_begin();
-                if (c != NULL) {
-                        int fd = debuginfod_find_debuginfo(c,
-                                                           (const unsigned char*)sbuild_id, 0,
-                                                           &realname);
-                        if (fd >= 0)
-                                close(fd); /* retaining reference by realname */
-                        debuginfod_end(c);
-                }
-        }
-#endif
-
 out:
 	free(debugfile);
 	return realname;
@@ -772,13 +742,13 @@ out_free:
 	return err;
 }
 
-static int build_id_cache__add_b(const struct build_id *bid,
+static int build_id_cache__add_b(const u8 *build_id, size_t build_id_size,
 				 const char *name, struct nsinfo *nsi,
 				 bool is_kallsyms, bool is_vdso)
 {
 	char sbuild_id[SBUILD_ID_SIZE];
 
-	build_id__sprintf(bid, sbuild_id);
+	build_id__sprintf(build_id, build_id_size, sbuild_id);
 
 	return build_id_cache__add_s(sbuild_id, name, nsi, is_kallsyms,
 				     is_vdso);
@@ -844,8 +814,8 @@ static int dso__cache_build_id(struct dso *dso, struct machine *machine)
 		is_kallsyms = true;
 		name = machine->mmap_name;
 	}
-	return build_id_cache__add_b(&dso->bid, name, dso->nsinfo,
-				     is_kallsyms, is_vdso);
+	return build_id_cache__add_b(dso->build_id, sizeof(dso->build_id), name,
+				     dso->nsinfo, is_kallsyms, is_vdso);
 }
 
 static int __dsos__cache_build_ids(struct list_head *head,
@@ -879,8 +849,7 @@ int perf_session__cache_build_ids(struct perf_session *session)
 
 	ret = machine__cache_build_ids(&session->machines.host);
 
-	for (nd = rb_first_cached(&session->machines.guests); nd;
-	     nd = rb_next(nd)) {
+	for (nd = rb_first(&session->machines.guests); nd; nd = rb_next(nd)) {
 		struct machine *pos = rb_entry(nd, struct machine, rb_node);
 		ret |= machine__cache_build_ids(pos);
 	}
@@ -897,18 +866,10 @@ bool perf_session__read_build_ids(struct perf_session *session, bool with_hits)
 	struct rb_node *nd;
 	bool ret = machine__read_build_ids(&session->machines.host, with_hits);
 
-	for (nd = rb_first_cached(&session->machines.guests); nd;
-	     nd = rb_next(nd)) {
+	for (nd = rb_first(&session->machines.guests); nd; nd = rb_next(nd)) {
 		struct machine *pos = rb_entry(nd, struct machine, rb_node);
 		ret |= machine__read_build_ids(pos, with_hits);
 	}
 
 	return ret;
-}
-
-void build_id__init(struct build_id *bid, const u8 *data, size_t size)
-{
-	WARN_ON(size > BUILD_ID_SIZE);
-	memcpy(bid->data, data, size);
-	bid->size = size;
 }

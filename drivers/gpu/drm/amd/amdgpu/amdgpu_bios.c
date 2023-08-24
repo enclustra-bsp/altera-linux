@@ -25,11 +25,10 @@
  *          Alex Deucher
  *          Jerome Glisse
  */
-
+#include <drm/drmP.h>
 #include "amdgpu.h"
 #include "atom.h"
 
-#include <linux/pci.h>
 #include <linux/slab.h>
 #include <linux/acpi.h>
 /*
@@ -192,35 +191,30 @@ static bool amdgpu_read_bios_from_rom(struct amdgpu_device *adev)
 
 static bool amdgpu_read_platform_bios(struct amdgpu_device *adev)
 {
-	phys_addr_t rom = adev->pdev->rom;
-	size_t romlen = adev->pdev->romlen;
-	void __iomem *bios;
+	uint8_t __iomem *bios;
+	size_t size;
 
 	adev->bios = NULL;
 
-	if (!rom || romlen == 0)
+	bios = pci_platform_rom(adev->pdev, &size);
+	if (!bios) {
+		return false;
+	}
+
+	adev->bios = kzalloc(size, GFP_KERNEL);
+	if (adev->bios == NULL)
 		return false;
 
-	adev->bios = kzalloc(romlen, GFP_KERNEL);
-	if (!adev->bios)
+	memcpy_fromio(adev->bios, bios, size);
+
+	if (!check_atom_bios(adev->bios, size)) {
+		kfree(adev->bios);
 		return false;
+	}
 
-	bios = ioremap(rom, romlen);
-	if (!bios)
-		goto free_bios;
-
-	memcpy_fromio(adev->bios, bios, romlen);
-	iounmap(bios);
-
-	if (!check_atom_bios(adev->bios, romlen))
-		goto free_bios;
-
-	adev->bios_size = romlen;
+	adev->bios_size = size;
 
 	return true;
-free_bios:
-	kfree(adev->bios);
-	return false;
 }
 
 #ifdef CONFIG_ACPI
@@ -417,40 +411,26 @@ static inline bool amdgpu_acpi_vfct_bios(struct amdgpu_device *adev)
 
 bool amdgpu_get_bios(struct amdgpu_device *adev)
 {
-	if (amdgpu_atrm_get_bios(adev)) {
-		dev_info(adev->dev, "Fetched VBIOS from ATRM\n");
+	if (amdgpu_atrm_get_bios(adev))
 		goto success;
-	}
 
-	if (amdgpu_acpi_vfct_bios(adev)) {
-		dev_info(adev->dev, "Fetched VBIOS from VFCT\n");
+	if (amdgpu_acpi_vfct_bios(adev))
 		goto success;
-	}
 
-	if (igp_read_bios_from_vram(adev)) {
-		dev_info(adev->dev, "Fetched VBIOS from VRAM BAR\n");
+	if (igp_read_bios_from_vram(adev))
 		goto success;
-	}
 
-	if (amdgpu_read_bios(adev)) {
-		dev_info(adev->dev, "Fetched VBIOS from ROM BAR\n");
+	if (amdgpu_read_bios(adev))
 		goto success;
-	}
 
-	if (amdgpu_read_bios_from_rom(adev)) {
-		dev_info(adev->dev, "Fetched VBIOS from ROM\n");
+	if (amdgpu_read_bios_from_rom(adev))
 		goto success;
-	}
 
-	if (amdgpu_read_disabled_bios(adev)) {
-		dev_info(adev->dev, "Fetched VBIOS from disabled ROM BAR\n");
+	if (amdgpu_read_disabled_bios(adev))
 		goto success;
-	}
 
-	if (amdgpu_read_platform_bios(adev)) {
-		dev_info(adev->dev, "Fetched VBIOS from platform\n");
+	if (amdgpu_read_platform_bios(adev))
 		goto success;
-	}
 
 	DRM_ERROR("Unable to locate a BIOS ROM\n");
 	return false;

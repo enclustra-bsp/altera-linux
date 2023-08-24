@@ -114,6 +114,7 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 				interrupts = <31>;
+				timeout-ms = <1000>;
 				clocks = <&coreclk 0>;
 				status = "disabled";
 			};
@@ -123,6 +124,7 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 				interrupts = <32>;
+				timeout-ms = <1000>;
 				clocks = <&coreclk 0>;
 				status = "disabled";
 			};

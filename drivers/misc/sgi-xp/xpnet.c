@@ -3,7 +3,6 @@
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
  *
- * (C) Copyright 2020 Hewlett Packard Enterprise Development LP
  * Copyright (C) 1999-2009 Silicon Graphics, Inc. All rights reserved.
  */
 
@@ -97,7 +96,7 @@ struct xpnet_pending_msg {
 	atomic_t use_count;
 };
 
-static struct net_device *xpnet_device;
+struct net_device *xpnet_device;
 
 /*
  * When we are notified of other partitions activating, we add them to
@@ -132,16 +131,16 @@ static DEFINE_SPINLOCK(xpnet_broadcast_lock);
 
 /* Define the XPNET debug device structures to be used with dev_dbg() et al */
 
-static struct device_driver xpnet_dbg_name = {
+struct device_driver xpnet_dbg_name = {
 	.name = "xpnet"
 };
 
-static struct device xpnet_dbg_subname = {
+struct device xpnet_dbg_subname = {
 	.init_name = "",	/* set to "" */
 	.driver = &xpnet_dbg_name
 };
 
-static struct device *xpnet = &xpnet_dbg_subname;
+struct device *xpnet = &xpnet_dbg_subname;
 
 /*
  * Packet was recevied by XPC and forwarded to us.
@@ -497,7 +496,7 @@ xpnet_dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
  * Deal with transmit timeouts coming from the network layer.
  */
 static void
-xpnet_dev_tx_timeout(struct net_device *dev, unsigned int txqueue)
+xpnet_dev_tx_timeout(struct net_device *dev)
 {
 	dev->stats.tx_errors++;
 }
@@ -516,7 +515,7 @@ xpnet_init(void)
 {
 	int result;
 
-	if (!is_uv_system())
+	if (!is_shub() && !is_uv())
 		return -ENODEV;
 
 	dev_info(xpnet, "registering network device %s\n", XPNET_DEVICE_NAME);

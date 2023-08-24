@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * dme1737.c - Driver for the SMSC DME1737, Asus A8000, SMSC SCH311x, SCH5027,
  *             and SCH5127 Super-I/O chips integrated hardware monitoring
@@ -10,6 +9,20 @@
  * if a SCH311x or SCH5127 chip is found. Both types of chips have very
  * similar hardware monitoring capabilities but differ in the way they can be
  * accessed.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -2461,9 +2474,8 @@ static int dme1737_i2c_detect(struct i2c_client *client,
 	return 0;
 }
 
-static const struct i2c_device_id dme1737_id[];
-
-static int dme1737_i2c_probe(struct i2c_client *client)
+static int dme1737_i2c_probe(struct i2c_client *client,
+			     const struct i2c_device_id *id)
 {
 	struct dme1737_data *data;
 	struct device *dev = &client->dev;
@@ -2474,7 +2486,7 @@ static int dme1737_i2c_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	i2c_set_clientdata(client, data);
-	data->type = i2c_match_id(dme1737_id, client)->driver_data;
+	data->type = id->driver_data;
 	data->client = client;
 	data->name = client->name;
 	mutex_init(&data->update_lock);
@@ -2530,7 +2542,7 @@ static struct i2c_driver dme1737_i2c_driver = {
 	.driver = {
 		.name = "dme1737",
 	},
-	.probe_new = dme1737_i2c_probe,
+	.probe = dme1737_i2c_probe,
 	.remove = dme1737_i2c_remove,
 	.id_table = dme1737_id,
 	.detect = dme1737_i2c_detect,

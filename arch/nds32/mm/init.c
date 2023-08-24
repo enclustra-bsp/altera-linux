@@ -21,6 +21,8 @@
 DEFINE_PER_CPU(struct mmu_gather, mmu_gathers);
 DEFINE_SPINLOCK(anon_alias_lock);
 extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
+extern unsigned long phys_initrd_start;
+extern unsigned long phys_initrd_size;
 
 /*
  * empty_zero_page is a special page that is used for
@@ -31,13 +33,16 @@ EXPORT_SYMBOL(empty_zero_page);
 
 static void __init zone_sizes_init(void)
 {
-	unsigned long max_zone_pfn[MAX_NR_ZONES] = { 0 };
+	unsigned long zones_size[MAX_NR_ZONES];
 
-	max_zone_pfn[ZONE_NORMAL] = max_low_pfn;
+	/* Clear the zone sizes */
+	memset(zones_size, 0, sizeof(zones_size));
+
+	zones_size[ZONE_NORMAL] = max_low_pfn;
 #ifdef CONFIG_HIGHMEM
-	max_zone_pfn[ZONE_HIGHMEM] = max_pfn;
+	zones_size[ZONE_HIGHMEM] = max_pfn;
 #endif
-	free_area_init(max_zone_pfn);
+	free_area_init(zones_size);
 
 }
 
@@ -51,7 +56,6 @@ static void __init map_ram(void)
 {
 	unsigned long v, p, e;
 	pgd_t *pge;
-	p4d_t *p4e;
 	pud_t *pue;
 	pmd_t *pme;
 	pte_t *pte;
@@ -67,8 +71,7 @@ static void __init map_ram(void)
 
 	while (p < e) {
 		int j;
-		p4e = p4d_offset(pge, v);
-		pue = pud_offset(p4e, v);
+		pue = pud_offset(pge, v);
 		pme = pmd_offset(pue, v);
 
 		if ((u32) pue != (u32) pge || (u32) pme != (u32) pge) {
@@ -77,10 +80,8 @@ static void __init map_ram(void)
 		}
 
 		/* Alloc one page for holding PTE's... */
-		pte = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
-		if (!pte)
-			panic("%s: Failed to allocate %lu bytes align=0x%lx\n",
-			      __func__, PAGE_SIZE, PAGE_SIZE);
+		pte = (pte_t *) __va(memblock_phys_alloc(PAGE_SIZE, PAGE_SIZE));
+		memset(pte, 0, PAGE_SIZE);
 		set_pmd(pme, __pmd(__pa(pte) + _PAGE_KERNEL_TABLE));
 
 		/* Fill the newly allocated page with PTE'S */
@@ -98,6 +99,8 @@ static pmd_t *fixmap_pmd_p;
 static void __init fixedrange_init(void)
 {
 	unsigned long vaddr;
+	pgd_t *pgd;
+	pud_t *pud;
 	pmd_t *pmd;
 #ifdef CONFIG_HIGHMEM
 	pte_t *pte;
@@ -107,11 +110,11 @@ static void __init fixedrange_init(void)
 	 * Fixed mappings:
 	 */
 	vaddr = __fix_to_virt(__end_of_fixed_addresses - 1);
-	pmd = pmd_off_k(vaddr);
-	fixmap_pmd_p = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
-	if (!fixmap_pmd_p)
-		panic("%s: Failed to allocate %lu bytes align=0x%lx\n",
-		      __func__, PAGE_SIZE, PAGE_SIZE);
+	pgd = swapper_pg_dir + pgd_index(vaddr);
+	pud = pud_offset(pgd, vaddr);
+	pmd = pmd_offset(pud, vaddr);
+	fixmap_pmd_p = (pmd_t *) __va(memblock_phys_alloc(PAGE_SIZE, PAGE_SIZE));
+	memset(fixmap_pmd_p, 0, PAGE_SIZE);
 	set_pmd(pmd, __pmd(__pa(fixmap_pmd_p) + _PAGE_KERNEL_TABLE));
 
 #ifdef CONFIG_HIGHMEM
@@ -120,11 +123,11 @@ static void __init fixedrange_init(void)
 	 */
 	vaddr = PKMAP_BASE;
 
-	pmd = pmd_off_k(vaddr);
-	pte = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
-	if (!pte)
-		panic("%s: Failed to allocate %lu bytes align=0x%lx\n",
-		      __func__, PAGE_SIZE, PAGE_SIZE);
+	pgd = swapper_pg_dir + pgd_index(vaddr);
+	pud = pud_offset(pgd, vaddr);
+	pmd = pmd_offset(pud, vaddr);
+	pte = (pte_t *) __va(memblock_phys_alloc(PAGE_SIZE, PAGE_SIZE));
+	memset(pte, 0, PAGE_SIZE);
 	set_pmd(pmd, __pmd(__pa(pte) + _PAGE_KERNEL_TABLE));
 	pkmap_page_table = pte;
 #endif /* CONFIG_HIGHMEM */
@@ -149,10 +152,8 @@ void __init paging_init(void)
 	fixedrange_init();
 
 	/* allocate space for empty_zero_page */
-	zero_page = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
-	if (!zero_page)
-		panic("%s: Failed to allocate %lu bytes align=0x%lx\n",
-		      __func__, PAGE_SIZE, PAGE_SIZE);
+	zero_page = __va(memblock_phys_alloc(PAGE_SIZE, PAGE_SIZE));
+	memset(zero_page, 0, PAGE_SIZE);
 	zone_sizes_init();
 
 	empty_zero_page = virt_to_page(zero_page);
@@ -245,6 +246,18 @@ void __init mem_init(void)
 	return;
 }
 
+void free_initmem(void)
+{
+	free_initmem_default(-1);
+}
+
+#ifdef CONFIG_BLK_DEV_INITRD
+void free_initrd_mem(unsigned long start, unsigned long end)
+{
+	free_reserved_area((void *)start, (void *)end, -1, "initrd");
+}
+#endif
+
 void __set_fixmap(enum fixed_addresses idx,
 			       phys_addr_t phys, pgprot_t flags)
 {
@@ -253,7 +266,7 @@ void __set_fixmap(enum fixed_addresses idx,
 
 	BUG_ON(idx <= FIX_HOLE || idx >= __end_of_fixed_addresses);
 
-	pte = (pte_t *)&fixmap_pmd_p[pte_index(addr)];
+	pte = (pte_t *)&fixmap_pmd_p[pte_index(addr)];;
 
 	if (pgprot_val(flags)) {
 		set_pte(pte, pfn_pte(phys >> PAGE_SHIFT, flags));

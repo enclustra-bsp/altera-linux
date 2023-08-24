@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * mm.c - Micro Memory(tm) PCI memory board block device driver - v2.3
  *
@@ -8,6 +7,10 @@
  *
  * This driver for the Micro Memory PCI Memory Module with Battery Backup
  * is Copyright Micro Memory Inc 2001-2002.  All rights reserved.
+ *
+ * This driver is released to the public under the terms of the
+ *  GNU GENERAL PUBLIC LICENSE version 2
+ * See the file COPYING for details.
  *
  * This driver provides a standard block device interface for Micro Memory(tm)
  * PCI based RAM boards.
@@ -519,15 +522,14 @@ static int mm_check_plugged(struct cardinfo *card)
 	return !!blk_check_plugged(mm_unplug, card, sizeof(struct blk_plug_cb));
 }
 
-static blk_qc_t mm_submit_bio(struct bio *bio)
+static blk_qc_t mm_make_request(struct request_queue *q, struct bio *bio)
 {
-	struct cardinfo *card = bio->bi_disk->private_data;
-
+	struct cardinfo *card = q->queuedata;
 	pr_debug("mm_make_request %llu %u\n",
 		 (unsigned long long)bio->bi_iter.bi_sector,
 		 bio->bi_iter.bi_size);
 
-	blk_queue_split(&bio);
+	blk_queue_split(q, &bio);
 
 	spin_lock_irq(&card->lock);
 	*card->biotail = bio;
@@ -779,14 +781,13 @@ static int mm_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 
 static const struct block_device_operations mm_fops = {
 	.owner		= THIS_MODULE,
-	.submit_bio	= mm_submit_bio,
 	.getgeo		= mm_getgeo,
 	.revalidate_disk = mm_revalidate,
 };
 
 static int mm_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 {
-	int ret;
+	int ret = -ENODEV;
 	struct cardinfo *card = &cards[num_cards];
 	unsigned char	mem_present;
 	unsigned char	batt_status;
@@ -829,7 +830,7 @@ static int mm_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		goto failed_req_csr;
 	}
 
-	card->csr_remap = ioremap(csr_base, csr_len);
+	card->csr_remap = ioremap_nocache(csr_base, csr_len);
 	if (!card->csr_remap) {
 		dev_printk(KERN_ERR, &card->dev->dev,
 			"Unable to remap memory region\n");
@@ -877,7 +878,6 @@ static int mm_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	if (card->mm_pages[0].desc == NULL ||
 	    card->mm_pages[1].desc == NULL) {
 		dev_printk(KERN_ERR, &card->dev->dev, "alloc failed\n");
-		ret = -ENOMEM;
 		goto failed_alloc;
 	}
 	reset_page(&card->mm_pages[0]);
@@ -888,11 +888,13 @@ static int mm_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	card->biotail = &card->bio;
 	spin_lock_init(&card->lock);
 
-	card->queue = blk_alloc_queue(NUMA_NO_NODE);
-	if (!card->queue) {
-		ret = -ENOMEM;
+	card->queue = blk_alloc_queue_node(GFP_KERNEL, NUMA_NO_NODE,
+					   &card->lock);
+	if (!card->queue)
 		goto failed_alloc;
-	}
+
+	blk_queue_make_request(card->queue, mm_make_request);
+	card->queue->queuedata = card;
 
 	tasklet_init(&card->tasklet, process_page, (unsigned long)card);
 

@@ -26,17 +26,18 @@ void _rtw_init_queue(struct __queue *pqueue)
 
 struct net_device *rtw_alloc_etherdev_with_old_priv(void *old_priv)
 {
-	struct net_device *netdev;
+	struct net_device *pnetdev;
 	struct rtw_netdev_priv_indicator *pnpi;
 
-	netdev = alloc_etherdev_mq(sizeof(struct rtw_netdev_priv_indicator), 4);
-	if (!netdev)
-		return NULL;
+	pnetdev = alloc_etherdev_mq(sizeof(struct rtw_netdev_priv_indicator), 4);
+	if (!pnetdev)
+		goto RETURN;
 
-	pnpi = netdev_priv(netdev);
+	pnpi = netdev_priv(pnetdev);
 	pnpi->priv = old_priv;
 
-	return netdev;
+RETURN:
+	return pnetdev;
 }
 
 void rtw_free_netdev(struct net_device *netdev)
@@ -44,15 +45,23 @@ void rtw_free_netdev(struct net_device *netdev)
 	struct rtw_netdev_priv_indicator *pnpi;
 
 	if (!netdev)
-		return;
+		goto RETURN;
 
 	pnpi = netdev_priv(netdev);
 
 	if (!pnpi->priv)
-		return;
+		goto RETURN;
 
 	vfree(pnpi->priv);
 	free_netdev(netdev);
+
+RETURN:
+	return;
+}
+
+u64 rtw_modular64(u64 x, u64 y)
+{
+	return do_div(x, y);
 }
 
 void rtw_buf_free(u8 **buf, u32 *buf_len)

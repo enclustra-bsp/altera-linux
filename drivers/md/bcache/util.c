@@ -33,27 +33,27 @@ int bch_ ## name ## _h(const char *cp, type *res)		\
 	case 'y':						\
 	case 'z':						\
 		u++;						\
-		fallthrough;					\
+		/* fall through */				\
 	case 'e':						\
 		u++;						\
-		fallthrough;					\
+		/* fall through */				\
 	case 'p':						\
 		u++;						\
-		fallthrough;					\
+		/* fall through */				\
 	case 't':						\
 		u++;						\
-		fallthrough;					\
+		/* fall through */				\
 	case 'g':						\
 		u++;						\
-		fallthrough;					\
+		/* fall through */				\
 	case 'm':						\
 		u++;						\
-		fallthrough;					\
+		/* fall through */				\
 	case 'k':						\
 		u++;						\
 		if (e++ == cp)					\
 			return -EINVAL;				\
-		fallthrough;					\
+		/* fall through */				\
 	case '\n':						\
 	case '\0':						\
 		if (*e == '\n')					\
@@ -270,11 +270,7 @@ int bch_bio_alloc_pages(struct bio *bio, gfp_t gfp_mask)
 	int i;
 	struct bio_vec *bv;
 
-	/*
-	 * This is called on freshly new bio, so it is safe to access the
-	 * bvec table directly.
-	 */
-	for (i = 0, bv = bio->bi_io_vec; i < bio->bi_vcnt; bv++, i++) {
+	bio_for_each_segment_all(bv, bio, i) {
 		bv->bv_page = alloc_page(gfp_mask);
 		if (!bv->bv_page) {
 			while (--bv >= bio->bi_io_vec)

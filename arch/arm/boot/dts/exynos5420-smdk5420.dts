@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Samsung SMDK5420 board device tree source
+ * SAMSUNG SMDK5420 board device tree source
  *
  * Copyright (c) 2013 Samsung Electronics Co., Ltd.
  *		http://www.samsung.com
@@ -9,11 +9,10 @@
 /dts-v1/;
 #include "exynos5420.dtsi"
 #include "exynos5420-cpus.dtsi"
-#include <dt-bindings/clock/samsung,s2mps11.h>
 #include <dt-bindings/gpio/gpio.h>
 
 / {
-	model = "Samsung SMDK5420 board based on Exynos5420";
+	model = "Samsung SMDK5420 board based on EXYNOS5420";
 	compatible = "samsung,smdk5420", "samsung,exynos5420", "samsung,exynos5";
 
 	memory@20000000 {
@@ -22,8 +21,7 @@
 	};
 
 	chosen {
-		bootargs = "init=/linuxrc";
-		stdout-path = "serial2:115200n8";
+		bootargs = "console=ttySAC2,115200 init=/linuxrc";
 	};
 
 	fixed-rate-clocks {
@@ -33,31 +31,40 @@
 		};
 	};
 
-	vdd: regulator-0 {
-		compatible = "regulator-fixed";
-		regulator-name = "vdd-supply";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		regulator-always-on;
+	regulators {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		vdd: fixed-regulator@0 {
+			compatible = "regulator-fixed";
+			reg = <0>;
+			regulator-name = "vdd-supply";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			regulator-always-on;
+		};
+
+		dbvdd: fixed-regulator@1 {
+			compatible = "regulator-fixed";
+			reg = <1>;
+			regulator-name = "dbvdd-supply";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-always-on;
+		};
+
+		spkvdd: fixed-regulator@2 {
+			compatible = "regulator-fixed";
+			reg = <2>;
+			regulator-name = "spkvdd-supply";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			regulator-always-on;
+		};
 	};
 
-	dbvdd: regulator-1 {
-		compatible = "regulator-fixed";
-		regulator-name = "dbvdd-supply";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-always-on;
-	};
-
-	spkvdd: regulator-2 {
-		compatible = "regulator-fixed";
-		regulator-name = "spkvdd-supply";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		regulator-always-on;
-	};
-
-	usb300_vbus_reg: regulator-3 {
+	usb300_vbus_reg: regulator-usb300 {
 		compatible = "regulator-fixed";
 		regulator-name = "VBUS0";
 		regulator-min-microvolt = <5000000>;
@@ -68,7 +75,7 @@
 		enable-active-high;
 	};
 
-	usb301_vbus_reg: regulator-4 {
+	usb301_vbus_reg: regulator-usb301 {
 		compatible = "regulator-fixed";
 		regulator-name = "VBUS1";
 		regulator-min-microvolt = <5000000>;
@@ -134,7 +141,6 @@
 		reg = <0x66>;
 
 		s2mps11_osc: clocks {
-			compatible = "samsung,s2mps11-clk";
 			#clock-cells = <1>;
 			clock-output-names = "s2mps11_ap",
 					"s2mps11_cp", "s2mps11_bt";
@@ -402,8 +408,6 @@
 
 &rtc {
 	status = "okay";
-	clocks = <&clock CLK_RTC>, <&s2mps11_osc S2MPS11_CLK_AP>;
-	clock-names = "rtc", "rtc_src";
 };
 
 &usbdrd_phy0 {

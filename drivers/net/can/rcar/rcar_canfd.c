@@ -1,7 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0+
 /* Renesas R-Car CAN FD device driver
  *
  * Copyright (C) 2015 Renesas Electronics Corp.
+ *
+ * This program is free software; you can redistribute  it and/or modify it
+ * under  the terms of  the GNU General  Public License as published by the
+ * Free Software Foundation;  either version 2 of the  License, or (at your
+ * option) any later version.
  */
 
 /* The R-Car CAN FD controller can operate in either one of the below two modes
@@ -1508,11 +1512,10 @@ static int rcar_canfd_rx_poll(struct napi_struct *napi, int quota)
 
 	/* All packets processed */
 	if (num_pkts < quota) {
-		if (napi_complete_done(napi, num_pkts)) {
-			/* Enable Rx FIFO interrupts */
-			rcar_canfd_set_bit(priv->base, RCANFD_RFCC(ridx),
-					   RCANFD_RFCC_RFIE);
-		}
+		napi_complete_done(napi, num_pkts);
+		/* Enable Rx FIFO interrupts */
+		rcar_canfd_set_bit(priv->base, RCANFD_RFCC(ridx),
+				   RCANFD_RFCC_RFIE);
 	}
 	return num_pkts;
 }
@@ -1630,6 +1633,7 @@ static void rcar_canfd_channel_remove(struct rcar_canfd_global *gpriv, u32 ch)
 
 static int rcar_canfd_probe(struct platform_device *pdev)
 {
+	struct resource *mem;
 	void __iomem *addr;
 	u32 sts, ch, fcan_freq;
 	struct rcar_canfd_global *gpriv;
@@ -1651,12 +1655,14 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 
 	ch_irq = platform_get_irq(pdev, 0);
 	if (ch_irq < 0) {
+		dev_err(&pdev->dev, "no Channel IRQ resource\n");
 		err = ch_irq;
 		goto fail_dev;
 	}
 
 	g_irq = platform_get_irq(pdev, 1);
 	if (g_irq < 0) {
+		dev_err(&pdev->dev, "no Global IRQ resource\n");
 		err = g_irq;
 		goto fail_dev;
 	}
@@ -1703,7 +1709,8 @@ static int rcar_canfd_probe(struct platform_device *pdev)
 		/* CANFD clock is further divided by (1/2) within the IP */
 		fcan_freq /= 2;
 
-	addr = devm_platform_ioremap_resource(pdev, 0);
+	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	addr = devm_ioremap_resource(&pdev->dev, mem);
 	if (IS_ERR(addr)) {
 		err = PTR_ERR(addr);
 		goto fail_dev;

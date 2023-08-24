@@ -512,8 +512,7 @@ dma_chan_prep_dma_memcpy(struct dma_chan *dchan, dma_addr_t dst_adr,
 	return vchan_tx_prep(&chan->vc, &first->vd, flags);
 
 err_desc_get:
-	if (first)
-		axi_desc_put(first);
+	axi_desc_put(first);
 	return NULL;
 }
 
@@ -636,9 +635,13 @@ static int dma_chan_terminate_all(struct dma_chan *dchan)
 
 	vchan_get_all_descriptors(&chan->vc, &head);
 
-	spin_unlock_irqrestore(&chan->vc.lock, flags);
-
+	/*
+	 * As vchan_dma_desc_free_list can access to desc_allocated list
+	 * we need to call it in vc.lock context.
+	 */
 	vchan_dma_desc_free_list(&chan->vc, &head);
+
+	spin_unlock_irqrestore(&chan->vc.lock, flags);
 
 	dev_vdbg(dchan2dev(dchan), "terminated: %s\n", axi_chan_name(chan));
 

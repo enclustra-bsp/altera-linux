@@ -1,5 +1,16 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2, as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  * Copyright IBM Corp. 2008
  *
@@ -211,14 +222,23 @@ void kvmppc_create_vcpu_debugfs(struct kvm_vcpu *vcpu, unsigned int id)
 
 	snprintf(dbg_fname, sizeof(dbg_fname), "vm%u_vcpu%u_timing",
 		 current->pid, id);
-	debugfs_file = debugfs_create_file(dbg_fname, 0666, kvm_debugfs_dir,
-						vcpu, &kvmppc_exit_timing_fops);
+	debugfs_file = debugfs_create_file(dbg_fname, 0666,
+					kvm_debugfs_dir, vcpu,
+					&kvmppc_exit_timing_fops);
+
+	if (!debugfs_file) {
+		printk(KERN_ERR"%s: error creating debugfs file %s\n",
+			__func__, dbg_fname);
+		return;
+	}
 
 	vcpu->arch.debugfs_exit_timing = debugfs_file;
 }
 
 void kvmppc_remove_vcpu_debugfs(struct kvm_vcpu *vcpu)
 {
-	debugfs_remove(vcpu->arch.debugfs_exit_timing);
-	vcpu->arch.debugfs_exit_timing = NULL;
+	if (vcpu->arch.debugfs_exit_timing) {
+		debugfs_remove(vcpu->arch.debugfs_exit_timing);
+		vcpu->arch.debugfs_exit_timing = NULL;
+	}
 }

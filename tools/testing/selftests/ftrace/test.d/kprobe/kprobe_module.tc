@@ -1,7 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 # description: Kprobe dynamic event - probing module
-# requires: kprobe_events
+
+[ -f kprobe_events ] || exit_unsupported # this is configurable
 
 rmmod trace-printk ||:
 if ! modprobe trace-printk ; then

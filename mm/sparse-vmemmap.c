@@ -29,6 +29,7 @@
 #include <linux/sched.h>
 #include <asm/dma.h>
 #include <asm/pgalloc.h>
+#include <asm/pgtable.h>
 
 /*
  * Allocate a block of memory to be used to back the virtual memory map
@@ -69,19 +70,11 @@ void * __meminit vmemmap_alloc_block(unsigned long size, int node)
 				__pa(MAX_DMA_ADDRESS));
 }
 
-static void * __meminit altmap_alloc_block_buf(unsigned long size,
-					       struct vmem_altmap *altmap);
-
 /* need to make sure size is all the same during early stage */
-void * __meminit vmemmap_alloc_block_buf(unsigned long size, int node,
-					 struct vmem_altmap *altmap)
+void * __meminit vmemmap_alloc_block_buf(unsigned long size, int node)
 {
-	void *ptr;
+	void *ptr = sparse_buffer_alloc(size);
 
-	if (altmap)
-		return altmap_alloc_block_buf(size, altmap);
-
-	ptr = sparse_buffer_alloc(size);
 	if (!ptr)
 		ptr = vmemmap_alloc_block(size, node);
 	return ptr;
@@ -102,8 +95,15 @@ static unsigned long __meminit vmem_altmap_nr_free(struct vmem_altmap *altmap)
 	return 0;
 }
 
-static void * __meminit altmap_alloc_block_buf(unsigned long size,
-					       struct vmem_altmap *altmap)
+/**
+ * altmap_alloc_block_buf - allocate pages from the device page map
+ * @altmap:	device page map
+ * @size:	size (in bytes) of the allocation
+ *
+ * Allocations are aligned to the size of the request.
+ */
+void * __meminit altmap_alloc_block_buf(unsigned long size,
+		struct vmem_altmap *altmap)
 {
 	unsigned long pfn, nr_pfns, nr_align;
 
@@ -140,15 +140,12 @@ void __meminit vmemmap_verify(pte_t *pte, int node,
 			start, end - 1);
 }
 
-pte_t * __meminit vmemmap_pte_populate(pmd_t *pmd, unsigned long addr, int node,
-				       struct vmem_altmap *altmap)
+pte_t * __meminit vmemmap_pte_populate(pmd_t *pmd, unsigned long addr, int node)
 {
 	pte_t *pte = pte_offset_kernel(pmd, addr);
 	if (pte_none(*pte)) {
 		pte_t entry;
-		void *p;
-
-		p = vmemmap_alloc_block_buf(PAGE_SIZE, node, altmap);
+		void *p = vmemmap_alloc_block_buf(PAGE_SIZE, node);
 		if (!p)
 			return NULL;
 		entry = pfn_pte(__pa(p) >> PAGE_SHIFT, PAGE_KERNEL);
@@ -216,8 +213,8 @@ pgd_t * __meminit vmemmap_pgd_populate(unsigned long addr, int node)
 	return pgd;
 }
 
-int __meminit vmemmap_populate_basepages(unsigned long start, unsigned long end,
-					 int node, struct vmem_altmap *altmap)
+int __meminit vmemmap_populate_basepages(unsigned long start,
+					 unsigned long end, int node)
 {
 	unsigned long addr = start;
 	pgd_t *pgd;
@@ -239,7 +236,7 @@ int __meminit vmemmap_populate_basepages(unsigned long start, unsigned long end,
 		pmd = vmemmap_pmd_populate(pud, addr, node);
 		if (!pmd)
 			return -ENOMEM;
-		pte = vmemmap_pte_populate(pmd, addr, node, altmap);
+		pte = vmemmap_pte_populate(pmd, addr, node);
 		if (!pte)
 			return -ENOMEM;
 		vmemmap_verify(pte, node, addr, addr + PAGE_SIZE);
@@ -248,18 +245,19 @@ int __meminit vmemmap_populate_basepages(unsigned long start, unsigned long end,
 	return 0;
 }
 
-struct page * __meminit __populate_section_memmap(unsigned long pfn,
-		unsigned long nr_pages, int nid, struct vmem_altmap *altmap)
+struct page * __meminit sparse_mem_map_populate(unsigned long pnum, int nid,
+		struct vmem_altmap *altmap)
 {
-	unsigned long start = (unsigned long) pfn_to_page(pfn);
-	unsigned long end = start + nr_pages * sizeof(struct page);
+	unsigned long start;
+	unsigned long end;
+	struct page *map;
 
-	if (WARN_ON_ONCE(!IS_ALIGNED(pfn, PAGES_PER_SUBSECTION) ||
-		!IS_ALIGNED(nr_pages, PAGES_PER_SUBSECTION)))
-		return NULL;
+	map = pfn_to_page(pnum * PAGES_PER_SECTION);
+	start = (unsigned long)map;
+	end = (unsigned long)(map + PAGES_PER_SECTION);
 
 	if (vmemmap_populate(start, end, nid, altmap))
 		return NULL;
 
-	return pfn_to_page(pfn);
+	return map;
 }

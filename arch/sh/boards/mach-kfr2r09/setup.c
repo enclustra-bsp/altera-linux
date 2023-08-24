@@ -14,6 +14,7 @@
 
 #include <linux/clkdev.h>
 #include <linux/delay.h>
+#include <linux/dma-mapping.h>
 #include <linux/gpio.h>
 #include <linux/gpio/machine.h>
 #include <linux/i2c.h>
@@ -24,6 +25,7 @@
 #include <linux/memblock.h>
 #include <linux/mfd/tmio.h>
 #include <linux/mmc/host.h>
+#include <linux/mtd/onenand.h>
 #include <linux/mtd/physmap.h>
 #include <linux/platform_data/lv5207lp.h>
 #include <linux/platform_device.h>
@@ -32,7 +34,6 @@
 #include <linux/sh_intc.h>
 #include <linux/usb/r8a66597.h>
 #include <linux/videodev2.h>
-#include <linux/dma-map-ops.h>
 
 #include <mach/kfr2r09.h>
 
@@ -477,7 +478,7 @@ extern char kfr2r09_sdram_leave_end;
 
 static int __init kfr2r09_devices_setup(void)
 {
-	struct clk *camera_clk;
+	static struct clk *camera_clk;
 
 	/* register board specific self-refresh code */
 	sh_mobile_register_self_refresh(SUSP_SH_STANDBY | SUSP_SH_SF |
@@ -601,9 +602,11 @@ static int __init kfr2r09_devices_setup(void)
 
 	/* Initialize CEU platform device separately to map memory first */
 	device_initialize(&kfr2r09_ceu_device.dev);
+	arch_setup_pdev_archdata(&kfr2r09_ceu_device);
 	dma_declare_coherent_memory(&kfr2r09_ceu_device.dev,
-			ceu_dma_membase, ceu_dma_membase,
-			ceu_dma_membase + CEU_BUFFER_MEMORY_SIZE - 1);
+				    ceu_dma_membase, ceu_dma_membase,
+				    ceu_dma_membase + CEU_BUFFER_MEMORY_SIZE - 1,
+				    DMA_MEMORY_EXCLUSIVE);
 
 	platform_device_add(&kfr2r09_ceu_device);
 
@@ -629,10 +632,7 @@ static void __init kfr2r09_mv_mem_reserve(void)
 	phys_addr_t phys;
 	phys_addr_t size = CEU_BUFFER_MEMORY_SIZE;
 
-	phys = memblock_phys_alloc(size, PAGE_SIZE);
-	if (!phys)
-		panic("Failed to allocate CEU memory\n");
-
+	phys = memblock_alloc_base(size, PAGE_SIZE, MEMBLOCK_ALLOC_ANYWHERE);
 	memblock_free(phys, size);
 	memblock_remove(phys, size);
 

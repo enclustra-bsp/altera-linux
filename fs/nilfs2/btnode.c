@@ -189,7 +189,7 @@ retry:
 		 */
 		if (!err)
 			return 0;
-		else if (err != -EBUSY)
+		else if (err != -EEXIST)
 			goto failed_unlock;
 
 		err = invalidate_inode_pages2_range(btnc, newkey, newkey);

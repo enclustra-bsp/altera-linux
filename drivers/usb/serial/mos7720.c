@@ -226,10 +226,8 @@ static int read_mos_reg(struct usb_serial *serial, unsigned int serial_portnum,
 	int status;
 
 	buf = kmalloc(1, GFP_KERNEL);
-	if (!buf) {
-		*data = 0;
+	if (!buf)
 		return -ENOMEM;
-	}
 
 	status = usb_control_msg(usbdev, pipe, request, requesttype, value,
 				     index, buf, 1, MOS_WDR_TIMEOUT);
@@ -284,12 +282,11 @@ static void destroy_urbtracker(struct kref *kref)
  * port callback had to be deferred because the disconnect mutex could not be
  * obtained at the time.
  */
-static void send_deferred_urbs(struct tasklet_struct *t)
+static void send_deferred_urbs(unsigned long _mos_parport)
 {
 	int ret_val;
 	unsigned long flags;
-	struct mos7715_parport *mos_parport = from_tasklet(mos_parport, t,
-							   urb_tasklet);
+	struct mos7715_parport *mos_parport = (void *)_mos_parport;
 	struct urbtracker *urbtrack, *tmp;
 	struct list_head *cursor, *next;
 	struct device *dev;
@@ -369,6 +366,8 @@ static int write_parport_reg_nonblock(struct mos7715_parport *mos_parport,
 	if (!urbtrack)
 		return -ENOMEM;
 
+	kref_get(&mos_parport->ref_count);
+	urbtrack->mos_parport = mos_parport;
 	urbtrack->urb = usb_alloc_urb(0, GFP_ATOMIC);
 	if (!urbtrack->urb) {
 		kfree(urbtrack);
@@ -389,8 +388,6 @@ static int write_parport_reg_nonblock(struct mos7715_parport *mos_parport,
 			     usb_sndctrlpipe(usbdev, 0),
 			     (unsigned char *)urbtrack->setup,
 			     NULL, 0, async_complete, urbtrack);
-	kref_get(&mos_parport->ref_count);
-	urbtrack->mos_parport = mos_parport;
 	kref_init(&urbtrack->ref_count);
 	INIT_LIST_HEAD(&urbtrack->urblist_entry);
 
@@ -641,8 +638,6 @@ static void parport_mos7715_restore_state(struct parport *pp,
 		spin_unlock(&release_lock);
 		return;
 	}
-	mos_parport->shadowDCR = s->u.pc.ctr;
-	mos_parport->shadowECR = s->u.pc.ecr;
 	write_parport_reg_nonblock(mos_parport, MOS7720_DCR,
 				   mos_parport->shadowDCR);
 	write_parport_reg_nonblock(mos_parport, MOS7720_ECR,
@@ -721,7 +716,8 @@ static int mos7715_parport_init(struct usb_serial *serial)
 	INIT_LIST_HEAD(&mos_parport->deferred_urbs);
 	usb_set_serial_data(serial, mos_parport); /* hijack private pointer */
 	mos_parport->serial = serial;
-	tasklet_setup(&mos_parport->urb_tasklet, send_deferred_urbs);
+	tasklet_init(&mos_parport->urb_tasklet, send_deferred_urbs,
+		     (unsigned long) mos_parport);
 	init_completion(&mos_parport->syncmsg_compl);
 
 	/* cycle parallel port reset bit */
@@ -1252,10 +1248,8 @@ static int mos7720_write(struct tty_struct *tty, struct usb_serial_port *port,
 	if (urb->transfer_buffer == NULL) {
 		urb->transfer_buffer = kmalloc(URB_TRANSFER_BUFFER_SIZE,
 					       GFP_ATOMIC);
-		if (!urb->transfer_buffer) {
-			bytes_sent = -ENOMEM;
+		if (!urb->transfer_buffer)
 			goto exit;
-		}
 	}
 	transfer_size = min(count, URB_TRANSFER_BUFFER_SIZE);
 
@@ -1838,6 +1832,10 @@ static int mos7720_startup(struct usb_serial *serial)
 
 	product = le16_to_cpu(serial->dev->descriptor.idProduct);
 	dev = serial->dev;
+
+	/* setting configuration feature to one */
+	usb_control_msg(serial->dev, usb_sndctrlpipe(serial->dev, 0),
+			(__u8)0x03, 0x00, 0x01, 0x00, NULL, 0x00, 5000);
 
 	if (product == MOSCHIP_DEVICE_ID_7715) {
 		struct urb *urb = serial->port[0]->interrupt_in_urb;

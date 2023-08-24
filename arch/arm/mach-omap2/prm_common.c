@@ -1,9 +1,13 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * OMAP2+ common Power & Reset Management (PRM) IP block functions
  *
  * Copyright (C) 2011 Texas Instruments, Inc.
  * Tero Kristo <t-kristo@ti.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
  *
  * For historical purposes, the API used to configure the PRM
  * interrupt handler refers to it as the "PRCM interrupt."  The
@@ -519,10 +523,8 @@ void omap_prm_reset_system(void)
 
 	prm_ll_data->reset_system();
 
-	while (1) {
+	while (1)
 		cpu_relax();
-		wfe();
-	}
 }
 
 /**

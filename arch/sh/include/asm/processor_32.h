@@ -8,6 +8,7 @@
 
 #ifndef __ASM_SH_PROCESSOR_32_H
 #define __ASM_SH_PROCESSOR_32_H
+#ifdef __KERNEL__
 
 #include <linux/compiler.h>
 #include <linux/linkage.h>
@@ -170,7 +171,7 @@ static __inline__ void enable_fpu(void)
 #define thread_saved_pc(tsk)	(tsk->thread.pc)
 
 void show_trace(struct task_struct *tsk, unsigned long *sp,
-		struct pt_regs *regs, const char *loglvl);
+		struct pt_regs *regs);
 
 #ifdef CONFIG_DUMP_CODE
 void show_code(struct pt_regs *regs);
@@ -202,4 +203,5 @@ static inline void prefetchw(const void *x)
 }
 #endif
 
+#endif /* __KERNEL__ */
 #endif /* __ASM_SH_PROCESSOR_32_H */

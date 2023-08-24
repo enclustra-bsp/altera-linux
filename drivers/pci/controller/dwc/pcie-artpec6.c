@@ -44,6 +44,16 @@ struct artpec_pcie_of_data {
 
 static const struct of_device_id artpec6_pcie_of_match[];
 
+/* PCIe Port Logic registers (memory-mapped) */
+#define PL_OFFSET			0x700
+
+#define ACK_F_ASPM_CTRL_OFF		(PL_OFFSET + 0xc)
+#define ACK_N_FTS_MASK			GENMASK(15, 8)
+#define ACK_N_FTS(x)			(((x) << 8) & ACK_N_FTS_MASK)
+
+#define FAST_TRAINING_SEQ_MASK		GENMASK(7, 0)
+#define FAST_TRAINING_SEQ(x)		(((x) << 0) & FAST_TRAINING_SEQ_MASK)
+
 /* ARTPEC-6 specific registers */
 #define PCIECFG				0x18
 #define  PCIECFG_DBG_OEN		BIT(24)
@@ -282,6 +292,33 @@ static void artpec6_pcie_init_phy(struct artpec6_pcie *artpec6_pcie)
 	}
 }
 
+static void artpec6_pcie_set_nfts(struct artpec6_pcie *artpec6_pcie)
+{
+	struct dw_pcie *pci = artpec6_pcie->pci;
+	u32 val;
+
+	if (artpec6_pcie->variant != ARTPEC7)
+		return;
+
+	/*
+	 * Increase the N_FTS (Number of Fast Training Sequences)
+	 * to be transmitted when transitioning from L0s to L0.
+	 */
+	val = dw_pcie_readl_dbi(pci, ACK_F_ASPM_CTRL_OFF);
+	val &= ~ACK_N_FTS_MASK;
+	val |= ACK_N_FTS(180);
+	dw_pcie_writel_dbi(pci, ACK_F_ASPM_CTRL_OFF, val);
+
+	/*
+	 * Set the Number of Fast Training Sequences that the core
+	 * advertises as its N_FTS during Gen2 or Gen3 link training.
+	 */
+	val = dw_pcie_readl_dbi(pci, PCIE_LINK_WIDTH_SPEED_CONTROL);
+	val &= ~FAST_TRAINING_SEQ_MASK;
+	val |= FAST_TRAINING_SEQ(180);
+	dw_pcie_writel_dbi(pci, PCIE_LINK_WIDTH_SPEED_CONTROL, val);
+}
+
 static void artpec6_pcie_assert_core_reset(struct artpec6_pcie *artpec6_pcie)
 {
 	u32 val;
@@ -315,23 +352,29 @@ static void artpec6_pcie_deassert_core_reset(struct artpec6_pcie *artpec6_pcie)
 	usleep_range(100, 200);
 }
 
+static void artpec6_pcie_enable_interrupts(struct artpec6_pcie *artpec6_pcie)
+{
+	struct dw_pcie *pci = artpec6_pcie->pci;
+	struct pcie_port *pp = &pci->pp;
+
+	if (IS_ENABLED(CONFIG_PCI_MSI))
+		dw_pcie_msi_init(pp);
+}
+
 static int artpec6_pcie_host_init(struct pcie_port *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
 	struct artpec6_pcie *artpec6_pcie = to_artpec6_pcie(pci);
 
-	if (artpec6_pcie->variant == ARTPEC7) {
-		pci->n_fts[0] = 180;
-		pci->n_fts[1] = 180;
-	}
 	artpec6_pcie_assert_core_reset(artpec6_pcie);
 	artpec6_pcie_init_phy(artpec6_pcie);
 	artpec6_pcie_deassert_core_reset(artpec6_pcie);
 	artpec6_pcie_wait_for_phy(artpec6_pcie);
+	artpec6_pcie_set_nfts(artpec6_pcie);
 	dw_pcie_setup_rc(pp);
 	artpec6_pcie_establish_link(pci);
 	dw_pcie_wait_for_link(pci);
-	dw_pcie_msi_init(pp);
+	artpec6_pcie_enable_interrupts(artpec6_pcie);
 
 	return 0;
 }
@@ -350,8 +393,10 @@ static int artpec6_add_pcie_port(struct artpec6_pcie *artpec6_pcie,
 
 	if (IS_ENABLED(CONFIG_PCI_MSI)) {
 		pp->msi_irq = platform_get_irq_byname(pdev, "msi");
-		if (pp->msi_irq < 0)
+		if (pp->msi_irq < 0) {
+			dev_err(dev, "failed to get MSI irq\n");
 			return pp->msi_irq;
+		}
 	}
 
 	pp->ops = &artpec6_pcie_host_ops;
@@ -375,8 +420,9 @@ static void artpec6_pcie_ep_init(struct dw_pcie_ep *ep)
 	artpec6_pcie_init_phy(artpec6_pcie);
 	artpec6_pcie_deassert_core_reset(artpec6_pcie);
 	artpec6_pcie_wait_for_phy(artpec6_pcie);
+	artpec6_pcie_set_nfts(artpec6_pcie);
 
-	for (bar = 0; bar < PCI_STD_NUM_BARS; bar++)
+	for (bar = BAR_0; bar <= BAR_5; bar++)
 		dw_pcie_ep_reset_bar(pci, bar);
 }
 
@@ -398,7 +444,7 @@ static int artpec6_pcie_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
 	return 0;
 }
 
-static const struct dw_pcie_ep_ops pcie_ep_ops = {
+static struct dw_pcie_ep_ops pcie_ep_ops = {
 	.ep_init = artpec6_pcie_ep_init,
 	.raise_irq = artpec6_pcie_raise_irq,
 };
@@ -415,7 +461,8 @@ static int artpec6_add_pcie_ep(struct artpec6_pcie *artpec6_pcie,
 	ep = &pci->ep;
 	ep->ops = &pcie_ep_ops;
 
-	pci->dbi_base2 = devm_platform_ioremap_resource_byname(pdev, "dbi2");
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dbi2");
+	pci->dbi_base2 = devm_ioremap_resource(dev, res);
 	if (IS_ERR(pci->dbi_base2))
 		return PTR_ERR(pci->dbi_base2);
 
@@ -440,6 +487,8 @@ static int artpec6_pcie_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct dw_pcie *pci;
 	struct artpec6_pcie *artpec6_pcie;
+	struct resource *dbi_base;
+	struct resource *phy_base;
 	int ret;
 	const struct of_device_id *match;
 	const struct artpec_pcie_of_data *data;
@@ -469,12 +518,13 @@ static int artpec6_pcie_probe(struct platform_device *pdev)
 	artpec6_pcie->variant = variant;
 	artpec6_pcie->mode = mode;
 
-	pci->dbi_base = devm_platform_ioremap_resource_byname(pdev, "dbi");
+	dbi_base = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dbi");
+	pci->dbi_base = devm_ioremap_resource(dev, dbi_base);
 	if (IS_ERR(pci->dbi_base))
 		return PTR_ERR(pci->dbi_base);
 
-	artpec6_pcie->phy_base =
-		devm_platform_ioremap_resource_byname(pdev, "phy");
+	phy_base = platform_get_resource_byname(pdev, IORESOURCE_MEM, "phy");
+	artpec6_pcie->phy_base = devm_ioremap_resource(dev, phy_base);
 	if (IS_ERR(artpec6_pcie->phy_base))
 		return PTR_ERR(artpec6_pcie->phy_base);
 

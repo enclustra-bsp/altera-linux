@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0+
 /*
  * ADIS16203 Programmable 360 Degrees Inclinometer
  *
  * Copyright 2010 Analog Devices Inc.
+ *
+ * Licensed under the GPL-2 or later.
  */
 
 #include <linux/delay.h>
@@ -122,7 +123,7 @@
 /* Power supply above 3.625 V */
 #define ADIS16203_DIAG_STAT_POWER_HIGH_BIT    1
 
-/* Power supply below 2.975 V */
+/* Power supply below 3.15 V */
 #define ADIS16203_DIAG_STAT_POWER_LOW_BIT     0
 
 /* GLOB_CMD */
@@ -234,13 +235,7 @@ static const char * const adis16203_status_error_msgs[] = {
 	[ADIS16203_DIAG_STAT_SPI_FAIL_BIT] = "SPI failure",
 	[ADIS16203_DIAG_STAT_FLASH_UPT_BIT] = "Flash update failed",
 	[ADIS16203_DIAG_STAT_POWER_HIGH_BIT] = "Power supply above 3.625V",
-	[ADIS16203_DIAG_STAT_POWER_LOW_BIT] = "Power supply below 2.975V",
-};
-
-static const struct adis_timeout adis16203_timeouts = {
-	.reset_ms = ADIS16203_STARTUP_DELAY,
-	.sw_reset_ms = ADIS16203_STARTUP_DELAY,
-	.self_test_ms = ADIS16203_STARTUP_DELAY
+	[ADIS16203_DIAG_STAT_POWER_LOW_BIT] = "Power supply below 3.15V",
 };
 
 static const struct adis_data adis16203_data = {
@@ -250,9 +245,8 @@ static const struct adis_data adis16203_data = {
 	.diag_stat_reg = ADIS16203_DIAG_STAT,
 
 	.self_test_mask = ADIS16203_MSC_CTRL_SELF_TEST_EN,
-	.self_test_reg = ADIS16203_MSC_CTRL,
 	.self_test_no_autoclear = true,
-	.timeouts = &adis16203_timeouts,
+	.startup_delay = ADIS16203_STARTUP_DELAY,
 
 	.status_error_msgs = adis16203_status_error_msgs,
 	.status_error_mask = BIT(ADIS16203_DIAG_STAT_SELFTEST_FAIL_BIT) |
@@ -277,6 +271,7 @@ static int adis16203_probe(struct spi_device *spi)
 	spi_set_drvdata(spi, indio_dev);
 
 	indio_dev->name = spi->dev.driver->name;
+	indio_dev->dev.parent = &spi->dev;
 	indio_dev->channels = adis16203_channels;
 	indio_dev->num_channels = ARRAY_SIZE(adis16203_channels);
 	indio_dev->info = &adis16203_info;
@@ -286,31 +281,43 @@ static int adis16203_probe(struct spi_device *spi)
 	if (ret)
 		return ret;
 
-	ret = devm_adis_setup_buffer_and_trigger(st, indio_dev, NULL);
+	ret = adis_setup_buffer_and_trigger(st, indio_dev, NULL);
 	if (ret)
 		return ret;
 
 	/* Get the device into a sane initial state */
 	ret = adis_initial_startup(st);
 	if (ret)
-		return ret;
+		goto error_cleanup_buffer_trigger;
 
-	return devm_iio_device_register(&spi->dev, indio_dev);
+	ret = iio_device_register(indio_dev);
+	if (ret)
+		goto error_cleanup_buffer_trigger;
+
+	return 0;
+
+error_cleanup_buffer_trigger:
+	adis_cleanup_buffer_and_trigger(st, indio_dev);
+	return ret;
 }
 
-static const struct of_device_id adis16203_of_match[] = {
-	{ .compatible = "adi,adis16203" },
-	{ },
-};
+static int adis16203_remove(struct spi_device *spi)
+{
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
+	struct adis *st = iio_priv(indio_dev);
 
-MODULE_DEVICE_TABLE(of, adis16203_of_match);
+	iio_device_unregister(indio_dev);
+	adis_cleanup_buffer_and_trigger(st, indio_dev);
+
+	return 0;
+}
 
 static struct spi_driver adis16203_driver = {
 	.driver = {
 		.name = "adis16203",
-		.of_match_table = adis16203_of_match,
 	},
 	.probe = adis16203_probe,
+	.remove = adis16203_remove,
 };
 module_spi_driver(adis16203_driver);
 

@@ -70,7 +70,7 @@ struct btrfs_delayed_item {
 	refcount_t refs;
 	int ins_or_del;
 	u32 data_len;
-	char data[];
+	char data[0];
 };
 
 static inline void btrfs_init_delayed_root(

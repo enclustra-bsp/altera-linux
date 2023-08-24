@@ -1,7 +1,18 @@
-// SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 #include <linux/module.h>
@@ -131,8 +142,6 @@ int wil_set_capabilities(struct wil6210_priv *wil)
 		       min(sizeof(wil->platform_capa), sizeof(platform_capa)));
 	}
 
-	wil_info(wil, "platform_capa 0x%lx\n", *wil->platform_capa);
-
 	/* extract FW capabilities from file without loading the FW */
 	wil_request_firmware(wil, wil->wil_fw_name, false);
 	wil_refresh_fw_capabilities(wil);
@@ -167,7 +176,7 @@ static void wil_remove_all_additional_vifs(struct wil6210_priv *wil)
 	struct wil6210_vif *vif;
 	int i;
 
-	for (i = 1; i < GET_MAX_VIFS(wil); i++) {
+	for (i = 1; i < wil->max_vifs; i++) {
 		vif = wil->vifs[i];
 		if (vif) {
 			wil_vif_prepare_stop(vif);
@@ -409,7 +418,6 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 	/* rollback to bus_disable */
 
-	wil_clear_fw_log_addr(wil);
 	rc = wil_if_add(wil);
 	if (rc) {
 		wil_err(wil, "wil_if_add failed: %d\n", rc);
@@ -424,7 +432,7 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		mutex_unlock(&wil->mutex);
 		if (rc) {
 			wil_err(wil, "failed to load WMI only FW\n");
-			/* ignore the error to allow debugging */
+			goto if_remove;
 		}
 	}
 
@@ -444,6 +452,8 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	return 0;
 
+if_remove:
+	wil_if_remove(wil);
 bus_disable:
 	wil_if_pcie_disable(wil);
 err_iounmap:
@@ -618,7 +628,8 @@ static int __maybe_unused wil6210_pm_resume(struct device *dev)
 
 static int __maybe_unused wil6210_pm_runtime_idle(struct device *dev)
 {
-	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct wil6210_priv *wil = pci_get_drvdata(pdev);
 
 	wil_dbg_pm(wil, "Runtime idle\n");
 
@@ -632,7 +643,8 @@ static int __maybe_unused wil6210_pm_runtime_resume(struct device *dev)
 
 static int __maybe_unused wil6210_pm_runtime_suspend(struct device *dev)
 {
-	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct wil6210_priv *wil = pci_get_drvdata(pdev);
 
 	if (test_bit(wil_status_suspended, wil->status)) {
 		wil_dbg_pm(wil, "trying to suspend while suspended\n");

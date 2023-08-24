@@ -1382,6 +1382,7 @@ static void err_decode(char *msg, size_t len, u64 errs,
 					*msg++ = ',';
 					len--;
 				}
+				BUG_ON(!msp->sz);
 				/* msp->sz counts the nul */
 				took = min_t(size_t, msp->sz - (size_t)1, len);
 				memcpy(msg,  msp->msg, took);
@@ -1733,9 +1734,9 @@ done:
 	return;
 }
 
-static void qib_error_tasklet(struct tasklet_struct *t)
+static void qib_error_tasklet(unsigned long data)
 {
-	struct qib_devdata *dd = from_tasklet(dd, t, error_tasklet);
+	struct qib_devdata *dd = (struct qib_devdata *)data;
 
 	handle_7322_errors(dd);
 	qib_write_kreg(dd, kr_errmask, dd->cspec->errormask);
@@ -2375,6 +2376,7 @@ static int qib_7322_bringup_serdes(struct qib_pportdata *ppd)
 	struct qib_devdata *dd = ppd->dd;
 	u64 val, guid, ibc;
 	unsigned long flags;
+	int ret = 0;
 
 	/*
 	 * SerDes model not in Pd, but still need to
@@ -2509,7 +2511,7 @@ static int qib_7322_bringup_serdes(struct qib_pportdata *ppd)
 		val | ERR_MASK_N(IBStatusChanged));
 
 	/* Always zero until we start messing with SerDes for real */
-	return 0;
+	return ret;
 }
 
 /**
@@ -3537,7 +3539,8 @@ try_intx:
 	for (i = 0; i < ARRAY_SIZE(redirect); i++)
 		qib_write_kreg(dd, kr_intredirect + i, redirect[i]);
 	dd->cspec->main_int_mask = mask;
-	tasklet_setup(&dd->error_tasklet, qib_error_tasklet);
+	tasklet_init(&dd->error_tasklet, qib_error_tasklet,
+		(unsigned long)dd);
 }
 
 /**
@@ -3791,6 +3794,7 @@ static void qib_7322_put_tid(struct qib_devdata *dd, u64 __iomem *tidptr,
 		pa = chippa;
 	}
 	writeq(pa, tidptr);
+	mmiowb();
 }
 
 /**
@@ -4437,8 +4441,10 @@ static void qib_update_7322_usrhead(struct qib_ctxtdata *rcd, u64 hd,
 		adjust_rcv_timeout(rcd, npkts);
 	if (updegr)
 		qib_write_ureg(rcd->dd, ur_rcvegrindexhead, egrhd, rcd->ctxt);
+	mmiowb();
 	qib_write_ureg(rcd->dd, ur_rcvhdrhead, hd, rcd->ctxt);
 	qib_write_ureg(rcd->dd, ur_rcvhdrhead, hd, rcd->ctxt);
+	mmiowb();
 }
 
 static u32 qib_7322_hdrqempty(struct qib_ctxtdata *rcd)
@@ -5507,11 +5513,11 @@ static u32 qib_7322_iblink_state(u64 ibcs)
 		state = IB_PORT_ARMED;
 		break;
 	case IB_7322_L_STATE_ACTIVE:
+		/* fall through */
 	case IB_7322_L_STATE_ACT_DEFER:
 		state = IB_PORT_ACTIVE;
 		break;
-	default:
-		fallthrough;
+	default: /* fall through */
 	case IB_7322_L_STATE_DOWN:
 		state = IB_PORT_DOWN;
 		break;
@@ -6135,7 +6141,7 @@ static void set_no_qsfp_atten(struct qib_devdata *dd, int change)
 static int setup_txselect(const char *str, const struct kernel_param *kp)
 {
 	struct qib_devdata *dd;
-	unsigned long index, val;
+	unsigned long val;
 	char *n;
 
 	if (strlen(str) >= ARRAY_SIZE(txselect_list)) {
@@ -6151,7 +6157,7 @@ static int setup_txselect(const char *str, const struct kernel_param *kp)
 	}
 	strncpy(txselect_list, str, ARRAY_SIZE(txselect_list) - 1);
 
-	xa_for_each(&qib_dev_table, index, dd)
+	list_for_each_entry(dd, &qib_dev_list, list)
 		if (dd->deviceid == PCI_DEVICE_ID_QLOGIC_IB_7322)
 			set_no_qsfp_atten(dd, 1);
 	return 0;
@@ -6532,7 +6538,7 @@ static int qib_init_7322_variables(struct qib_devdata *dd)
 				    "Invalid num_vls %u, using 4 VLs\n",
 				    qib_num_cfg_vls);
 			qib_num_cfg_vls = 4;
-			fallthrough;
+			/* fall through */
 		case 4:
 			ppd->vls_supported = IB_VL_VL0_3;
 			break;
@@ -6593,6 +6599,7 @@ static int qib_init_7322_variables(struct qib_devdata *dd)
 
 	/* we always allocate at least 2048 bytes for eager buffers */
 	dd->rcvegrbufsize = max(mtu, 2048);
+	BUG_ON(!is_power_of_2(dd->rcvegrbufsize));
 	dd->rcvegrbufsize_shift = ilog2(dd->rcvegrbufsize);
 
 	qib_7322_tidtemplate(dd);
@@ -6628,7 +6635,7 @@ static int qib_init_7322_variables(struct qib_devdata *dd)
 	/* vl15 buffers start just after the 4k buffers */
 	vl15off = dd->physaddr + (dd->piobufbase >> 32) +
 		  dd->piobcnt4k * dd->align4k;
-	dd->piovl15base	= ioremap(vl15off,
+	dd->piovl15base	= ioremap_nocache(vl15off,
 					  NUM_VL15_BUFS * dd->align4k);
 	if (!dd->piovl15base) {
 		ret = -ENOMEM;
@@ -6873,7 +6880,7 @@ static int init_sdma_7322_regs(struct qib_pportdata *ppd)
 	struct qib_devdata *dd = ppd->dd;
 	unsigned lastbuf, erstbuf;
 	u64 senddmabufmask[3] = { 0 };
-	int n;
+	int n, ret = 0;
 
 	qib_write_kreg_port(ppd, krp_senddmabase, ppd->sdma_descq_phys);
 	qib_sdma_7322_setlengen(ppd);
@@ -6897,12 +6904,13 @@ static int init_sdma_7322_regs(struct qib_pportdata *ppd)
 		unsigned word = erstbuf / BITS_PER_LONG;
 		unsigned bit = erstbuf & (BITS_PER_LONG - 1);
 
+		BUG_ON(word >= 3);
 		senddmabufmask[word] |= 1ULL << bit;
 	}
 	qib_write_kreg_port(ppd, krp_senddmabufmask0, senddmabufmask[0]);
 	qib_write_kreg_port(ppd, krp_senddmabufmask1, senddmabufmask[1]);
 	qib_write_kreg_port(ppd, krp_senddmabufmask2, senddmabufmask[2]);
-	return 0;
+	return ret;
 }
 
 /* sdma_lock must be held */

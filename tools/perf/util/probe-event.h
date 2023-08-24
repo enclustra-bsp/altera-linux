@@ -4,9 +4,8 @@
 
 #include <linux/compiler.h>
 #include <stdbool.h>
-
-struct intlist;
-struct nsinfo;
+#include "intlist.h"
+#include "namespaces.h"
 
 /* Probe related configurations */
 struct probe_conf {
@@ -16,12 +15,9 @@ struct probe_conf {
 	bool	no_inlines;
 	bool	cache;
 	int	max_probes;
-	unsigned long	magic_num;
 };
 extern struct probe_conf probe_conf;
 extern bool probe_event_dry_run;
-
-#define DEFAULT_PROBE_MAGIC_NUM	0xdeade12d	/* u32: 3735937325 */
 
 struct symbol;
 
@@ -40,7 +36,6 @@ struct probe_trace_point {
 struct probe_trace_arg_ref {
 	struct probe_trace_arg_ref	*next;	/* Next reference */
 	long				offset;	/* Offset value */
-	bool				user_access;	/* User-memory access */
 };
 
 /* kprobe-tracer and uprobe-tracer tracing argument */
@@ -86,7 +81,6 @@ struct perf_probe_arg {
 	char				*var;	/* Variable name */
 	char				*type;	/* Type name */
 	struct perf_probe_arg_field	*field;	/* Structure fields */
-	bool				user_access;	/* User-memory access */
 };
 
 /* Perf probe probing event (point + arg) */

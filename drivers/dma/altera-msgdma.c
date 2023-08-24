@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * DMA driver for Altera mSGDMA IP core
  *
@@ -6,6 +5,11 @@
  *
  * Based on drivers/dma/xilinx/zynqmp_dma.c, which is:
  * Copyright (C) 2016 Xilinx, Inc. All rights reserved.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
  */
 
 #include <linux/bitops.h>
@@ -153,8 +157,7 @@ struct msgdma_extended_desc {
  * struct msgdma_sw_desc - implements a sw descriptor
  * @async_tx: support for the async_tx api
  * @hw_desc: assosiated HW descriptor
- * @node: node to move from the free list to the tx list
- * @tx_list: transmit list node
+ * @free_list: node of the free SW descriprots list
  */
 struct msgdma_sw_desc {
 	struct dma_async_tx_descriptor async_tx;
@@ -163,7 +166,7 @@ struct msgdma_sw_desc {
 	struct list_head tx_list;
 };
 
-/*
+/**
  * struct msgdma_device - DMA device structure
  */
 struct msgdma_device {
@@ -259,7 +262,6 @@ static void msgdma_free_desc_list(struct msgdma_device *mdev,
  * @dst: Destination buffer address
  * @src: Source buffer address
  * @len: Transfer length
- * @stride: Read/write stride value to set
  */
 static void msgdma_desc_config(struct msgdma_extended_desc *desc,
 			       dma_addr_t dst, dma_addr_t src, size_t len,
@@ -678,11 +680,11 @@ static int msgdma_alloc_chan_resources(struct dma_chan *dchan)
 
 /**
  * msgdma_tasklet - Schedule completion tasklet
- * @t: Pointer to the Altera sSGDMA channel structure
+ * @data: Pointer to the Altera sSGDMA channel structure
  */
-static void msgdma_tasklet(struct tasklet_struct *t)
+static void msgdma_tasklet(unsigned long data)
 {
-	struct msgdma_device *mdev = from_tasklet(mdev, t, irq_tasklet);
+	struct msgdma_device *mdev = (struct msgdma_device *)data;
 	u32 count;
 	u32 __maybe_unused size;
 	u32 __maybe_unused status;
@@ -774,10 +776,10 @@ static int request_and_map(struct platform_device *pdev, const char *name,
 		return -EBUSY;
 	}
 
-	*ptr = devm_ioremap(device, region->start,
+	*ptr = devm_ioremap_nocache(device, region->start,
 				    resource_size(region));
 	if (*ptr == NULL) {
-		dev_err(device, "ioremap of %s failed!", name);
+		dev_err(device, "ioremap_nocache of %s failed!", name);
 		return -ENOMEM;
 	}
 
@@ -830,7 +832,7 @@ static int msgdma_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	tasklet_setup(&mdev->irq_tasklet, msgdma_tasklet);
+	tasklet_init(&mdev->irq_tasklet, msgdma_tasklet, (unsigned long)mdev);
 
 	dma_cookie_init(&mdev->dmachan);
 

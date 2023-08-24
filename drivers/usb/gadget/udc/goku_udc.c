@@ -125,14 +125,11 @@ goku_ep_enable(struct usb_ep *_ep, const struct usb_endpoint_descriptor *desc)
 	max = get_unaligned_le16(&desc->wMaxPacketSize);
 	switch (max) {
 	case 64:
-		mode++;
-		fallthrough;
+		mode++; /* fall through */
 	case 32:
-		mode++;
-		fallthrough;
+		mode++; /* fall through */
 	case 16:
-		mode++;
-		fallthrough;
+		mode++; /* fall through */
 	case 8:
 		mode <<= 3;
 		break;
@@ -1760,7 +1757,6 @@ static int goku_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err;
 	}
 
-	pci_set_drvdata(pdev, dev);
 	spin_lock_init(&dev->lock);
 	dev->pdev = pdev;
 	dev->gadget.ops = &goku_ops;
@@ -1786,7 +1782,7 @@ static int goku_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 	dev->got_region = 1;
 
-	base = ioremap(resource, len);
+	base = ioremap_nocache(resource, len);
 	if (base == NULL) {
 		DBG(dev, "can't map memory\n");
 		retval = -EFAULT;
@@ -1794,6 +1790,7 @@ static int goku_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 	dev->regs = (struct goku_udc_regs __iomem *) base;
 
+	pci_set_drvdata(pdev, dev);
 	INFO(dev, "%s\n", driver_desc);
 	INFO(dev, "version: " DRIVER_VERSION " %s\n", dmastr());
 	INFO(dev, "irq %d, pci mem %p\n", pdev->irq, base);
@@ -1847,7 +1844,7 @@ static const struct pci_device_id pci_ids[] = { {
 MODULE_DEVICE_TABLE (pci, pci_ids);
 
 static struct pci_driver goku_pci_driver = {
-	.name =		driver_name,
+	.name =		(char *) driver_name,
 	.id_table =	pci_ids,
 
 	.probe =	goku_probe,

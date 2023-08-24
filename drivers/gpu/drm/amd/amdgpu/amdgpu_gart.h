@@ -41,7 +41,6 @@ struct amdgpu_bo;
 
 struct amdgpu_gart {
 	struct amdgpu_bo		*bo;
-	/* CPU kmapped address of gart table */
 	void				*ptr;
 	unsigned			num_gpu_pages;
 	unsigned			num_cpu_pages;

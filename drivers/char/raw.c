@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/drivers/char/raw.c
  *
@@ -28,8 +27,7 @@
 #include <linux/uaccess.h>
 
 struct raw_device_data {
-	dev_t binding;
-	struct block_device *bdev;
+	struct block_device *binding;
 	int inuse;
 };
 
@@ -38,7 +36,7 @@ static struct raw_device_data *raw_devices;
 static DEFINE_MUTEX(raw_mutex);
 static const struct file_operations raw_ctl_fops; /* forward declaration */
 
-static int max_raw_minors = CONFIG_MAX_RAW_DEVS;
+static int max_raw_minors = MAX_RAW_MINORS;
 
 module_param(max_raw_minors, int, 0);
 MODULE_PARM_DESC(max_raw_minors, "Maximum number of raw devices (1-65536)");
@@ -64,25 +62,19 @@ static int raw_open(struct inode *inode, struct file *filp)
 		return 0;
 	}
 
-	pr_warn_ratelimited(
-		"process %s (pid %d) is using the deprecated raw device\n"
-		"support will be removed in Linux 5.14.\n",
-		current->comm, current->pid);
-
 	mutex_lock(&raw_mutex);
 
 	/*
 	 * All we need to do on open is check that the device is bound.
 	 */
+	bdev = raw_devices[minor].binding;
 	err = -ENODEV;
-	if (!raw_devices[minor].binding)
+	if (!bdev)
 		goto out;
-	bdev = blkdev_get_by_dev(raw_devices[minor].binding,
-				 filp->f_mode | FMODE_EXCL, raw_open);
-	if (IS_ERR(bdev)) {
-		err = PTR_ERR(bdev);
+	bdgrab(bdev);
+	err = blkdev_get(bdev, filp->f_mode | FMODE_EXCL, raw_open);
+	if (err)
 		goto out;
-	}
 	err = set_blocksize(bdev, bdev_logical_block_size(bdev));
 	if (err)
 		goto out1;
@@ -92,7 +84,6 @@ static int raw_open(struct inode *inode, struct file *filp)
 		file_inode(filp)->i_mapping =
 			bdev->bd_inode->i_mapping;
 	filp->private_data = bdev;
-	raw_devices[minor].bdev = bdev;
 	mutex_unlock(&raw_mutex);
 	return 0;
 
@@ -113,7 +104,7 @@ static int raw_release(struct inode *inode, struct file *filp)
 	struct block_device *bdev;
 
 	mutex_lock(&raw_mutex);
-	bdev = raw_devices[minor].bdev;
+	bdev = raw_devices[minor].binding;
 	if (--raw_devices[minor].inuse == 0)
 		/* Here  inode->i_mapping == bdev->bd_inode->i_mapping  */
 		inode->i_mapping = &inode->i_data;
@@ -136,7 +127,6 @@ raw_ioctl(struct file *filp, unsigned int command, unsigned long arg)
 static int bind_set(int number, u64 major, u64 minor)
 {
 	dev_t dev = MKDEV(major, minor);
-	dev_t raw = MKDEV(RAW_MAJOR, number);
 	struct raw_device_data *rawdev;
 	int err = 0;
 
@@ -170,17 +160,25 @@ static int bind_set(int number, u64 major, u64 minor)
 		mutex_unlock(&raw_mutex);
 		return -EBUSY;
 	}
-	if (rawdev->binding)
+	if (rawdev->binding) {
+		bdput(rawdev->binding);
 		module_put(THIS_MODULE);
-
-	rawdev->binding = dev;
+	}
 	if (!dev) {
 		/* unbind */
-		device_destroy(raw_class, raw);
+		rawdev->binding = NULL;
+		device_destroy(raw_class, MKDEV(RAW_MAJOR, number));
 	} else {
-		__module_get(THIS_MODULE);
-		device_destroy(raw_class, raw);
-		device_create(raw_class, NULL, raw, NULL, "raw%d", number);
+		rawdev->binding = bdget(dev);
+		if (rawdev->binding == NULL) {
+			err = -ENOMEM;
+		} else {
+			dev_t raw = MKDEV(RAW_MAJOR, number);
+			__module_get(THIS_MODULE);
+			device_destroy(raw_class, raw);
+			device_create(raw_class, NULL, raw, NULL,
+				      "raw%d", number);
+		}
 	}
 	mutex_unlock(&raw_mutex);
 	return err;
@@ -188,9 +186,18 @@ static int bind_set(int number, u64 major, u64 minor)
 
 static int bind_get(int number, dev_t *dev)
 {
+	struct raw_device_data *rawdev;
+	struct block_device *bdev;
+
 	if (number <= 0 || number >= max_raw_minors)
 		return -EINVAL;
-	*dev = raw_devices[number].binding;
+
+	rawdev = &raw_devices[number];
+
+	mutex_lock(&raw_mutex);
+	bdev = rawdev->binding;
+	*dev = bdev ? bdev->bd_dev : 0;
+	mutex_unlock(&raw_mutex);
 	return 0;
 }
 
@@ -309,9 +316,9 @@ static int __init raw_init(void)
 	int ret;
 
 	if (max_raw_minors < 1 || max_raw_minors > 65536) {
-		pr_warn("raw: invalid max_raw_minors (must be between 1 and 65536), using %d\n",
-			CONFIG_MAX_RAW_DEVS);
-		max_raw_minors = CONFIG_MAX_RAW_DEVS;
+		printk(KERN_WARNING "raw: invalid max_raw_minors (must be"
+			" between 1 and 65536), using %d\n", MAX_RAW_MINORS);
+		max_raw_minors = MAX_RAW_MINORS;
 	}
 
 	raw_devices = vzalloc(array_size(max_raw_minors,

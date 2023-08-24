@@ -15,8 +15,6 @@
 /* Handle ro_after_init data on our own. */
 #define RO_AFTER_INIT_DATA
 
-#define EMITS_PT_NOTE
-
 #include <asm-generic/vmlinux.lds.h>
 #include <asm/vmlinux.lds.h>
 
@@ -34,9 +32,10 @@ PHDRS {
 SECTIONS
 {
 	. = 0x100000;
+	_stext = .;		/* Start of text section */
 	.text : {
-		_stext = .;		/* Start of text section */
-		_text = .;		/* Text and read-only data */
+		/* Text and read-only data */
+		_text = .;
 		HEAD_TEXT
 		TEXT_TEXT
 		SCHED_TEXT
@@ -48,11 +47,16 @@ SECTIONS
 		*(.text.*_indirect_*)
 		*(.fixup)
 		*(.gnu.warning)
-		. = ALIGN(PAGE_SIZE);
-		_etext = .;		/* End of text section */
 	} :text = 0x0700
 
-	RO_DATA(PAGE_SIZE)
+	. = ALIGN(PAGE_SIZE);
+	_etext = .;		/* End of text section */
+
+	NOTES :text :note
+
+	.dummy : { *(.dummy) } :data
+
+	RO_DATA_SECTION(PAGE_SIZE)
 
 	. = ALIGN(PAGE_SIZE);
 	_sdata = .;		/* Start of data section */
@@ -62,13 +66,12 @@ SECTIONS
 	.data..ro_after_init : {
 		 *(.data..ro_after_init)
 		JUMP_TABLE_DATA
-	} :data
+	}
 	EXCEPTION_TABLE(16)
 	. = ALIGN(PAGE_SIZE);
 	__end_ro_after_init = .;
 
-	RW_DATA(0x100, PAGE_SIZE, THREAD_SIZE)
-	BOOT_DATA_PRESERVED
+	RW_DATA_SECTION(0x100, PAGE_SIZE, THREAD_SIZE)
 
 	_edata = .;		/* End of data section */
 
@@ -140,18 +143,6 @@ SECTIONS
 	INIT_DATA_SECTION(0x100)
 
 	PERCPU_SECTION(0x100)
-
-	.dynsym ALIGN(8) : {
-		__dynsym_start = .;
-		*(.dynsym)
-		__dynsym_end = .;
-	}
-	.rela.dyn ALIGN(8) : {
-		__rela_dyn_start = .;
-		*(.rela*)
-		__rela_dyn_end = .;
-	}
-
 	. = ALIGN(PAGE_SIZE);
 	__init_end = .;		/* freed after init ends here */
 
@@ -170,18 +161,11 @@ SECTIONS
 		QUAD(__bss_stop - __bss_start)			/* bss_size */
 		QUAD(__boot_data_start)				/* bootdata_off */
 		QUAD(__boot_data_end - __boot_data_start)	/* bootdata_size */
-		QUAD(__boot_data_preserved_start)		/* bootdata_preserved_off */
-		QUAD(__boot_data_preserved_end -
-		     __boot_data_preserved_start)		/* bootdata_preserved_size */
-		QUAD(__dynsym_start)				/* dynsym_start */
-		QUAD(__rela_dyn_start)				/* rela_dyn_start */
-		QUAD(__rela_dyn_end)				/* rela_dyn_end */
 	} :NONE
 
 	/* Debugging sections.	*/
 	STABS_DEBUG
 	DWARF_DEBUG
-	ELF_DETAILS
 
 	/* Sections to be discarded */
 	DISCARDS

@@ -37,8 +37,6 @@ SYSCALL_DEFINE3(msync, unsigned long, start, size_t, len, int, flags)
 	int unmapped_error = 0;
 	int error = -EINVAL;
 
-	start = untagged_addr(start);
-
 	if (flags & ~(MS_ASYNC | MS_INVALIDATE | MS_SYNC))
 		goto out;
 	if (offset_in_page(start))
@@ -57,7 +55,7 @@ SYSCALL_DEFINE3(msync, unsigned long, start, size_t, len, int, flags)
 	 * If the interval [start,end) covers some unmapped address ranges,
 	 * just ignore them, but return -ENOMEM at the end.
 	 */
-	mmap_read_lock(mm);
+	down_read(&mm->mmap_sem);
 	vma = find_vma(mm, start);
 	for (;;) {
 		struct file *file;
@@ -88,12 +86,12 @@ SYSCALL_DEFINE3(msync, unsigned long, start, size_t, len, int, flags)
 		if ((flags & MS_SYNC) && file &&
 				(vma->vm_flags & VM_SHARED)) {
 			get_file(file);
-			mmap_read_unlock(mm);
+			up_read(&mm->mmap_sem);
 			error = vfs_fsync_range(file, fstart, fend, 1);
 			fput(file);
 			if (error || start >= end)
 				goto out;
-			mmap_read_lock(mm);
+			down_read(&mm->mmap_sem);
 			vma = find_vma(mm, start);
 		} else {
 			if (start >= end) {
@@ -104,7 +102,7 @@ SYSCALL_DEFINE3(msync, unsigned long, start, size_t, len, int, flags)
 		}
 	}
 out_unlock:
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 out:
 	return error ? : unmapped_error;
 }

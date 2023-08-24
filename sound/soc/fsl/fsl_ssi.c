@@ -203,10 +203,12 @@ struct fsl_ssi_soc_data {
 };
 
 /**
- * struct fsl_ssi - per-SSI private data
+ * fsl_ssi: per-SSI private data
+ *
  * @regs: Pointer to the regmap registers
  * @irq: IRQ of this SSI
  * @cpu_dai_drv: CPU DAI driver for this device
+ *
  * @dai_fmt: DAI configuration this device is currently used with
  * @streams: Mask of current active streams: BIT(TX) and BIT(RX)
  * @i2s_net: I2S and Network mode configurations of SCR register
@@ -219,29 +221,38 @@ struct fsl_ssi_soc_data {
  * @slot_width: Width of each DAI slot
  * @slots: Number of slots
  * @regvals: Specific RX/TX register settings
+ *
  * @clk: Clock source to access register
  * @baudclk: Clock source to generate bit and frame-sync clocks
  * @baudclk_streams: Active streams that are using baudclk
+ *
  * @regcache_sfcsr: Cache sfcsr register value during suspend and resume
  * @regcache_sacnt: Cache sacnt register value during suspend and resume
+ *
  * @dma_params_tx: DMA transmit parameters
  * @dma_params_rx: DMA receive parameters
  * @ssi_phys: physical address of the SSI registers
+ *
  * @fiq_params: FIQ stream filtering parameters
+ *
  * @card_pdev: Platform_device pointer to register a sound card for PowerPC or
  *             to register a CODEC platform device for AC97
  * @card_name: Platform_device name to register a sound card for PowerPC or
  *             to register a CODEC platform device for AC97
  * @card_idx: The index of SSI to register a sound card for PowerPC or
  *            to register a CODEC platform device for AC97
+ *
  * @dbg_stats: Debugging statistics
+ *
  * @soc: SoC specific data
  * @dev: Pointer to &pdev->dev
+ *
  * @fifo_watermark: The FIFO watermark setting. Notifies DMA when there are
  *                  @fifo_watermark or fewer words in TX fifo or
  *                  @fifo_watermark or more empty words in RX fifo.
  * @dma_maxburst: Max number of words to transfer in one go. So far,
  *                this is always the same as fifo_watermark.
+ *
  * @ac97_reg_lock: Mutex lock to serialize AC97 register access operations
  */
 struct fsl_ssi {
@@ -363,9 +374,7 @@ static bool fsl_ssi_is_i2s_cbm_cfs(struct fsl_ssi *ssi)
 }
 
 /**
- * fsl_ssi_irq - Interrupt handler to gather states
- * @irq: irq number
- * @dev_id: context
+ * Interrupt handler to gather states
  */
 static irqreturn_t fsl_ssi_isr(int irq, void *dev_id)
 {
@@ -386,10 +395,7 @@ static irqreturn_t fsl_ssi_isr(int irq, void *dev_id)
 }
 
 /**
- * fsl_ssi_config_enable - Set SCR, SIER, STCR and SRCR registers with
- * cached values in regvals
- * @ssi: SSI context
- * @tx: direction
+ * Set SCR, SIER, STCR and SRCR registers with cached values in regvals
  *
  * Notes:
  * 1) For offline_config SoCs, enable all necessary bits of both streams
@@ -468,7 +474,7 @@ enable_scr:
 	ssi->streams |= BIT(dir);
 }
 
-/*
+/**
  * Exclude bits that are used by the opposite stream
  *
  * When both streams are active, disabling some bits for the current stream
@@ -489,10 +495,7 @@ enable_scr:
 	((vals) & _ssi_xor_shared_bits(vals, avals, aactive))
 
 /**
- * fsl_ssi_config_disable - Unset SCR, SIER, STCR and SRCR registers
- * with cached values in regvals
- * @ssi: SSI context
- * @tx: direction
+ * Unset SCR, SIER, STCR and SRCR registers with cached values in regvals
  *
  * Notes:
  * 1) For offline_config SoCs, to avoid online reconfigurations, disable all
@@ -574,9 +577,7 @@ static void fsl_ssi_tx_ac97_saccst_setup(struct fsl_ssi *ssi)
 }
 
 /**
- * fsl_ssi_setup_regvals - Cache critical bits of SIER, SRCR, STCR and
- * SCR to later set them safely
- * @ssi: SSI context
+ * Cache critical bits of SIER, SRCR, STCR and SCR to later set them safely
  */
 static void fsl_ssi_setup_regvals(struct fsl_ssi *ssi)
 {
@@ -629,8 +630,8 @@ static void fsl_ssi_setup_ac97(struct fsl_ssi *ssi)
 static int fsl_ssi_startup(struct snd_pcm_substream *substream,
 			   struct snd_soc_dai *dai)
 {
-	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	struct fsl_ssi *ssi = snd_soc_dai_get_drvdata(asoc_rtd_to_cpu(rtd, 0));
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct fsl_ssi *ssi = snd_soc_dai_get_drvdata(rtd->cpu_dai);
 	int ret;
 
 	ret = clk_prepare_enable(ssi->clk);
@@ -653,19 +654,16 @@ static int fsl_ssi_startup(struct snd_pcm_substream *substream,
 static void fsl_ssi_shutdown(struct snd_pcm_substream *substream,
 			     struct snd_soc_dai *dai)
 {
-	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	struct fsl_ssi *ssi = snd_soc_dai_get_drvdata(asoc_rtd_to_cpu(rtd, 0));
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct fsl_ssi *ssi = snd_soc_dai_get_drvdata(rtd->cpu_dai);
 
 	clk_disable_unprepare(ssi->clk);
 }
 
 /**
- * fsl_ssi_set_bclk - Configure Digital Audio Interface bit clock
- * @substream: ASoC substream
- * @dai: pointer to DAI
- * @hw_params: pointers to hw_params
+ * Configure Digital Audio Interface bit clock
  *
- * Notes: This function can be only called when using SSI as DAI master
+ * Note: This function can be only called when using SSI as DAI master
  *
  * Quick instruction for parameters:
  * freq: Output BCLK frequency = samplerate * slots * slot_width
@@ -680,9 +678,8 @@ static int fsl_ssi_set_bclk(struct snd_pcm_substream *substream,
 	struct regmap *regs = ssi->regs;
 	u32 pm = 999, div2, psr, stccr, mask, afreq, factor, i;
 	unsigned long clkrate, baudrate, tmprate;
-	unsigned int channels = params_channels(hw_params);
-	unsigned int slot_width = params_width(hw_params);
-	unsigned int slots = 2;
+	unsigned int slots = params_channels(hw_params);
+	unsigned int slot_width = 32;
 	u64 sub, savesub = 100000;
 	unsigned int freq;
 	bool baudclk_is_used;
@@ -691,13 +688,9 @@ static int fsl_ssi_set_bclk(struct snd_pcm_substream *substream,
 	/* Override slots and slot_width if being specifically set... */
 	if (ssi->slots)
 		slots = ssi->slots;
-	if (ssi->slot_width)
+	/* ...but keep 32 bits if slots is 2 -- I2S Master mode */
+	if (ssi->slot_width && slots != 2)
 		slot_width = ssi->slot_width;
-
-	/* ...but force 32 bits for stereo audio using I2S Master Mode */
-	if (channels == 2 &&
-	    (ssi->i2s_net & SSI_SCR_I2S_MODE_MASK) == SSI_SCR_I2S_MODE_MASTER)
-		slot_width = 32;
 
 	/* Generate bit clock based on the slot number and slot width */
 	freq = slots * slot_width * params_rate(hw_params);
@@ -784,10 +777,7 @@ static int fsl_ssi_set_bclk(struct snd_pcm_substream *substream,
 }
 
 /**
- * fsl_ssi_hw_params - Configure SSI based on PCM hardware parameters
- * @substream: ASoC substream
- * @hw_params: pointers to hw_params
- * @dai: pointer to DAI
+ * Configure SSI based on PCM hardware parameters
  *
  * Notes:
  * 1) SxCCR.WL bits are critical bits that require SSI to be temporarily
@@ -809,6 +799,15 @@ static int fsl_ssi_hw_params(struct snd_pcm_substream *substream,
 	u32 wl = SSI_SxCCR_WL(sample_size);
 	int ret;
 
+	/*
+	 * SSI is properly configured if it is enabled and running in
+	 * the synchronous mode; Note that AC97 mode is an exception
+	 * that should set separate configurations for STCCR and SRCCR
+	 * despite running in the synchronous mode.
+	 */
+	if (ssi->streams && ssi->synchronous)
+		return 0;
+
 	if (fsl_ssi_is_i2s_master(ssi)) {
 		ret = fsl_ssi_set_bclk(substream, dai, hw_params);
 		if (ret)
@@ -823,15 +822,6 @@ static int fsl_ssi_hw_params(struct snd_pcm_substream *substream,
 			ssi->baudclk_streams |= BIT(substream->stream);
 		}
 	}
-
-	/*
-	 * SSI is properly configured if it is enabled and running in
-	 * the synchronous mode; Note that AC97 mode is an exception
-	 * that should set separate configurations for STCCR and SRCCR
-	 * despite running in the synchronous mode.
-	 */
-	if (ssi->streams && ssi->synchronous)
-		return 0;
 
 	if (!fsl_ssi_is_ac97(ssi)) {
 		/*
@@ -863,8 +853,8 @@ static int fsl_ssi_hw_params(struct snd_pcm_substream *substream,
 static int fsl_ssi_hw_free(struct snd_pcm_substream *substream,
 			   struct snd_soc_dai *dai)
 {
-	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	struct fsl_ssi *ssi = snd_soc_dai_get_drvdata(asoc_rtd_to_cpu(rtd, 0));
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct fsl_ssi *ssi = snd_soc_dai_get_drvdata(rtd->cpu_dai);
 
 	if (fsl_ssi_is_i2s_master(ssi) &&
 	    ssi->baudclk_streams & BIT(substream->stream)) {
@@ -878,7 +868,6 @@ static int fsl_ssi_hw_free(struct snd_pcm_substream *substream,
 static int _fsl_ssi_set_dai_fmt(struct fsl_ssi *ssi, unsigned int fmt)
 {
 	u32 strcr = 0, scr = 0, stcr, srcr, mask;
-	unsigned int slots;
 
 	ssi->dai_fmt = fmt;
 
@@ -899,7 +888,7 @@ static int _fsl_ssi_set_dai_fmt(struct fsl_ssi *ssi, unsigned int fmt)
 					"missing baudclk for master mode\n");
 				return -EINVAL;
 			}
-			fallthrough;
+			/* fall through */
 		case SND_SOC_DAIFMT_CBM_CFS:
 			ssi->i2s_net |= SSI_SCR_I2S_MODE_MASTER;
 			break;
@@ -910,11 +899,10 @@ static int _fsl_ssi_set_dai_fmt(struct fsl_ssi *ssi, unsigned int fmt)
 			return -EINVAL;
 		}
 
-		slots = ssi->slots ? : 2;
 		regmap_update_bits(ssi->regs, REG_SSI_STCCR,
-				   SSI_SxCCR_DC_MASK, SSI_SxCCR_DC(slots));
+				   SSI_SxCCR_DC_MASK, SSI_SxCCR_DC(2));
 		regmap_update_bits(ssi->regs, REG_SSI_SRCCR,
-				   SSI_SxCCR_DC_MASK, SSI_SxCCR_DC(slots));
+				   SSI_SxCCR_DC_MASK, SSI_SxCCR_DC(2));
 
 		/* Data on rising edge of bclk, frame low, 1clk before data */
 		strcr |= SSI_STCR_TFSI | SSI_STCR_TSCKP | SSI_STCR_TEFS;
@@ -1004,9 +992,7 @@ static int _fsl_ssi_set_dai_fmt(struct fsl_ssi *ssi, unsigned int fmt)
 }
 
 /**
- * fsl_ssi_set_dai_fmt - Configure Digital Audio Interface (DAI) Format
- * @dai: pointer to DAI
- * @fmt: format mask
+ * Configure Digital Audio Interface (DAI) Format
  */
 static int fsl_ssi_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 {
@@ -1020,12 +1006,7 @@ static int fsl_ssi_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 }
 
 /**
- * fsl_ssi_set_dai_tdm_slot - Set TDM slot number and slot width
- * @dai: pointer to DAI
- * @tx_mask: mask for TX
- * @rx_mask: mask for RX
- * @slots: number of slots
- * @slot_width: number of bits per slot
+ * Set TDM slot number and slot width
  */
 static int fsl_ssi_set_dai_tdm_slot(struct snd_soc_dai *dai, u32 tx_mask,
 				    u32 rx_mask, int slots, int slot_width)
@@ -1069,10 +1050,7 @@ static int fsl_ssi_set_dai_tdm_slot(struct snd_soc_dai *dai, u32 tx_mask,
 }
 
 /**
- * fsl_ssi_trigger - Start or stop SSI and corresponding DMA transaction.
- * @substream: ASoC substream
- * @cmd: trigger command
- * @dai: pointer to DAI
+ * Start or stop SSI and corresponding DMA transaction.
  *
  * The DMA channel is in external master start and pause mode, which
  * means the SSI completely controls the flow of data.
@@ -1080,8 +1058,8 @@ static int fsl_ssi_set_dai_tdm_slot(struct snd_soc_dai *dai, u32 tx_mask,
 static int fsl_ssi_trigger(struct snd_pcm_substream *substream, int cmd,
 			   struct snd_soc_dai *dai)
 {
-	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	struct fsl_ssi *ssi = snd_soc_dai_get_drvdata(asoc_rtd_to_cpu(rtd, 0));
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct fsl_ssi *ssi = snd_soc_dai_get_drvdata(rtd->cpu_dai);
 	bool tx = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
 
 	switch (cmd) {
@@ -1158,6 +1136,7 @@ static const struct snd_soc_component_driver fsl_ssi_component = {
 };
 
 static struct snd_soc_dai_driver fsl_ssi_ac97_dai = {
+	.bus_control = true,
 	.symmetric_channels = 1,
 	.probe = fsl_ssi_dai_probe,
 	.playback = {
@@ -1256,8 +1235,7 @@ static struct snd_ac97_bus_ops fsl_ssi_ac97_ops = {
 };
 
 /**
- * fsl_ssi_hw_init - Initialize SSI registers
- * @ssi: SSI context
+ * Initialize SSI registers
  */
 static int fsl_ssi_hw_init(struct fsl_ssi *ssi)
 {
@@ -1286,8 +1264,7 @@ static int fsl_ssi_hw_init(struct fsl_ssi *ssi)
 }
 
 /**
- * fsl_ssi_hw_clean - Clear SSI registers
- * @ssi: SSI context
+ * Clear SSI registers
  */
 static void fsl_ssi_hw_clean(struct fsl_ssi *ssi)
 {
@@ -1304,8 +1281,7 @@ static void fsl_ssi_hw_clean(struct fsl_ssi *ssi)
 		regmap_update_bits(ssi->regs, REG_SSI_SCR, SSI_SCR_SSIEN, 0);
 	}
 }
-
-/*
+/**
  * Make every character in a string lower-case
  */
 static void make_lowercase(char *s)
@@ -1463,10 +1439,8 @@ static int fsl_ssi_probe_from_dt(struct fsl_ssi *ssi)
 	 * different name to register the device.
 	 */
 	if (!ssi->card_name[0] && of_get_property(np, "codec-handle", NULL)) {
-		struct device_node *root = of_find_node_by_path("/");
-
-		sprop = of_get_property(root, "compatible", NULL);
-		of_node_put(root);
+		sprop = of_get_property(of_find_node_by_path("/"),
+					"compatible", NULL);
 		/* Strip "fsl," in the compatible name if applicable */
 		p = strrchr(sprop, ',');
 		if (p)
@@ -1534,8 +1508,10 @@ static int fsl_ssi_probe(struct platform_device *pdev)
 	}
 
 	ssi->irq = platform_get_irq(pdev, 0);
-	if (ssi->irq < 0)
+	if (ssi->irq < 0) {
+		dev_err(dev, "no irq for node %s\n", pdev->name);
 		return ssi->irq;
+	}
 
 	/* Set software limitations for synchronous mode except AC97 */
 	if (ssi->synchronous && !fsl_ssi_is_ac97(ssi)) {
@@ -1604,7 +1580,9 @@ static int fsl_ssi_probe(struct platform_device *pdev)
 		}
 	}
 
-	fsl_ssi_debugfs_create(&ssi->dbg_stats, dev);
+	ret = fsl_ssi_debugfs_create(&ssi->dbg_stats, dev);
+	if (ret)
+		goto error_asoc_register;
 
 	/* Initially configures SSI registers */
 	fsl_ssi_hw_init(ssi);

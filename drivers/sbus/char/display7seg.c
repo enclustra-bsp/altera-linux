@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /* display7seg.c - Driver implementation for the 7-segment display
  *                 present on Sun Microsystems CP1400 and CP1500
  *
@@ -156,7 +155,7 @@ static long d7s_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 static const struct file_operations d7s_fops = {
 	.owner =		THIS_MODULE,
 	.unlocked_ioctl =	d7s_ioctl,
-	.compat_ioctl =		compat_ptr_ioctl,
+	.compat_ioctl =		d7s_ioctl,
 	.open =			d7s_open,
 	.release =		d7s_release,
 	.llseek = noop_llseek,

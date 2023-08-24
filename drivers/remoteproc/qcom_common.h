@@ -11,8 +11,6 @@ struct qcom_sysmon;
 struct qcom_rproc_glink {
 	struct rproc_subdev subdev;
 
-	const char *ssr_name;
-
 	struct device *dev;
 	struct device_node *node;
 	struct qcom_glink *edge;
@@ -26,15 +24,13 @@ struct qcom_rproc_subdev {
 	struct qcom_smd_edge *edge;
 };
 
-struct qcom_ssr_subsystem;
-
 struct qcom_rproc_ssr {
 	struct rproc_subdev subdev;
-	struct qcom_ssr_subsystem *info;
+
+	const char *name;
 };
 
-void qcom_add_glink_subdev(struct rproc *rproc, struct qcom_rproc_glink *glink,
-			   const char *ssr_name);
+void qcom_add_glink_subdev(struct rproc *rproc, struct qcom_rproc_glink *glink);
 void qcom_remove_glink_subdev(struct rproc *rproc, struct qcom_rproc_glink *glink);
 
 int qcom_register_dump_segments(struct rproc *rproc, const struct firmware *fw);

@@ -1,14 +1,29 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright(c) 2008 - 2009 Atheros Corporation. All rights reserved.
  *
  * Derived from Intel e1000 driver
  * Copyright(c) 1999 - 2005 Intel Corporation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 59
+ * Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
 #include "atl1c.h"
 
+#define ATL1C_DRV_VERSION "1.0.1.1-NAPI"
 char atl1c_driver_name[] = "atl1c";
+char atl1c_driver_version[] = ATL1C_DRV_VERSION;
 
 /*
  * atl1c_pci_tbl - PCI Device ID Table
@@ -35,6 +50,7 @@ MODULE_AUTHOR("Jie Yang");
 MODULE_AUTHOR("Qualcomm Atheros Inc., <nic-devel@qualcomm.com>");
 MODULE_DESCRIPTION("Qualcomm Atheros 100/1000M Ethernet Network Driver");
 MODULE_LICENSE("GPL");
+MODULE_VERSION(ATL1C_DRV_VERSION);
 
 static int atl1c_stop_mac(struct atl1c_hw *hw);
 static void atl1c_disable_l0s_l1(struct atl1c_hw *hw);
@@ -204,7 +220,7 @@ static u32 atl1c_wait_until_idle(struct atl1c_hw *hw, u32 modu_ctrl)
 
 /**
  * atl1c_phy_config - Timer Call-back
- * @t: timer list containing pointer to netdev cast into an unsigned long
+ * @data: pointer to netdev cast into an unsigned long
  */
 static void atl1c_phy_config(struct timer_list *t)
 {
@@ -220,6 +236,7 @@ static void atl1c_phy_config(struct timer_list *t)
 
 void atl1c_reinit_locked(struct atl1c_adapter *adapter)
 {
+	WARN_ON(in_interrupt());
 	atl1c_down(adapter);
 	atl1c_up(adapter);
 	clear_bit(__AT_RESETTING, &adapter->flags);
@@ -345,9 +362,8 @@ static void atl1c_del_timer(struct atl1c_adapter *adapter)
 /**
  * atl1c_tx_timeout - Respond to a Tx Hang
  * @netdev: network interface device structure
- * @txqueue: index of hanging tx queue
  */
-static void atl1c_tx_timeout(struct net_device *netdev, unsigned int txqueue)
+static void atl1c_tx_timeout(struct net_device *netdev)
 {
 	struct atl1c_adapter *adapter = netdev_priv(netdev);
 
@@ -826,16 +842,16 @@ static inline void atl1c_clean_buffer(struct pci_dev *pdev,
 		return;
 	if (buffer_info->dma) {
 		if (buffer_info->flags & ATL1C_PCIMAP_FROMDEVICE)
-			pci_driection = DMA_FROM_DEVICE;
+			pci_driection = PCI_DMA_FROMDEVICE;
 		else
-			pci_driection = DMA_TO_DEVICE;
+			pci_driection = PCI_DMA_TODEVICE;
 
 		if (buffer_info->flags & ATL1C_PCIMAP_SINGLE)
-			dma_unmap_single(&pdev->dev, buffer_info->dma,
-					 buffer_info->length, pci_driection);
+			pci_unmap_single(pdev, buffer_info->dma,
+					buffer_info->length, pci_driection);
 		else if (buffer_info->flags & ATL1C_PCIMAP_PAGE)
-			dma_unmap_page(&pdev->dev, buffer_info->dma,
-				       buffer_info->length, pci_driection);
+			pci_unmap_page(pdev, buffer_info->dma,
+					buffer_info->length, pci_driection);
 	}
 	if (buffer_info->skb)
 		dev_consume_skb_any(buffer_info->skb);
@@ -846,7 +862,6 @@ static inline void atl1c_clean_buffer(struct pci_dev *pdev,
 /**
  * atl1c_clean_tx_ring - Free Tx-skb
  * @adapter: board private structure
- * @type: type of transmit queue
  */
 static void atl1c_clean_tx_ring(struct atl1c_adapter *adapter,
 				enum atl1c_trans_queue type)
@@ -934,8 +949,9 @@ static void atl1c_free_ring_resources(struct atl1c_adapter *adapter)
 {
 	struct pci_dev *pdev = adapter->pdev;
 
-	dma_free_coherent(&pdev->dev, adapter->ring_header.size,
-			  adapter->ring_header.desc, adapter->ring_header.dma);
+	pci_free_consistent(pdev, adapter->ring_header.size,
+					adapter->ring_header.desc,
+					adapter->ring_header.dma);
 	adapter->ring_header.desc = NULL;
 
 	/* Note: just free tdp_ring.buffer_info,
@@ -1003,8 +1019,8 @@ static int atl1c_setup_ring_resources(struct atl1c_adapter *adapter)
 		sizeof(struct atl1c_recv_ret_status) * rx_desc_count +
 		8 * 4;
 
-	ring_header->desc = dma_alloc_coherent(&pdev->dev, ring_header->size,
-					       &ring_header->dma, GFP_KERNEL);
+	ring_header->desc = dma_zalloc_coherent(&pdev->dev, ring_header->size,
+						&ring_header->dma, GFP_KERNEL);
 	if (unlikely(!ring_header->desc)) {
 		dev_err(&pdev->dev, "could not get memory for DMA buffer\n");
 		goto err_nomem;
@@ -1186,7 +1202,7 @@ static void atl1c_start_mac(struct atl1c_adapter *adapter)
 	struct atl1c_hw *hw = &adapter->hw;
 	u32 mac, txq, rxq;
 
-	hw->mac_duplex = adapter->link_duplex == FULL_DUPLEX;
+	hw->mac_duplex = adapter->link_duplex == FULL_DUPLEX ? true : false;
 	hw->mac_speed = adapter->link_speed == SPEED_1000 ?
 		atl1c_mac_speed_1000 : atl1c_mac_speed_10_100;
 
@@ -1717,9 +1733,10 @@ static int atl1c_alloc_rx_buffer(struct atl1c_adapter *adapter)
 		ATL1C_SET_BUFFER_STATE(buffer_info, ATL1C_BUFFER_BUSY);
 		buffer_info->skb = skb;
 		buffer_info->length = adapter->rx_buffer_len;
-		mapping = dma_map_single(&pdev->dev, vir_addr,
-					 buffer_info->length, DMA_FROM_DEVICE);
-		if (unlikely(dma_mapping_error(&pdev->dev, mapping))) {
+		mapping = pci_map_single(pdev, vir_addr,
+						buffer_info->length,
+						PCI_DMA_FROMDEVICE);
+		if (unlikely(pci_dma_mapping_error(pdev, mapping))) {
 			dev_kfree_skb(skb);
 			buffer_info->skb = NULL;
 			buffer_info->length = 0;
@@ -1816,10 +1833,10 @@ rrs_checked:
 		atl1c_clean_rrd(rrd_ring, rrs, rfd_num);
 		if (rrs->word3 & (RRS_RX_ERR_SUM | RRS_802_3_LEN_ERR)) {
 			atl1c_clean_rfd(rfd_ring, rrs, rfd_num);
-			if (netif_msg_rx_err(adapter))
-				dev_warn(&pdev->dev,
-					 "wrong packet! rrs word3 is %x\n",
-					 rrs->word3);
+				if (netif_msg_rx_err(adapter))
+					dev_warn(&pdev->dev,
+						"wrong packet! rrs word3 is %x\n",
+						rrs->word3);
 			continue;
 		}
 
@@ -1830,8 +1847,8 @@ rrs_checked:
 			rfd_index = (rrs->word0 >> RRS_RX_RFD_INDEX_SHIFT) &
 					RRS_RX_RFD_INDEX_MASK;
 			buffer_info = &rfd_ring->buffer_info[rfd_index];
-			dma_unmap_single(&pdev->dev, buffer_info->dma,
-					 buffer_info->length, DMA_FROM_DEVICE);
+			pci_unmap_single(pdev, buffer_info->dma,
+				buffer_info->length, PCI_DMA_FROMDEVICE);
 			skb = buffer_info->skb;
 		} else {
 			/* TODO */
@@ -1862,8 +1879,6 @@ rrs_checked:
 
 /**
  * atl1c_clean - NAPI Rx polling callback
- * @napi: napi info
- * @budget: limit of packets to clean
  */
 static int atl1c_clean(struct napi_struct *napi, int budget)
 {
@@ -2023,8 +2038,10 @@ static int atl1c_tso_csum(struct atl1c_adapter *adapter,
 						"IPV6 tso with zero data??\n");
 				goto check_sum;
 			} else
-				tcp_v6_gso_csum_prep(skb);
-
+				tcp_hdr(skb)->check = ~csum_ipv6_magic(
+						&ipv6_hdr(skb)->saddr,
+						&ipv6_hdr(skb)->daddr,
+						0, IPPROTO_TCP, 0);
 			etpd->word1 |= 1 << TPD_LSO_EN_SHIFT;
 			etpd->word1 |= 1 << TPD_LSO_VER_SHIFT;
 			etpd->pkt_len = cpu_to_le32(skb->len);
@@ -2107,10 +2124,10 @@ static int atl1c_tx_map(struct atl1c_adapter *adapter,
 
 		buffer_info = atl1c_get_tx_buffer(adapter, use_tpd);
 		buffer_info->length = map_len;
-		buffer_info->dma = dma_map_single(&adapter->pdev->dev,
-						  skb->data, hdr_len,
-						  DMA_TO_DEVICE);
-		if (unlikely(dma_mapping_error(&adapter->pdev->dev, buffer_info->dma)))
+		buffer_info->dma = pci_map_single(adapter->pdev,
+					skb->data, hdr_len, PCI_DMA_TODEVICE);
+		if (unlikely(pci_dma_mapping_error(adapter->pdev,
+						   buffer_info->dma)))
 			goto err_dma;
 		ATL1C_SET_BUFFER_STATE(buffer_info, ATL1C_BUFFER_BUSY);
 		ATL1C_SET_PCIMAP_TYPE(buffer_info, ATL1C_PCIMAP_SINGLE,
@@ -2132,10 +2149,10 @@ static int atl1c_tx_map(struct atl1c_adapter *adapter,
 		buffer_info = atl1c_get_tx_buffer(adapter, use_tpd);
 		buffer_info->length = buf_len - mapped_len;
 		buffer_info->dma =
-			dma_map_single(&adapter->pdev->dev,
-				       skb->data + mapped_len,
-				       buffer_info->length, DMA_TO_DEVICE);
-		if (unlikely(dma_mapping_error(&adapter->pdev->dev, buffer_info->dma)))
+			pci_map_single(adapter->pdev, skb->data + mapped_len,
+					buffer_info->length, PCI_DMA_TODEVICE);
+		if (unlikely(pci_dma_mapping_error(adapter->pdev,
+						   buffer_info->dma)))
 			goto err_dma;
 
 		ATL1C_SET_BUFFER_STATE(buffer_info, ATL1C_BUFFER_BUSY);
@@ -2146,7 +2163,9 @@ static int atl1c_tx_map(struct atl1c_adapter *adapter,
 	}
 
 	for (f = 0; f < nr_frags; f++) {
-		skb_frag_t *frag = &skb_shinfo(skb)->frags[f];
+		struct skb_frag_struct *frag;
+
+		frag = &skb_shinfo(skb)->frags[f];
 
 		use_tpd = atl1c_get_tpd(adapter, type);
 		memcpy(use_tpd, tpd, sizeof(struct atl1c_tpd_desc));
@@ -2195,7 +2214,7 @@ static netdev_tx_t atl1c_xmit_frame(struct sk_buff *skb,
 					  struct net_device *netdev)
 {
 	struct atl1c_adapter *adapter = netdev_priv(netdev);
-	u16 tpd_req;
+	u16 tpd_req = 1;
 	struct atl1c_tpd_desc *tpd;
 	enum atl1c_trans_queue type = atl1c_trans_normal;
 
@@ -2416,7 +2435,8 @@ static int atl1c_close(struct net_device *netdev)
 
 static int atl1c_suspend(struct device *dev)
 {
-	struct net_device *netdev = dev_get_drvdata(dev);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct atl1c_adapter *adapter = netdev_priv(netdev);
 	struct atl1c_hw *hw = &adapter->hw;
 	u32 wufc = adapter->wol;
@@ -2430,7 +2450,7 @@ static int atl1c_suspend(struct device *dev)
 
 	if (wufc)
 		if (atl1c_phy_to_ps_link(hw) != 0)
-			dev_dbg(dev, "phy power saving failed");
+			dev_dbg(&pdev->dev, "phy power saving failed");
 
 	atl1c_power_saving(hw, wufc);
 
@@ -2440,7 +2460,8 @@ static int atl1c_suspend(struct device *dev)
 #ifdef CONFIG_PM_SLEEP
 static int atl1c_resume(struct device *dev)
 {
-	struct net_device *netdev = dev_get_drvdata(dev);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct atl1c_adapter *adapter = netdev_priv(netdev);
 
 	AT_WRITE_REG(&adapter->hw, REG_WOL_CTRL, 0);
@@ -2449,6 +2470,12 @@ static int atl1c_resume(struct device *dev)
 	atl1c_phy_reset(&adapter->hw);
 	atl1c_reset_mac(&adapter->hw);
 	atl1c_phy_init(&adapter->hw);
+
+#if 0
+	AT_READ_REG(&adapter->hw, REG_PM_CTRLSTAT, &pm_data);
+	pm_data &= ~PM_CTRLSTAT_PME_EN;
+	AT_WRITE_REG(&adapter->hw, REG_PM_CTRLSTAT, pm_data);
+#endif
 
 	netif_device_attach(netdev);
 	if (netif_running(netdev))
@@ -2543,8 +2570,8 @@ static int atl1c_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	 * various kernel subsystems to support the mechanics required by a
 	 * fixed-high-32-bit system.
 	 */
-	err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
-	if (err) {
+	if ((pci_set_dma_mask(pdev, DMA_BIT_MASK(32)) != 0) ||
+	    (pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(32)) != 0)) {
 		dev_err(&pdev->dev, "No usable DMA configuration,aborting\n");
 		goto err_dma;
 	}
@@ -2634,6 +2661,8 @@ static int atl1c_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto err_register;
 	}
 
+	if (netif_msg_probe(adapter))
+		dev_info(&pdev->dev, "version %s\n", ATL1C_DRV_VERSION);
 	cards_found++;
 	return 0;
 

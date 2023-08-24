@@ -1,8 +1,12 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Prototypes for functions that are shared between setup_(32|64|common).c
  *
  * Copyright 2016 Michael Ellerman, IBM Corporation.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version
+ * 2 of the License, or (at your option) any later version.
  */
 
 #ifndef __ARCH_POWERPC_KERNEL_SETUP_H
@@ -35,7 +39,7 @@ void exc_lvl_early_init(void);
 static inline void exc_lvl_early_init(void) { };
 #endif
 
-#if defined(CONFIG_PPC64) || defined(CONFIG_VMAP_STACK)
+#ifdef CONFIG_PPC64
 void emergency_stack_init(void);
 #else
 static inline void emergency_stack_init(void) { };

@@ -1,7 +1,8 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/vgaarb.h>
 #include <linux/vga_switcheroo.h>
 
+#include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_fb_helper.h>
 
@@ -72,7 +73,7 @@ nouveau_switcheroo_can_switch(struct pci_dev *pdev)
 	 * locking inversion with the driver load path. And the access here is
 	 * completely racy anyway. So don't bother with locking for now.
 	 */
-	return atomic_read(&dev->open_count) == 0;
+	return dev->open_count == 0;
 }
 
 static const struct vga_switcheroo_client_ops

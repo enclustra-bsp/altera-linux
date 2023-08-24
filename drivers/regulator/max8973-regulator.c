@@ -808,13 +808,7 @@ static int max8973_probe(struct i2c_client *client,
 	config.of_node = client->dev.of_node;
 	config.regmap = max->regmap;
 
-	/*
-	 * Register the regulators
-	 * Turn the GPIO descriptor over to the regulator core for
-	 * lifecycle management if we pass an ena_gpiod.
-	 */
-	if (config.ena_gpiod)
-		devm_gpiod_unhinge(&client->dev, config.ena_gpiod);
+	/* Register the regulators */
 	rdev = devm_regulator_register(&client->dev, &max->desc, &config);
 	if (IS_ERR(rdev)) {
 		ret = PTR_ERR(rdev);

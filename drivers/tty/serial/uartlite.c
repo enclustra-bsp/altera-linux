@@ -32,7 +32,7 @@
  * Register definitions
  *
  * For register details see datasheet:
- * https://www.xilinx.com/support/documentation/ip_documentation/opb_uartlite.pdf
+ * http://www.xilinx.com/support/documentation/ip_documentation/opb_uartlite.pdf
  */
 
 #define ULITE_RX		0x00
@@ -505,22 +505,20 @@ static void ulite_console_write(struct console *co, const char *s,
 
 static int ulite_console_setup(struct console *co, char *options)
 {
-	struct uart_port *port = NULL;
+	struct uart_port *port;
 	int baud = 9600;
 	int bits = 8;
 	int parity = 'n';
 	int flow = 'n';
 
-	if (co->index >= 0 && co->index < ULITE_NR_UARTS)
-		port = ulite_ports + co->index;
+
+	port = console_port;
 
 	/* Has the device been initialized yet? */
-	if (!port || !port->mapbase) {
+	if (!port->mapbase) {
 		pr_debug("console on ttyUL%i not present\n", co->index);
 		return -ENODEV;
 	}
-
-	console_port = port;
 
 	/* not initialized yet? */
 	if (!port->membase) {
@@ -615,7 +613,7 @@ static struct uart_driver ulite_uart_driver = {
  *
  * Returns: 0 on success, <0 otherwise
  */
-static int ulite_assign(struct device *dev, int id, phys_addr_t base, int irq,
+static int ulite_assign(struct device *dev, int id, u32 base, int irq,
 			struct uartlite_data *pdata)
 {
 	struct uart_port *port;
@@ -657,6 +655,17 @@ static int ulite_assign(struct device *dev, int id, phys_addr_t base, int irq,
 
 	dev_set_drvdata(dev, port);
 
+#ifdef CONFIG_SERIAL_UARTLITE_CONSOLE
+	/*
+	 * If console hasn't been found yet try to assign this port
+	 * because it is required to be assigned for console setup function.
+	 * If register_console() don't assign value, then console_port pointer
+	 * is cleanup.
+	 */
+	if (ulite_uart_driver.cons->index == -1)
+		console_port = port;
+#endif
+
 	/* Register the port */
 	rc = uart_add_one_port(&ulite_uart_driver, port);
 	if (rc) {
@@ -665,6 +674,12 @@ static int ulite_assign(struct device *dev, int id, phys_addr_t base, int irq,
 		dev_set_drvdata(dev, NULL);
 		return rc;
 	}
+
+#ifdef CONFIG_SERIAL_UARTLITE_CONSOLE
+	/* This is not port which is used for console that's why clean it up */
+	if (ulite_uart_driver.cons->index == -1)
+		console_port = NULL;
+#endif
 
 	return 0;
 }
@@ -831,8 +846,7 @@ static int __init ulite_init(void)
 static void __exit ulite_exit(void)
 {
 	platform_driver_unregister(&ulite_platform_driver);
-	if (ulite_uart_driver.state)
-		uart_unregister_driver(&ulite_uart_driver);
+	uart_unregister_driver(&ulite_uart_driver);
 }
 
 module_init(ulite_init);

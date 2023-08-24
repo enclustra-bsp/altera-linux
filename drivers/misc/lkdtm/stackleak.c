@@ -16,7 +16,6 @@ void lkdtm_STACKLEAK_ERASING(void)
 	unsigned long *sp, left, found, i;
 	const unsigned long check_depth =
 			STACKLEAK_SEARCH_DEPTH / sizeof(unsigned long);
-	bool test_failed = false;
 
 	/*
 	 * For the details about the alignment of the poison values, see
@@ -35,8 +34,7 @@ void lkdtm_STACKLEAK_ERASING(void)
 		left--;
 	} else {
 		pr_err("FAIL: not enough stack space for the test\n");
-		test_failed = true;
-		goto end;
+		return;
 	}
 
 	pr_info("checking unused part of the thread stack (%lu bytes)...\n",
@@ -54,29 +52,22 @@ void lkdtm_STACKLEAK_ERASING(void)
 	}
 
 	if (found <= check_depth) {
-		pr_err("FAIL: the erased part is not found (checked %lu bytes)\n",
+		pr_err("FAIL: thread stack is not erased (checked %lu bytes)\n",
 						i * sizeof(unsigned long));
-		test_failed = true;
-		goto end;
+		return;
 	}
 
-	pr_info("the erased part begins after %lu not poisoned bytes\n",
+	pr_info("first %lu bytes are unpoisoned\n",
 				(i - found) * sizeof(unsigned long));
 
 	/* The rest of thread stack should be erased */
 	for (; i < left; i++) {
 		if (*(sp - i) != STACKLEAK_POISON) {
-			pr_err("FAIL: bad value number %lu in the erased part: 0x%lx\n",
-								i, *(sp - i));
-			test_failed = true;
+			pr_err("FAIL: thread stack is NOT properly erased\n");
+			return;
 		}
 	}
 
-end:
-	if (test_failed) {
-		pr_err("FAIL: the thread stack is NOT properly erased\n");
-		dump_stack();
-	} else {
-		pr_info("OK: the rest of the thread stack is properly erased\n");
-	}
+	pr_info("OK: the rest of the thread stack is properly erased\n");
+	return;
 }

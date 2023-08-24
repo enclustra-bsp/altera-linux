@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /* mvme147.c  : the  Linux/mvme147/lance ethernet driver
  *
  * Copyright (C) 05/1998 Peter Maydell <pmaydell@chiark.greenend.org.uk>
@@ -16,7 +15,6 @@
 #include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/gfp.h>
-#include <linux/pgtable.h>
 /* Used for the temporal inet entries and routing */
 #include <linux/socket.h>
 #include <linux/route.h>
@@ -25,6 +23,7 @@
 #include <linux/skbuff.h>
 
 #include <asm/io.h>
+#include <asm/pgtable.h>
 #include <asm/mvme147hw.h>
 
 /* We have 32K of RAM for the init block and buffers. This places

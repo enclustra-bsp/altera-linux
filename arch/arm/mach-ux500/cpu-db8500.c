@@ -1,8 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2008-2009 ST-Ericsson SA
  *
  * Author: Srinidhi KASAGAR <srinidhi.kasagar@stericsson.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2, as
+ * published by the Free Software Foundation.
+ *
  */
 #include <linux/types.h>
 #include <linux/init.h>
@@ -84,7 +88,6 @@ static void __init ux500_init_irq(void)
 	struct resource r;
 
 	irqchip_init();
-	prcmu_early_init();
 	np = of_find_compatible_node(NULL, NULL, "stericsson,db8500-prcmu");
 	of_address_to_resource(np, 0, &r);
 	of_node_put(np);
@@ -92,6 +95,7 @@ static void __init ux500_init_irq(void)
 		pr_err("could not find PRCMU base resource\n");
 		return;
 	}
+	prcmu_early_init(r.start, r.end-r.start);
 	ux500_pm_init(r.start, r.end-r.start);
 
 	/* Unlock before init */
@@ -110,6 +114,7 @@ static void ux500_restart(enum reboot_mode mode, const char *cmd)
 static const struct of_device_id u8500_local_bus_nodes[] = {
 	/* only create devices below soc node */
 	{ .compatible = "stericsson,db8500", },
+	{ .compatible = "stericsson,db8500-prcmu", },
 	{ .compatible = "simple-bus"},
 	{ },
 };

@@ -1,31 +1,51 @@
-#!/bin/bash
+#!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 
 in="$1"
 out="$2"
 
 syscall_macro() {
-    local abi="$1"
-    local nr="$2"
-    local entry="$3"
+    abi="$1"
+    nr="$2"
+    entry="$3"
 
-    echo "__SYSCALL_${abi}($nr, $entry)"
+    # Entry can be either just a function name or "function/qualifier"
+    real_entry="${entry%%/*}"
+    if [ "$entry" = "$real_entry" ]; then
+        qualifier=
+    else
+        qualifier=${entry#*/}
+    fi
+
+    echo "__SYSCALL_${abi}($nr, $real_entry, $qualifier)"
 }
 
 emit() {
-    local abi="$1"
-    local nr="$2"
-    local entry="$3"
-    local compat="$4"
+    abi="$1"
+    nr="$2"
+    entry="$3"
+    compat="$4"
+    umlentry=""
 
-    if [ "$abi" != "I386" -a -n "$compat" ]; then
-	echo "a compat entry ($abi: $compat) for a 64-bit syscall makes no sense" >&2
+    if [ "$abi" = "64" -a -n "$compat" ]; then
+	echo "a compat entry for a 64-bit syscall makes no sense" >&2
 	exit 1
     fi
 
+    # For CONFIG_UML, we need to strip the __x64_sys prefix
+    if [ "$abi" = "64" -a "${entry}" != "${entry#__x64_sys}" ]; then
+	    umlentry="sys${entry#__x64_sys}"
+    fi
+
     if [ -z "$compat" ]; then
-	if [ -n "$entry" ]; then
+	if [ -n "$entry" -a -z "$umlentry" ]; then
 	    syscall_macro "$abi" "$nr" "$entry"
+	elif [ -n "$umlentry" ]; then # implies -n "$entry"
+	    echo "#ifdef CONFIG_X86"
+	    syscall_macro "$abi" "$nr" "$entry"
+	    echo "#else /* CONFIG_UML */"
+	    syscall_macro "$abi" "$nr" "$umlentry"
+	    echo "#endif"
 	fi
     else
 	echo "#ifdef CONFIG_X86_32"
@@ -41,6 +61,21 @@ emit() {
 grep '^[0-9]' "$in" | sort -n | (
     while read nr abi name entry compat; do
 	abi=`echo "$abi" | tr '[a-z]' '[A-Z]'`
-	emit "$abi" "$nr" "$entry" "$compat"
+	if [ "$abi" = "COMMON" -o "$abi" = "64" ]; then
+	    # COMMON is the same as 64, except that we don't expect X32
+	    # programs to use it.  Our expectation has nothing to do with
+	    # any generated code, so treat them the same.
+	    emit 64 "$nr" "$entry" "$compat"
+	elif [ "$abi" = "X32" ]; then
+	    # X32 is equivalent to 64 on an X32-compatible kernel.
+	    echo "#ifdef CONFIG_X86_X32_ABI"
+	    emit 64 "$nr" "$entry" "$compat"
+	    echo "#endif"
+	elif [ "$abi" = "I386" ]; then
+	    emit "$abi" "$nr" "$entry" "$compat"
+	else
+	    echo "Unknown abi $abi" >&2
+	    exit 1
+	fi
     done
 ) > "$out"

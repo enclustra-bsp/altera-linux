@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (c) 2007 Freescale Semiconductor, Inc. All rights reserved.
  *
@@ -9,6 +8,11 @@
  * Limitation:
  * Can only get/set settings of the first queue.
  * Need to re-open the interface manually after changing some parameters.
+ *
+ * This program is free software; you can redistribute  it and/or modify it
+ * under  the terms of  the GNU General  Public License as published by the
+ * Free Software Foundation;  either version 2 of the  License, or (at your
+ * option) any later version.
  */
 
 #include <linux/kernel.h>
@@ -248,11 +252,13 @@ uec_set_ringparam(struct net_device *netdev,
 		return -EINVAL;
 	}
 
-	if (netif_running(netdev))
-		return -EBUSY;
-
 	ug_info->bdRingLenRx[queue] = ring->rx_pending;
 	ug_info->bdRingLenTx[queue] = ring->tx_pending;
+
+	if (netif_running(netdev)) {
+		/* FIXME: restart automatically */
+		netdev_info(netdev, "Please re-open the interface\n");
+	}
 
 	return ret;
 }
@@ -334,6 +340,8 @@ uec_get_drvinfo(struct net_device *netdev,
                        struct ethtool_drvinfo *drvinfo)
 {
 	strlcpy(drvinfo->driver, DRV_NAME, sizeof(drvinfo->driver));
+	strlcpy(drvinfo->version, DRV_VERSION, sizeof(drvinfo->version));
+	strlcpy(drvinfo->fw_version, "N/A", sizeof(drvinfo->fw_version));
 	strlcpy(drvinfo->bus_info, "QUICC ENGINE", sizeof(drvinfo->bus_info));
 }
 

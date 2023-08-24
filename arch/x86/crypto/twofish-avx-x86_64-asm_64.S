@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Twofish Cipher 8-way parallel algorithm (AVX/x86_64)
  *
@@ -6,6 +5,22 @@
  *     <Johannes.Goetzfried@informatik.stud.uni-erlangen.de>
  *
  * Copyright © 2012-2013 Jussi Kivilinna <jussi.kivilinna@iki.fi>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
+ * USA
+ *
  */
 
 #include <linux/linkage.h>
@@ -234,7 +249,7 @@
 	vpxor		x3, wkey, x3;
 
 .align 8
-SYM_FUNC_START_LOCAL(__twofish_enc_blk8)
+__twofish_enc_blk8:
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	RA1, RB1, RC1, RD1, RA2, RB2, RC2, RD2: blocks
@@ -273,10 +288,10 @@ SYM_FUNC_START_LOCAL(__twofish_enc_blk8)
 	outunpack_blocks(RC2, RD2, RA2, RB2, RK1, RX0, RY0, RK2);
 
 	ret;
-SYM_FUNC_END(__twofish_enc_blk8)
+ENDPROC(__twofish_enc_blk8)
 
 .align 8
-SYM_FUNC_START_LOCAL(__twofish_dec_blk8)
+__twofish_dec_blk8:
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	RC1, RD1, RA1, RB1, RC2, RD2, RA2, RB2: encrypted blocks
@@ -313,9 +328,9 @@ SYM_FUNC_START_LOCAL(__twofish_dec_blk8)
 	outunpack_blocks(RA2, RB2, RC2, RD2, RK1, RX0, RY0, RK2);
 
 	ret;
-SYM_FUNC_END(__twofish_dec_blk8)
+ENDPROC(__twofish_dec_blk8)
 
-SYM_FUNC_START(twofish_ecb_enc_8way)
+ENTRY(twofish_ecb_enc_8way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -333,9 +348,9 @@ SYM_FUNC_START(twofish_ecb_enc_8way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(twofish_ecb_enc_8way)
+ENDPROC(twofish_ecb_enc_8way)
 
-SYM_FUNC_START(twofish_ecb_dec_8way)
+ENTRY(twofish_ecb_dec_8way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -353,9 +368,9 @@ SYM_FUNC_START(twofish_ecb_dec_8way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(twofish_ecb_dec_8way)
+ENDPROC(twofish_ecb_dec_8way)
 
-SYM_FUNC_START(twofish_cbc_dec_8way)
+ENTRY(twofish_cbc_dec_8way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -378,9 +393,9 @@ SYM_FUNC_START(twofish_cbc_dec_8way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(twofish_cbc_dec_8way)
+ENDPROC(twofish_cbc_dec_8way)
 
-SYM_FUNC_START(twofish_ctr_8way)
+ENTRY(twofish_ctr_8way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -405,9 +420,9 @@ SYM_FUNC_START(twofish_ctr_8way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(twofish_ctr_8way)
+ENDPROC(twofish_ctr_8way)
 
-SYM_FUNC_START(twofish_xts_enc_8way)
+ENTRY(twofish_xts_enc_8way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -429,9 +444,9 @@ SYM_FUNC_START(twofish_xts_enc_8way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(twofish_xts_enc_8way)
+ENDPROC(twofish_xts_enc_8way)
 
-SYM_FUNC_START(twofish_xts_dec_8way)
+ENTRY(twofish_xts_dec_8way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -453,4 +468,4 @@ SYM_FUNC_START(twofish_xts_dec_8way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(twofish_xts_dec_8way)
+ENDPROC(twofish_xts_dec_8way)

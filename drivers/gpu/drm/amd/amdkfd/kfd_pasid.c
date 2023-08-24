@@ -22,10 +22,9 @@
 
 #include <linux/types.h>
 #include "kfd_priv.h"
-#include "amdgpu_ids.h"
 
 static unsigned int pasid_bits = 16;
-static bool pasids_allocated; /* = false */
+static const struct kfd2kgd_calls *kfd2kgd;
 
 bool kfd_set_pasid_limit(unsigned int new_limit)
 {
@@ -33,7 +32,7 @@ bool kfd_set_pasid_limit(unsigned int new_limit)
 		return false;
 
 	if (new_limit < (1U << pasid_bits)) {
-		if (pasids_allocated)
+		if (kfd2kgd)
 			/* We've already allocated user PASIDs, too late to
 			 * change the limit
 			 */
@@ -51,19 +50,34 @@ unsigned int kfd_get_pasid_limit(void)
 	return 1U << pasid_bits;
 }
 
-u32 kfd_pasid_alloc(void)
+unsigned int kfd_pasid_alloc(void)
 {
-	int r = amdgpu_pasid_alloc(pasid_bits);
+	int r;
 
-	if (r > 0) {
-		pasids_allocated = true;
-		return r;
+	/* Find the first best KFD device for calling KGD */
+	if (!kfd2kgd) {
+		struct kfd_dev *dev = NULL;
+		unsigned int i = 0;
+
+		while ((kfd_topology_enum_kfd_devices(i, &dev)) == 0) {
+			if (dev && dev->kfd2kgd) {
+				kfd2kgd = dev->kfd2kgd;
+				break;
+			}
+			i++;
+		}
+
+		if (!kfd2kgd)
+			return false;
 	}
 
-	return 0;
+	r = kfd2kgd->alloc_pasid(pasid_bits);
+
+	return r > 0 ? r : 0;
 }
 
-void kfd_pasid_free(u32 pasid)
+void kfd_pasid_free(unsigned int pasid)
 {
-	amdgpu_pasid_free(pasid);
+	if (kfd2kgd)
+		kfd2kgd->free_pasid(pasid);
 }

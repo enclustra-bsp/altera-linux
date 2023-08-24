@@ -286,7 +286,7 @@ static void *alloc_dma_buffer(struct vio_dev *vdev, size_t size,
 
 	if (dma_mapping_error(&vdev->dev, *dma_handle)) {
 		*dma_handle = 0;
-		kfree_sensitive(buffer);
+		kzfree(buffer);
 		return NULL;
 	}
 
@@ -310,7 +310,7 @@ static void free_dma_buffer(struct vio_dev *vdev, size_t size, void *vaddr,
 	dma_unmap_single(&vdev->dev, dma_handle, size, DMA_BIDIRECTIONAL);
 
 	/* deallocate memory */
-	kfree_sensitive(vaddr);
+	kzfree(vaddr);
 }
 
 /**
@@ -760,7 +760,7 @@ static int ibmvmc_send_rem_buffer_resp(struct crq_server_adapter *adapter,
  * @adapter:	crq_server_adapter struct
  * @buffer:	ibmvmc_buffer struct
  * @hmc:	ibmvmc_hmc struct
- * @msg_len:	message length field
+ * @msg_length:	message length field
  *
  * This command is sent between the management partition and the hypervisor
  * in order to signal the arrival of an HMC protocol message. The command
@@ -820,24 +820,21 @@ static int ibmvmc_send_msg(struct crq_server_adapter *adapter,
  *
  * Return:
  *	0 - Success
- *	Non-zero - Failure
  */
 static int ibmvmc_open(struct inode *inode, struct file *file)
 {
 	struct ibmvmc_file_session *session;
+	int rc = 0;
 
 	pr_debug("%s: inode = 0x%lx, file = 0x%lx, state = 0x%x\n", __func__,
 		 (unsigned long)inode, (unsigned long)file,
 		 ibmvmc.state);
 
 	session = kzalloc(sizeof(*session), GFP_KERNEL);
-	if (!session)
-		return -ENOMEM;
-
 	session->file = file;
 	file->private_data = session;
 
-	return 0;
+	return rc;
 }
 
 /**
@@ -883,7 +880,7 @@ static int ibmvmc_close(struct inode *inode, struct file *file)
 		spin_unlock_irqrestore(&hmc->lock, flags);
 	}
 
-	kfree_sensitive(session);
+	kzfree(session);
 
 	return rc;
 }
@@ -1028,7 +1025,7 @@ static unsigned int ibmvmc_poll(struct file *file, poll_table *wait)
  * ibmvmc_write - Write
  *
  * @file:	file struct
- * @buffer:	Character buffer
+ * @buf:	Character buffer
  * @count:	Count field
  * @ppos:	Offset
  *
@@ -1347,7 +1344,7 @@ static long ibmvmc_ioctl_requestvmc(struct ibmvmc_file_session *session,
 /**
  * ibmvmc_ioctl - IOCTL
  *
- * @file:	file information
+ * @session:	ibmvmc_file_session struct
  * @cmd:	cmd field
  * @arg:	Argument field
  *

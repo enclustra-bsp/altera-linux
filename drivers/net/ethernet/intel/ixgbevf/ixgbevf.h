@@ -440,6 +440,7 @@ extern const struct ixgbe_mbx_operations ixgbevf_hv_mbx_ops;
 
 /* needed by ethtool.c */
 extern const char ixgbevf_driver_name[];
+extern const char ixgbevf_driver_version[];
 
 int ixgbevf_open(struct net_device *netdev);
 int ixgbevf_close(struct net_device *netdev);

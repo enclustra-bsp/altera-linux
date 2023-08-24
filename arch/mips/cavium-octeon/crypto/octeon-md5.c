@@ -25,6 +25,7 @@
 #include <linux/module.h>
 #include <linux/string.h>
 #include <asm/byteorder.h>
+#include <linux/cryptohash.h>
 #include <asm/octeon/octeon.h>
 #include <crypto/internal/hash.h>
 

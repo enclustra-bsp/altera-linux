@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  Driver for CPM (SCC/SMC) serial ports
  *
@@ -12,8 +12,6 @@
 
 #include <linux/platform_device.h>
 #include <linux/fs_uart_pd.h>
-
-struct gpio_desc;
 
 #if defined(CONFIG_CPM2)
 #include "cpm_uart_cpm2.h"
@@ -82,7 +80,7 @@ struct uart_cpm_port {
 	int			wait_closing;
 	/* value to combine with opcode to form cpm command */
 	u32			command;
-	struct gpio_desc	*gpios[NUM_GPIOS];
+	int			gpios[NUM_GPIOS];
 };
 
 extern int cpm_uart_nr;

@@ -3,8 +3,9 @@
 # Makefile for s390-specific library files..
 #
 
-lib-y += delay.o string.o uaccess.o find.o spinlock.o
+lib-y += delay.o string.o uaccess.o find.o
 obj-y += mem.o xor.o
+lib-$(CONFIG_SMP) += spinlock.o
 lib-$(CONFIG_KPROBES) += probes.o
 lib-$(CONFIG_UPROBES) += probes.o
 
@@ -12,7 +13,5 @@ lib-$(CONFIG_UPROBES) += probes.o
 # produce false positives
 KASAN_SANITIZE_uaccess.o := n
 
-obj-$(CONFIG_S390_UNWIND_SELFTEST) += test_unwind.o
-CFLAGS_test_unwind.o += -fno-optimize-sibling-calls
-
-lib-$(CONFIG_FUNCTION_ERROR_INJECTION) += error-inject.o
+chkbss := mem.o
+include $(srctree)/arch/s390/scripts/Makefile.chkbss

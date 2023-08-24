@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * cmt_speech.c - HSI CMT speech driver
  *
@@ -6,6 +5,20 @@
  *
  * Contact: Kai Vehmanen <kai.vehmanen@nokia.com>
  * Original author: Peter Ujfalusi <peter.ujfalusi@nokia.com>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA
  */
 
 #include <linux/errno.h>
@@ -965,13 +978,14 @@ static int cs_hsi_buf_config(struct cs_hsi_iface *hi,
 
 	if (old_state != hi->iface_state) {
 		if (hi->iface_state == CS_STATE_CONFIGURED) {
-			cpu_latency_qos_add_request(&hi->pm_qos_req,
+			pm_qos_add_request(&hi->pm_qos_req,
+				PM_QOS_CPU_DMA_LATENCY,
 				CS_QOS_LATENCY_FOR_DATA_USEC);
 			local_bh_disable();
 			cs_hsi_read_on_data(hi);
 			local_bh_enable();
 		} else if (old_state == CS_STATE_CONFIGURED) {
-			cpu_latency_qos_remove_request(&hi->pm_qos_req);
+			pm_qos_remove_request(&hi->pm_qos_req);
 		}
 	}
 	return r;
@@ -1074,8 +1088,8 @@ static void cs_hsi_stop(struct cs_hsi_iface *hi)
 	WARN_ON(!cs_state_idle(hi->control_state));
 	WARN_ON(!cs_state_idle(hi->data_state));
 
-	if (cpu_latency_qos_request_active(&hi->pm_qos_req))
-		cpu_latency_qos_remove_request(&hi->pm_qos_req);
+	if (pm_qos_request_active(&hi->pm_qos_req))
+		pm_qos_remove_request(&hi->pm_qos_req);
 
 	spin_lock_bh(&hi->lock);
 	cs_hsi_free_data(hi);

@@ -16,8 +16,6 @@
 #define u32 uint32_t
 #define u64 uint64_t
 
-#define EVMCS_VERSION 1
-
 extern bool enable_evmcs;
 
 struct hv_vp_assist_page {
@@ -219,10 +217,8 @@ struct hv_enlightened_vmcs {
 #define HV_X64_MSR_VP_ASSIST_PAGE_ADDRESS_MASK	\
 		(~((1ull << HV_X64_MSR_VP_ASSIST_PAGE_ADDRESS_SHIFT) - 1))
 
-extern struct hv_enlightened_vmcs *current_evmcs;
-extern struct hv_vp_assist_page *current_vp_assist;
-
-int vcpu_enable_evmcs(struct kvm_vm *vm, int vcpu_id);
+struct hv_enlightened_vmcs *current_evmcs;
+struct hv_vp_assist_page *current_vp_assist;
 
 static inline int enable_vp_assist(uint64_t vp_assist_pa, void *vp_assist)
 {

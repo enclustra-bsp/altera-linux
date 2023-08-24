@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /* -*- mode: c; c-basic-offset: 8; -*-
  * vim: noexpandtab sw=8 ts=8 sts=0:
  *
@@ -7,6 +6,20 @@
  * Block/Cluster mapping functions
  *
  * Copyright (C) 2004 Oracle.  All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public
+ * License, version 2,  as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 021110-1307, USA.
  */
 
 #include <linux/fs.h>
@@ -403,7 +416,7 @@ static int ocfs2_get_clusters_nocache(struct inode *inode,
 {
 	int i, ret, tree_height, len;
 	struct ocfs2_dinode *di;
-	struct ocfs2_extent_block *eb;
+	struct ocfs2_extent_block *uninitialized_var(eb);
 	struct ocfs2_extent_list *el;
 	struct ocfs2_extent_rec *rec;
 	struct buffer_head *eb_bh = NULL;
@@ -590,7 +603,8 @@ int ocfs2_xattr_get_clusters(struct inode *inode, u32 v_cluster,
 			*extent_flags = rec->e_flags;
 	}
 out:
-	brelse(eb_bh);
+	if (eb_bh)
+		brelse(eb_bh);
 	return ret;
 }
 
@@ -599,7 +613,7 @@ int ocfs2_get_clusters(struct inode *inode, u32 v_cluster,
 		       unsigned int *extent_flags)
 {
 	int ret;
-	unsigned int hole_len, flags = 0;
+	unsigned int uninitialized_var(hole_len), flags = 0;
 	struct buffer_head *di_bh = NULL;
 	struct ocfs2_extent_rec rec;
 
@@ -733,6 +747,8 @@ static int ocfs2_fiemap_inline(struct inode *inode, struct buffer_head *di_bh,
 	return 0;
 }
 
+#define OCFS2_FIEMAP_FLAGS	(FIEMAP_FLAG_SYNC)
+
 int ocfs2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		 u64 map_start, u64 map_len)
 {
@@ -744,7 +760,7 @@ int ocfs2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 	struct buffer_head *di_bh = NULL;
 	struct ocfs2_extent_rec rec;
 
-	ret = fiemap_prep(inode, fieinfo, map_start, &map_len, 0);
+	ret = fiemap_check_flags(fieinfo, OCFS2_FIEMAP_FLAGS);
 	if (ret)
 		return ret;
 

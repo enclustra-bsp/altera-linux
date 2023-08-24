@@ -58,8 +58,13 @@
 	};
 
 	eeprom@52 {
-		compatible = "onnn,cat24c05", "atmel,24c04";
+		compatible = "atmel,24c512";
 		reg = <0x52>;
+	};
+
+	eeprom@53 {
+		compatible = "atmel,24c512";
+		reg = <0x53>;
 	};
 };
 
@@ -94,31 +99,25 @@
 };
 
 &qspi {
+	num-cs = <2>;
+	bus-num = <0>;
 	status = "okay";
 
-	s25fs512s0: flash@0 {
-		compatible = "jedec,spi-nor";
+	qflash0: s25fs512s@0 {
+		compatible = "spansion,m25p80";
 		#address-cells = <1>;
 		#size-cells = <1>;
-		spi-max-frequency = <50000000>;
-		spi-rx-bus-width = <4>;
-		spi-tx-bus-width = <1>;
+		spi-max-frequency = <20000000>;
 		reg = <0>;
 	};
 
-	s25fs512s1: flash@1 {
-		compatible = "jedec,spi-nor";
+	qflash1: s25fs512s@1 {
+		compatible = "spansion,m25p80";
 		#address-cells = <1>;
 		#size-cells = <1>;
-		spi-max-frequency = <50000000>;
-		spi-rx-bus-width = <4>;
-		spi-tx-bus-width = <1>;
+		spi-max-frequency = <20000000>;
 		reg = <1>;
 	};
-};
-
-&usb1 {
-	dr_mode = "otg";
 };
 
 #include "fsl-ls1046-post.dtsi"
@@ -126,12 +125,12 @@
 &fman0 {
 	ethernet@e4000 {
 		phy-handle = <&rgmii_phy1>;
-		phy-connection-type = "rgmii-id";
+		phy-connection-type = "rgmii";
 	};
 
 	ethernet@e6000 {
 		phy-handle = <&rgmii_phy2>;
-		phy-connection-type = "rgmii-id";
+		phy-connection-type = "rgmii";
 	};
 
 	ethernet@e8000 {

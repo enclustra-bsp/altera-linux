@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  HID driver for some microsoft "special" devices
  *
@@ -10,6 +9,10 @@
  */
 
 /*
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
+ * any later version.
  */
 
 #include <linux/device.h>
@@ -163,13 +166,16 @@ static int ms_surface_dial_quirk(struct hid_input *hi, struct hid_field *field,
 {
 	switch (usage->hid & HID_USAGE_PAGE) {
 	case 0xff070000:
+		/* fall-through */
 	case HID_UP_DIGITIZER:
 		/* ignore those axis */
 		return -1;
 	case HID_UP_GENDESK:
 		switch (usage->hid) {
 		case HID_GD_X:
+			/* fall-through */
 		case HID_GD_Y:
+			/* fall-through */
 		case HID_GD_RFKILL_BTN:
 			/* ignore those axis */
 			return -1;
@@ -300,7 +306,7 @@ static void ms_ff_worker(struct work_struct *work)
 	r->magnitude[MAGNITUDE_WEAK] = ms->weak;     /* right actuator */
 
 	ret = hid_hw_output_report(hdev, (__u8 *)r, sizeof(*r));
-	if (ret < 0)
+	if (ret)
 		hid_warn(hdev, "failed to send FF report\n");
 }
 
@@ -325,16 +331,10 @@ static int ms_play_effect(struct input_dev *dev, void *data,
 
 static int ms_init_ff(struct hid_device *hdev)
 {
-	struct hid_input *hidinput;
-	struct input_dev *input_dev;
+	struct hid_input *hidinput = list_entry(hdev->inputs.next,
+						struct hid_input, list);
+	struct input_dev *input_dev = hidinput->input;
 	struct ms_data *ms = hid_get_drvdata(hdev);
-
-	if (list_empty(&hdev->inputs)) {
-		hid_err(hdev, "no inputs found\n");
-		return -ENODEV;
-	}
-	hidinput = list_entry(hdev->inputs.next, struct hid_input, list);
-	input_dev = hidinput->input;
 
 	if (!(ms->quirks & MS_QUIRK_FF))
 		return 0;
@@ -447,8 +447,6 @@ static const struct hid_device_id ms_devices[] = {
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_MICROSOFT, 0x091B),
 		.driver_data = MS_SURFACE_DIAL },
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_MS_XBOX_ONE_S_CONTROLLER),
-		.driver_data = MS_QUIRK_FF },
-	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_MICROSOFT, USB_DEVICE_ID_8BITDO_SN30_PRO_PLUS),
 		.driver_data = MS_QUIRK_FF },
 	{ }
 };

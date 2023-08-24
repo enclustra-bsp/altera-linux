@@ -46,7 +46,7 @@
  * equals to the src address of their rpmsg channel), the driver's handler
  * is invoked to process it.
  *
- * That said, more complicated drivers might need to allocate
+ * That said, more complicated drivers might do need to allocate
  * additional rpmsg addresses, and bind them to different rx callbacks.
  * To accomplish that, those drivers need to call this function.
  *
@@ -81,7 +81,7 @@ EXPORT_SYMBOL(rpmsg_create_ept);
  */
 void rpmsg_destroy_ept(struct rpmsg_endpoint *ept)
 {
-	if (ept && ept->ops)
+	if (ept)
 		ept->ops->destroy_ept(ept);
 }
 EXPORT_SYMBOL(rpmsg_destroy_ept);
@@ -177,7 +177,7 @@ int rpmsg_send_offchannel(struct rpmsg_endpoint *ept, u32 src, u32 dst,
 EXPORT_SYMBOL(rpmsg_send_offchannel);
 
 /**
- * rpmsg_trysend() - send a message across to the remote processor
+ * rpmsg_send() - send a message across to the remote processor
  * @ept: the rpmsg endpoint
  * @data: payload of message
  * @len: length of payload
@@ -205,7 +205,7 @@ int rpmsg_trysend(struct rpmsg_endpoint *ept, void *data, int len)
 EXPORT_SYMBOL(rpmsg_trysend);
 
 /**
- * rpmsg_trysendto() - send a message across to the remote processor, specify dst
+ * rpmsg_sendto() - send a message across to the remote processor, specify dst
  * @ept: the rpmsg endpoint
  * @data: payload of message
  * @len: length of payload
@@ -253,7 +253,7 @@ __poll_t rpmsg_poll(struct rpmsg_endpoint *ept, struct file *filp,
 EXPORT_SYMBOL(rpmsg_poll);
 
 /**
- * rpmsg_trysend_offchannel() - send a message using explicit src/dst addresses
+ * rpmsg_send_offchannel() - send a message using explicit src/dst addresses
  * @ept: the rpmsg endpoint
  * @src: source address
  * @dst: destination address
@@ -284,7 +284,7 @@ int rpmsg_trysend_offchannel(struct rpmsg_endpoint *ept, u32 src, u32 dst,
 EXPORT_SYMBOL(rpmsg_trysend_offchannel);
 
 /*
- * match a rpmsg channel with a channel info struct.
+ * match an rpmsg channel with a channel info struct.
  * this is used to make sure we're not creating rpmsg devices for channels
  * that already exist.
  */
@@ -473,25 +473,13 @@ static int rpmsg_dev_probe(struct device *dev)
 	err = rpdrv->probe(rpdev);
 	if (err) {
 		dev_err(dev, "%s: failed: %d\n", __func__, err);
-		goto destroy_ept;
+		if (ept)
+			rpmsg_destroy_ept(ept);
+		goto out;
 	}
 
-	if (ept && rpdev->ops->announce_create) {
+	if (ept && rpdev->ops->announce_create)
 		err = rpdev->ops->announce_create(rpdev);
-		if (err) {
-			dev_err(dev, "failed to announce creation\n");
-			goto remove_rpdev;
-		}
-	}
-
-	return 0;
-
-remove_rpdev:
-	if (rpdrv->remove)
-		rpdrv->remove(rpdev);
-destroy_ept:
-	if (ept)
-		rpmsg_destroy_ept(ept);
 out:
 	return err;
 }
@@ -505,8 +493,7 @@ static int rpmsg_dev_remove(struct device *dev)
 	if (rpdev->ops->announce_destroy)
 		err = rpdev->ops->announce_destroy(rpdev);
 
-	if (rpdrv->remove)
-		rpdrv->remove(rpdev);
+	rpdrv->remove(rpdev);
 
 	dev_pm_domain_detach(dev, true);
 

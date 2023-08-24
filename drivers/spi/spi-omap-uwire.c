@@ -424,22 +424,15 @@ done:
 static int uwire_setup(struct spi_device *spi)
 {
 	struct uwire_state *ust = spi->controller_state;
-	bool initial_setup = false;
-	int status;
 
 	if (ust == NULL) {
 		ust = kzalloc(sizeof(*ust), GFP_KERNEL);
 		if (ust == NULL)
 			return -ENOMEM;
 		spi->controller_state = ust;
-		initial_setup = true;
 	}
 
-	status = uwire_setup_transfer(spi, NULL);
-	if (status && initial_setup)
-		kfree(ust);
-
-	return status;
+	return uwire_setup_transfer(spi, NULL);
 }
 
 static void uwire_cleanup(struct spi_device *spi)
@@ -450,7 +443,7 @@ static void uwire_cleanup(struct spi_device *spi)
 static void uwire_off(struct uwire_spi *uwire)
 {
 	uwire_write_reg(UWIRE_SR3, 0);
-	clk_disable_unprepare(uwire->ck);
+	clk_disable(uwire->ck);
 	spi_master_put(uwire->bitbang.master);
 }
 
@@ -482,7 +475,7 @@ static int uwire_probe(struct platform_device *pdev)
 		spi_master_put(master);
 		return status;
 	}
-	clk_prepare_enable(uwire->ck);
+	clk_enable(uwire->ck);
 
 	if (cpu_is_omap7xx())
 		uwire_idx_shift = 1;

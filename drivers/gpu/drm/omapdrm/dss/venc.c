@@ -1,9 +1,20 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2009 Nokia Corporation
  * Author: Tomi Valkeinen <tomi.valkeinen@ti.com>
  *
  * VENC settings from TI's DSS driver
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 as published by
+ * the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #define DSS_SUBSYS_NAME "VENC"
@@ -13,6 +24,7 @@
 #include <linux/clk.h>
 #include <linux/err.h>
 #include <linux/io.h>
+#include <linux/mutex.h>
 #include <linux/completion.h>
 #include <linux/delay.h>
 #include <linux/string.h>
@@ -24,8 +36,6 @@
 #include <linux/of_graph.h>
 #include <linux/component.h>
 #include <linux/sys_soc.h>
-
-#include <drm/drm_bridge.h>
 
 #include "omapdss.h"
 #include "dss.h"
@@ -208,45 +218,112 @@ static const struct venc_config venc_config_ntsc_trm = {
 	.gen_ctrl				= 0x00F90000,
 };
 
+static const struct venc_config venc_config_pal_bdghi = {
+	.f_control				= 0,
+	.vidout_ctrl				= 0,
+	.sync_ctrl				= 0,
+	.hfltr_ctrl				= 0,
+	.x_color				= 0,
+	.line21					= 0,
+	.ln_sel					= 21,
+	.htrigger_vtrigger			= 0,
+	.tvdetgp_int_start_stop_x		= 0x00140001,
+	.tvdetgp_int_start_stop_y		= 0x00010001,
+	.gen_ctrl				= 0x00FB0000,
+
+	.llen					= 864-1,
+	.flens					= 625-1,
+	.cc_carr_wss_carr			= 0x2F7625ED,
+	.c_phase				= 0xDF,
+	.gain_u					= 0x111,
+	.gain_v					= 0x181,
+	.gain_y					= 0x140,
+	.black_level				= 0x3e,
+	.blank_level				= 0x3e,
+	.m_control				= 0<<2 | 1<<1,
+	.bstamp_wss_data			= 0x42,
+	.s_carr					= 0x2a098acb,
+	.l21__wc_ctl				= 0<<13 | 0x16<<8 | 0<<0,
+	.savid__eavid				= 0x06A70108,
+	.flen__fal				= 23<<16 | 624<<0,
+	.lal__phase_reset			= 2<<17 | 310<<0,
+	.hs_int_start_stop_x			= 0x00920358,
+	.hs_ext_start_stop_x			= 0x000F035F,
+	.vs_int_start_x				= 0x1a7<<16,
+	.vs_int_stop_x__vs_int_start_y		= 0x000601A7,
+	.vs_int_stop_y__vs_ext_start_x		= 0x01AF0036,
+	.vs_ext_stop_x__vs_ext_start_y		= 0x27101af,
+	.vs_ext_stop_y				= 0x05,
+	.avid_start_stop_x			= 0x03530082,
+	.avid_start_stop_y			= 0x0270002E,
+	.fid_int_start_x__fid_int_start_y	= 0x0005008A,
+	.fid_int_offset_y__fid_ext_start_x	= 0x002E0138,
+	.fid_ext_start_y__fid_ext_offset_y	= 0x01380005,
+};
+
 enum venc_videomode {
 	VENC_MODE_UNKNOWN,
 	VENC_MODE_PAL,
 	VENC_MODE_NTSC,
 };
 
-static const struct drm_display_mode omap_dss_pal_mode = {
-	.hdisplay	= 720,
-	.hsync_start	= 732,
-	.hsync_end	= 796,
-	.htotal		= 864,
-	.vdisplay	= 574,
-	.vsync_start	= 579,
-	.vsync_end	= 584,
-	.vtotal		= 625,
-	.clock		= 13500,
+static const struct videomode omap_dss_pal_vm = {
+	.hactive	= 720,
+	.vactive	= 574,
+	.pixelclock	= 13500000,
+	.hsync_len	= 64,
+	.hfront_porch	= 12,
+	.hback_porch	= 68,
+	.vsync_len	= 5,
+	.vfront_porch	= 5,
+	.vback_porch	= 41,
 
-	.flags		= DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_NHSYNC |
-			  DRM_MODE_FLAG_NVSYNC,
+	.flags		= DISPLAY_FLAGS_INTERLACED | DISPLAY_FLAGS_HSYNC_LOW |
+			  DISPLAY_FLAGS_VSYNC_LOW | DISPLAY_FLAGS_DE_HIGH |
+			  DISPLAY_FLAGS_PIXDATA_POSEDGE |
+			  DISPLAY_FLAGS_SYNC_NEGEDGE,
 };
 
-static const struct drm_display_mode omap_dss_ntsc_mode = {
-	.hdisplay	= 720,
-	.hsync_start	= 736,
-	.hsync_end	= 800,
-	.htotal		= 858,
-	.vdisplay	= 482,
-	.vsync_start	= 488,
-	.vsync_end	= 494,
-	.vtotal		= 525,
-	.clock		= 13500,
+static const struct videomode omap_dss_ntsc_vm = {
+	.hactive	= 720,
+	.vactive	= 482,
+	.pixelclock	= 13500000,
+	.hsync_len	= 64,
+	.hfront_porch	= 16,
+	.hback_porch	= 58,
+	.vsync_len	= 6,
+	.vfront_porch	= 6,
+	.vback_porch	= 31,
 
-	.flags		= DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_NHSYNC |
-			  DRM_MODE_FLAG_NVSYNC,
+	.flags		= DISPLAY_FLAGS_INTERLACED | DISPLAY_FLAGS_HSYNC_LOW |
+			  DISPLAY_FLAGS_VSYNC_LOW | DISPLAY_FLAGS_DE_HIGH |
+			  DISPLAY_FLAGS_PIXDATA_POSEDGE |
+			  DISPLAY_FLAGS_SYNC_NEGEDGE,
 };
+
+static enum venc_videomode venc_get_videomode(const struct videomode *vm)
+{
+	if (!(vm->flags & DISPLAY_FLAGS_INTERLACED))
+		return VENC_MODE_UNKNOWN;
+
+	if (vm->pixelclock == omap_dss_pal_vm.pixelclock &&
+	    vm->hactive == omap_dss_pal_vm.hactive &&
+	    vm->vactive == omap_dss_pal_vm.vactive)
+		return VENC_MODE_PAL;
+
+	if (vm->pixelclock == omap_dss_ntsc_vm.pixelclock &&
+	    vm->hactive == omap_dss_ntsc_vm.hactive &&
+	    vm->vactive == omap_dss_ntsc_vm.vactive)
+		return VENC_MODE_NTSC;
+
+	return VENC_MODE_UNKNOWN;
+}
 
 struct venc_device {
 	struct platform_device *pdev;
 	void __iomem *base;
+	struct mutex venc_lock;
+	u32 wss_data;
 	struct regulator *vdda_dac_reg;
 	struct dss_device *dss;
 
@@ -254,16 +331,15 @@ struct venc_device {
 
 	struct clk	*tv_dac_clk;
 
-	const struct venc_config *config;
+	struct videomode vm;
 	enum omap_dss_venc_type type;
 	bool invert_polarity;
 	bool requires_tv_dac_clk;
 
 	struct omap_dss_device output;
-	struct drm_bridge bridge;
 };
 
-#define drm_bridge_to_venc(b) container_of(b, struct venc_device, bridge)
+#define dssdev_to_venc(dssdev) container_of(dssdev, struct venc_device, output)
 
 static inline void venc_write_reg(struct venc_device *venc, int idx, u32 val)
 {
@@ -291,7 +367,8 @@ static void venc_write_config(struct venc_device *venc,
 	venc_write_reg(venc, VENC_BLACK_LEVEL, config->black_level);
 	venc_write_reg(venc, VENC_BLANK_LEVEL, config->blank_level);
 	venc_write_reg(venc, VENC_M_CONTROL, config->m_control);
-	venc_write_reg(venc, VENC_BSTAMP_WSS_DATA, config->bstamp_wss_data);
+	venc_write_reg(venc, VENC_BSTAMP_WSS_DATA, config->bstamp_wss_data |
+		       venc->wss_data);
 	venc_write_reg(venc, VENC_S_CARR, config->s_carr);
 	venc_write_reg(venc, VENC_L21__WC_CTL, config->l21__wc_ctl);
 	venc_write_reg(venc, VENC_SAVID__EAVID, config->savid__eavid);
@@ -375,6 +452,18 @@ static void venc_runtime_put(struct venc_device *venc)
 	WARN_ON(r < 0 && r != -ENOSYS);
 }
 
+static const struct venc_config *venc_timings_to_config(const struct videomode *vm)
+{
+	switch (venc_get_videomode(vm)) {
+	default:
+		WARN_ON_ONCE(1);
+	case VENC_MODE_PAL:
+		return &venc_config_pal_trm;
+	case VENC_MODE_NTSC:
+		return &venc_config_ntsc_trm;
+	}
+}
+
 static int venc_power_on(struct venc_device *venc)
 {
 	u32 l;
@@ -385,7 +474,7 @@ static int venc_power_on(struct venc_device *venc)
 		goto err0;
 
 	venc_reset(venc);
-	venc_write_config(venc, venc->config);
+	venc_write_config(venc, venc_timings_to_config(&venc->vm));
 
 	dss_set_venc_output(venc->dss, venc->type);
 	dss_set_dac_pwrdn_bgz(venc->dss, 1);
@@ -435,22 +524,95 @@ static void venc_power_off(struct venc_device *venc)
 	venc_runtime_put(venc);
 }
 
-static enum venc_videomode venc_get_videomode(const struct drm_display_mode *mode)
+static int venc_display_enable(struct omap_dss_device *dssdev)
 {
-	if (!(mode->flags & DRM_MODE_FLAG_INTERLACE))
-		return VENC_MODE_UNKNOWN;
+	struct venc_device *venc = dssdev_to_venc(dssdev);
+	int r;
 
-	if (mode->clock == omap_dss_pal_mode.clock &&
-	    mode->hdisplay == omap_dss_pal_mode.hdisplay &&
-	    mode->vdisplay == omap_dss_pal_mode.vdisplay)
-		return VENC_MODE_PAL;
+	DSSDBG("venc_display_enable\n");
 
-	if (mode->clock == omap_dss_ntsc_mode.clock &&
-	    mode->hdisplay == omap_dss_ntsc_mode.hdisplay &&
-	    mode->vdisplay == omap_dss_ntsc_mode.vdisplay)
-		return VENC_MODE_NTSC;
+	mutex_lock(&venc->venc_lock);
 
-	return VENC_MODE_UNKNOWN;
+	if (!dssdev->dispc_channel_connected) {
+		DSSERR("Failed to enable display: no output/manager\n");
+		r = -ENODEV;
+		goto err0;
+	}
+
+	r = venc_power_on(venc);
+	if (r)
+		goto err0;
+
+	venc->wss_data = 0;
+
+	mutex_unlock(&venc->venc_lock);
+
+	return 0;
+err0:
+	mutex_unlock(&venc->venc_lock);
+	return r;
+}
+
+static void venc_display_disable(struct omap_dss_device *dssdev)
+{
+	struct venc_device *venc = dssdev_to_venc(dssdev);
+
+	DSSDBG("venc_display_disable\n");
+
+	mutex_lock(&venc->venc_lock);
+
+	venc_power_off(venc);
+
+	mutex_unlock(&venc->venc_lock);
+}
+
+static void venc_get_timings(struct omap_dss_device *dssdev,
+			     struct videomode *vm)
+{
+	struct venc_device *venc = dssdev_to_venc(dssdev);
+
+	mutex_lock(&venc->venc_lock);
+	*vm = venc->vm;
+	mutex_unlock(&venc->venc_lock);
+}
+
+static void venc_set_timings(struct omap_dss_device *dssdev,
+			     const struct videomode *vm)
+{
+	struct venc_device *venc = dssdev_to_venc(dssdev);
+
+	DSSDBG("venc_set_timings\n");
+
+	mutex_lock(&venc->venc_lock);
+
+	/* Reset WSS data when the TV standard changes. */
+	if (memcmp(&venc->vm, vm, sizeof(*vm)))
+		venc->wss_data = 0;
+
+	venc->vm = *vm;
+
+	dispc_set_tv_pclk(venc->dss->dispc, 13500000);
+
+	mutex_unlock(&venc->venc_lock);
+}
+
+static int venc_check_timings(struct omap_dss_device *dssdev,
+			      struct videomode *vm)
+{
+	DSSDBG("venc_check_timings\n");
+
+	switch (venc_get_videomode(vm)) {
+	case VENC_MODE_PAL:
+		*vm = omap_dss_pal_vm;
+		return 0;
+
+	case VENC_MODE_NTSC:
+		*vm = omap_dss_ntsc_vm;
+		return 0;
+
+	default:
+		return -EINVAL;
+	}
 }
 
 static int venc_dump_regs(struct seq_file *s, void *p)
@@ -530,149 +692,38 @@ static int venc_get_clocks(struct venc_device *venc)
 	return 0;
 }
 
-/* -----------------------------------------------------------------------------
- * DRM Bridge Operations
- */
-
-static int venc_bridge_attach(struct drm_bridge *bridge,
-			      enum drm_bridge_attach_flags flags)
+static int venc_connect(struct omap_dss_device *src,
+			struct omap_dss_device *dst)
 {
-	struct venc_device *venc = drm_bridge_to_venc(bridge);
+	int r;
 
-	if (!(flags & DRM_BRIDGE_ATTACH_NO_CONNECTOR))
-		return -EINVAL;
+	r = omapdss_device_connect(dst->dss, dst, dst->next);
+	if (r)
+		return r;
 
-	return drm_bridge_attach(bridge->encoder, venc->output.next_bridge,
-				 bridge, flags);
+	dst->dispc_channel_connected = true;
+	return 0;
 }
 
-static enum drm_mode_status
-venc_bridge_mode_valid(struct drm_bridge *bridge,
-		       const struct drm_display_info *info,
-		       const struct drm_display_mode *mode)
+static void venc_disconnect(struct omap_dss_device *src,
+			    struct omap_dss_device *dst)
 {
-	switch (venc_get_videomode(mode)) {
-	case VENC_MODE_PAL:
-	case VENC_MODE_NTSC:
-		return MODE_OK;
+	dst->dispc_channel_connected = false;
 
-	default:
-		return MODE_BAD;
-	}
+	omapdss_device_disconnect(dst, dst->next);
 }
 
-static bool venc_bridge_mode_fixup(struct drm_bridge *bridge,
-				   const struct drm_display_mode *mode,
-				   struct drm_display_mode *adjusted_mode)
-{
-	const struct drm_display_mode *venc_mode;
+static const struct omap_dss_device_ops venc_ops = {
+	.connect = venc_connect,
+	.disconnect = venc_disconnect,
 
-	switch (venc_get_videomode(adjusted_mode)) {
-	case VENC_MODE_PAL:
-		venc_mode = &omap_dss_pal_mode;
-		break;
+	.enable = venc_display_enable,
+	.disable = venc_display_disable,
 
-	case VENC_MODE_NTSC:
-		venc_mode = &omap_dss_ntsc_mode;
-		break;
-
-	default:
-		return false;
-	}
-
-	drm_mode_copy(adjusted_mode, venc_mode);
-	drm_mode_set_crtcinfo(adjusted_mode, CRTC_INTERLACE_HALVE_V);
-	drm_mode_set_name(adjusted_mode);
-
-	return true;
-}
-
-static void venc_bridge_mode_set(struct drm_bridge *bridge,
-				 const struct drm_display_mode *mode,
-				 const struct drm_display_mode *adjusted_mode)
-{
-	struct venc_device *venc = drm_bridge_to_venc(bridge);
-	enum venc_videomode venc_mode = venc_get_videomode(adjusted_mode);
-
-	switch (venc_mode) {
-	default:
-		WARN_ON_ONCE(1);
-		fallthrough;
-	case VENC_MODE_PAL:
-		venc->config = &venc_config_pal_trm;
-		break;
-
-	case VENC_MODE_NTSC:
-		venc->config = &venc_config_ntsc_trm;
-		break;
-	}
-
-	dispc_set_tv_pclk(venc->dss->dispc, 13500000);
-}
-
-static void venc_bridge_enable(struct drm_bridge *bridge)
-{
-	struct venc_device *venc = drm_bridge_to_venc(bridge);
-
-	venc_power_on(venc);
-}
-
-static void venc_bridge_disable(struct drm_bridge *bridge)
-{
-	struct venc_device *venc = drm_bridge_to_venc(bridge);
-
-	venc_power_off(venc);
-}
-
-static int venc_bridge_get_modes(struct drm_bridge *bridge,
-				 struct drm_connector *connector)
-{
-	static const struct drm_display_mode *modes[] = {
-		&omap_dss_pal_mode,
-		&omap_dss_ntsc_mode,
-	};
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_SIZE(modes); ++i) {
-		struct drm_display_mode *mode;
-
-		mode = drm_mode_duplicate(connector->dev, modes[i]);
-		if (!mode)
-			return i;
-
-		mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
-		drm_mode_set_name(mode);
-		drm_mode_probed_add(connector, mode);
-	}
-
-	return ARRAY_SIZE(modes);
-}
-
-static const struct drm_bridge_funcs venc_bridge_funcs = {
-	.attach = venc_bridge_attach,
-	.mode_valid = venc_bridge_mode_valid,
-	.mode_fixup = venc_bridge_mode_fixup,
-	.mode_set = venc_bridge_mode_set,
-	.enable = venc_bridge_enable,
-	.disable = venc_bridge_disable,
-	.get_modes = venc_bridge_get_modes,
+	.check_timings = venc_check_timings,
+	.get_timings = venc_get_timings,
+	.set_timings = venc_set_timings,
 };
-
-static void venc_bridge_init(struct venc_device *venc)
-{
-	venc->bridge.funcs = &venc_bridge_funcs;
-	venc->bridge.of_node = venc->pdev->dev.of_node;
-	venc->bridge.ops = DRM_BRIDGE_OP_MODES;
-	venc->bridge.type = DRM_MODE_CONNECTOR_SVIDEO;
-	venc->bridge.interlace_allowed = true;
-
-	drm_bridge_add(&venc->bridge);
-}
-
-static void venc_bridge_cleanup(struct venc_device *venc)
-{
-	drm_bridge_remove(&venc->bridge);
-}
 
 /* -----------------------------------------------------------------------------
  * Component Bind & Unbind
@@ -723,20 +774,26 @@ static int venc_init_output(struct venc_device *venc)
 	struct omap_dss_device *out = &venc->output;
 	int r;
 
-	venc_bridge_init(venc);
-
 	out->dev = &venc->pdev->dev;
 	out->id = OMAP_DSS_OUTPUT_VENC;
-	out->type = OMAP_DISPLAY_TYPE_VENC;
+	out->output_type = OMAP_DISPLAY_TYPE_VENC;
 	out->name = "venc.0";
 	out->dispc_channel = OMAP_DSS_CHANNEL_DIGIT;
+	out->ops = &venc_ops;
 	out->owner = THIS_MODULE;
-	out->of_port = 0;
-	out->ops_flags = OMAP_DSS_DEVICE_OP_MODES;
+	out->of_ports = BIT(0);
 
-	r = omapdss_device_init_output(out, &venc->bridge);
-	if (r < 0) {
-		venc_bridge_cleanup(venc);
+	out->next = omapdss_of_find_connected_device(out->dev->of_node, 0);
+	if (IS_ERR(out->next)) {
+		if (PTR_ERR(out->next) != -EPROBE_DEFER)
+			dev_err(out->dev, "failed to find video sink\n");
+		return PTR_ERR(out->next);
+	}
+
+	r = omapdss_output_validate(out);
+	if (r) {
+		omapdss_device_put(out->next);
+		out->next = NULL;
 		return r;
 	}
 
@@ -747,10 +804,9 @@ static int venc_init_output(struct venc_device *venc)
 
 static void venc_uninit_output(struct venc_device *venc)
 {
+	if (venc->output.next)
+		omapdss_device_put(venc->output.next);
 	omapdss_device_unregister(&venc->output);
-	omapdss_device_cleanup_output(&venc->output);
-
-	venc_bridge_cleanup(venc);
 }
 
 static int venc_probe_of(struct venc_device *venc)
@@ -781,7 +837,7 @@ static int venc_probe_of(struct venc_device *venc)
 		venc->type = OMAP_DSS_VENC_TYPE_SVIDEO;
 		break;
 	default:
-		dev_err(&venc->pdev->dev, "bad channel property '%d'\n",
+		dev_err(&venc->pdev->dev, "bad channel propert '%d'\n",
 			channels);
 		r = -EINVAL;
 		goto err;
@@ -820,7 +876,10 @@ static int venc_probe(struct platform_device *pdev)
 	if (soc_device_match(venc_soc_devices))
 		venc->requires_tv_dac_clk = true;
 
-	venc->config = &venc_config_pal_trm;
+	mutex_init(&venc->venc_lock);
+
+	venc->wss_data = 0;
+	venc->vm = omap_dss_pal_vm;
 
 	venc_mem = platform_get_resource(venc->pdev, IORESOURCE_MEM, 0);
 	venc->base = devm_ioremap_resource(&pdev->dev, venc_mem);
@@ -903,7 +962,6 @@ static int venc_runtime_resume(struct device *dev)
 static const struct dev_pm_ops venc_pm_ops = {
 	.runtime_suspend = venc_runtime_suspend,
 	.runtime_resume = venc_runtime_resume,
-	SET_LATE_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
 };
 
 static const struct of_device_id venc_of_match[] = {

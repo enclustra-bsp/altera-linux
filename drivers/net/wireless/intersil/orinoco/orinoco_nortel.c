@@ -290,7 +290,8 @@ static struct pci_driver orinoco_nortel_driver = {
 	.id_table	= orinoco_nortel_id_table,
 	.probe		= orinoco_nortel_init_one,
 	.remove		= orinoco_nortel_remove_one,
-	.driver.pm	= &orinoco_pci_pm_ops,
+	.suspend	= orinoco_pci_suspend,
+	.resume		= orinoco_pci_resume,
 };
 
 static char version[] __initdata = DRIVER_NAME " " DRIVER_VERSION

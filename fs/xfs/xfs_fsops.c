@@ -11,11 +11,15 @@
 #include "xfs_trans_resv.h"
 #include "xfs_sb.h"
 #include "xfs_mount.h"
+#include "xfs_defer.h"
 #include "xfs_trans.h"
 #include "xfs_error.h"
+#include "xfs_btree.h"
 #include "xfs_alloc.h"
 #include "xfs_fsops.h"
 #include "xfs_trans_space.h"
+#include "xfs_rtalloc.h"
+#include "xfs_trace.h"
 #include "xfs_log.h"
 #include "xfs_ag.h"
 #include "xfs_ag_resv.h"
@@ -36,6 +40,7 @@ xfs_growfs_data_private(
 	xfs_rfsblock_t		new;
 	xfs_agnumber_t		oagcount;
 	xfs_trans_t		*tp;
+	LIST_HEAD		(buffer_list);
 	struct aghdr_init_data	id = {};
 
 	nb = in->newblocks;
@@ -247,9 +252,9 @@ xfs_growfs_data(
 	if (mp->m_sb.sb_imax_pct) {
 		uint64_t icount = mp->m_sb.sb_dblocks * mp->m_sb.sb_imax_pct;
 		do_div(icount, 100);
-		M_IGEO(mp)->maxicount = XFS_FSB_TO_INO(mp, icount);
+		mp->m_maxicount = icount << mp->m_sb.sb_inopblog;
 	} else
-		M_IGEO(mp)->maxicount = 0;
+		mp->m_maxicount = 0;
 
 	/* Update secondary superblocks now the physical grow has completed */
 	error = xfs_update_secondary_sbs(mp);
@@ -285,7 +290,7 @@ xfs_growfs_log(
  * exported through ioctl XFS_IOC_FSCOUNTS
  */
 
-void
+int
 xfs_fs_counts(
 	xfs_mount_t		*mp,
 	xfs_fsop_counts_t	*cnt)
@@ -298,6 +303,7 @@ xfs_fs_counts(
 	spin_lock(&mp->m_sb_lock);
 	cnt->freertx = mp->m_sb.sb_frextents;
 	spin_unlock(&mp->m_sb_lock);
+	return 0;
 }
 
 /*
@@ -504,7 +510,10 @@ xfs_do_force_shutdown(
 	} else if (logerror) {
 		xfs_alert_tag(mp, XFS_PTAG_SHUTDOWN_LOGERROR,
 			"Log I/O Error Detected. Shutting down filesystem");
-	} else {
+	} else if (flags & SHUTDOWN_DEVICE_REQ) {
+		xfs_alert_tag(mp, XFS_PTAG_SHUTDOWN_IOERROR,
+			"All device paths lost. Shutting down filesystem");
+	} else if (!(flags & SHUTDOWN_REMOTE_REQ)) {
 		xfs_alert_tag(mp, XFS_PTAG_SHUTDOWN_IOERROR,
 			"I/O Error Detected. Shutting down filesystem");
 	}
@@ -525,7 +534,6 @@ xfs_fs_reserve_ag_blocks(
 	int			error = 0;
 	int			err2;
 
-	mp->m_finobt_nores = false;
 	for (agno = 0; agno < mp->m_sb.sb_agcount; agno++) {
 		pag = xfs_perag_get(mp, agno);
 		err2 = xfs_ag_resv_init(pag, NULL);

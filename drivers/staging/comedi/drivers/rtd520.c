@@ -815,8 +815,9 @@ static int rtd_ai_cmdtest(struct comedi_device *dev,
 
 		if (cmd->scan_begin_src == TRIG_TIMER) {
 			arg = cmd->convert_arg * cmd->scan_end_arg;
-			err |= comedi_check_trigger_arg_min(
-					&cmd->scan_begin_arg, arg);
+			err |= comedi_check_trigger_arg_min(&cmd->
+							    scan_begin_arg,
+							    arg);
 		}
 	}
 
@@ -1360,6 +1361,6 @@ static struct pci_driver rtd520_pci_driver = {
 };
 module_comedi_pci_driver(rtd520_driver, rtd520_pci_driver);
 
-MODULE_AUTHOR("Comedi https://www.comedi.org");
+MODULE_AUTHOR("Comedi http://www.comedi.org");
 MODULE_DESCRIPTION("Comedi low-level driver");
 MODULE_LICENSE("GPL");

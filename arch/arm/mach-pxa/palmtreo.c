@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Hardware definitions for Palm Treo smartphones
  *
@@ -8,7 +7,12 @@
  *
  * Author:     Tomas Cech <sleep_walker@suse.cz>
  *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
  * (find more info at www.hackndev.com)
+ *
  */
 
 #include <linux/platform_device.h>
@@ -476,46 +480,23 @@ void __init treo680_gpio_init(void)
 	gpio_free(GPIO_NR_TREO680_LCD_EN_N);
 }
 
-static struct gpiod_lookup_table treo680_mci_gpio_table = {
-	.dev_id = "pxa2xx-mci.0",
-	.table = {
-		GPIO_LOOKUP("gpio-pxa", GPIO_NR_TREO_SD_DETECT_N,
-			    "cd", GPIO_ACTIVE_LOW),
-		GPIO_LOOKUP("gpio-pxa", GPIO_NR_TREO680_SD_READONLY,
-			    "wp", GPIO_ACTIVE_LOW),
-		GPIO_LOOKUP("gpio-pxa", GPIO_NR_TREO680_SD_POWER,
-			    "power", GPIO_ACTIVE_HIGH),
-		{ },
-	},
-};
-
 static void __init treo680_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(treo680_pin_config));
 	palmphone_common_init();
 	treo680_gpio_init();
-	palm27x_mmc_init(&treo680_mci_gpio_table);
+	palm27x_mmc_init(GPIO_NR_TREO_SD_DETECT_N, GPIO_NR_TREO680_SD_READONLY,
+			GPIO_NR_TREO680_SD_POWER, 0);
 }
 #endif
 
 #ifdef CONFIG_MACH_CENTRO
-
-static struct gpiod_lookup_table centro685_mci_gpio_table = {
-	.dev_id = "pxa2xx-mci.0",
-	.table = {
-		GPIO_LOOKUP("gpio-pxa", GPIO_NR_TREO_SD_DETECT_N,
-			    "cd", GPIO_ACTIVE_LOW),
-		GPIO_LOOKUP("gpio-pxa", GPIO_NR_CENTRO_SD_POWER,
-			    "power", GPIO_ACTIVE_LOW),
-		{ },
-	},
-};
-
 static void __init centro_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(centro685_pin_config));
 	palmphone_common_init();
-	palm27x_mmc_init(&centro685_mci_gpio_table);
+	palm27x_mmc_init(GPIO_NR_TREO_SD_DETECT_N, -1,
+			GPIO_NR_CENTRO_SD_POWER, 1);
 }
 #endif
 

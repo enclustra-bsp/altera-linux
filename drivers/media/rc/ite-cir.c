@@ -1,8 +1,17 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Driver for ITE Tech Inc. IT8712F/IT8512 CIR
  *
  * Copyright (C) 2010 Juan Jesús García de Soria <skandalfo@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
  *
  * Inspired by the original lirc_it87 and lirc_ite8709 drivers, on top of the
  * skeleton provided by the nuvoton-cir driver.
@@ -176,14 +185,14 @@ static void ite_decode_bytes(struct ite_dev *dev, const u8 * data, int
 	if (next_one > 0) {
 		ev.pulse = true;
 		ev.duration =
-		    ITE_BITS_TO_US(next_one, sample_period);
+		    ITE_BITS_TO_NS(next_one, sample_period);
 		ir_raw_event_store_with_filter(dev->rdev, &ev);
 	}
 
 	while (next_one < size) {
 		next_zero = find_next_zero_bit_le(ldata, size, next_one + 1);
 		ev.pulse = false;
-		ev.duration = ITE_BITS_TO_US(next_zero - next_one, sample_period);
+		ev.duration = ITE_BITS_TO_NS(next_zero - next_one, sample_period);
 		ir_raw_event_store_with_filter(dev->rdev, &ev);
 
 		if (next_zero < size) {
@@ -193,7 +202,7 @@ static void ite_decode_bytes(struct ite_dev *dev, const u8 * data, int
 						     next_zero + 1);
 			ev.pulse = true;
 			ev.duration =
-			    ITE_BITS_TO_US(next_one - next_zero,
+			    ITE_BITS_TO_NS(next_one - next_zero,
 					   sample_period);
 			ir_raw_event_store_with_filter
 			    (dev->rdev, &ev);
@@ -275,12 +284,6 @@ static irqreturn_t ite_cir_isr(int irq, void *data)
 
 	/* read the interrupt flags */
 	iflags = dev->params.get_irq_causes(dev);
-
-	/* Check for RX overflow */
-	if (iflags & ITE_IRQ_RX_FIFO_OVERRUN) {
-		dev_warn(&dev->rdev->dev, "receive overflow\n");
-		ir_raw_event_reset(dev->rdev);
-	}
 
 	/* check for the receive interrupt */
 	if (iflags & (ITE_IRQ_RX_FIFO | ITE_IRQ_RX_FIFO_OVERRUN)) {
@@ -388,7 +391,7 @@ static int ite_tx_ir(struct rc_dev *rcdev, unsigned *txbuf, unsigned n)
 	ite_dbg("%s called", __func__);
 
 	/* clear the array just in case */
-	memset(last_sent, 0, sizeof(last_sent));
+	memset(last_sent, 0, ARRAY_SIZE(last_sent));
 
 	spin_lock_irqsave(&dev->lock, flags);
 
@@ -512,7 +515,7 @@ static int ite_tx_ir(struct rc_dev *rcdev, unsigned *txbuf, unsigned n)
 	/* and set the carrier values for reception */
 	ite_set_carrier_params(dev);
 
-	/* re-enable the receiver */
+	/* reenable the receiver */
 	if (dev->in_use)
 		dev->params.enable_rx(dev);
 
@@ -1557,13 +1560,13 @@ static int ite_probe(struct pnp_dev *pdev, const struct pnp_device_id
 	rdev->s_rx_carrier_range = ite_set_rx_carrier_range;
 	/* FIFO threshold is 17 bytes, so 17 * 8 samples minimum */
 	rdev->min_timeout = 17 * 8 * ITE_BAUDRATE_DIVISOR *
-			    itdev->params.sample_period / 1000;
+			    itdev->params.sample_period;
 	rdev->timeout = IR_DEFAULT_TIMEOUT;
 	rdev->max_timeout = 10 * IR_DEFAULT_TIMEOUT;
 	rdev->rx_resolution = ITE_BAUDRATE_DIVISOR *
-				itdev->params.sample_period / 1000;
+				itdev->params.sample_period;
 	rdev->tx_resolution = ITE_BAUDRATE_DIVISOR *
-				itdev->params.sample_period / 1000;
+				itdev->params.sample_period;
 
 	/* set up transmitter related values if needed */
 	if (itdev->params.hw_tx_capable) {

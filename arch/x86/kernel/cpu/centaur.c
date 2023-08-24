@@ -3,7 +3,6 @@
 #include <linux/sched.h>
 #include <linux/sched/clock.h>
 
-#include <asm/cpu.h>
 #include <asm/cpufeature.h>
 #include <asm/e820/api.h>
 #include <asm/mtrr.h>
@@ -18,6 +17,13 @@
 #define RNG_PRESENT	(1 << 2)
 #define RNG_ENABLED	(1 << 3)
 #define RNG_ENABLE	(1 << 6)	/* MSR_VIA_RNG */
+
+#define X86_VMX_FEATURE_PROC_CTLS_TPR_SHADOW	0x00200000
+#define X86_VMX_FEATURE_PROC_CTLS_VNMI		0x00400000
+#define X86_VMX_FEATURE_PROC_CTLS_2ND_CTLS	0x80000000
+#define X86_VMX_FEATURE_PROC_CTLS2_VIRT_APIC	0x00000001
+#define X86_VMX_FEATURE_PROC_CTLS2_EPT		0x00000002
+#define X86_VMX_FEATURE_PROC_CTLS2_VPID		0x00000020
 
 static void init_c3(struct cpuinfo_x86 *c)
 {
@@ -66,8 +72,7 @@ static void init_c3(struct cpuinfo_x86 *c)
 		set_cpu_cap(c, X86_FEATURE_REP_GOOD);
 	}
 
-	if (c->x86 >= 7)
-		set_cpu_cap(c, X86_FEATURE_REP_GOOD);
+	cpu_detect_cache_sizes(c);
 }
 
 enum {
@@ -93,21 +98,49 @@ enum {
 
 static void early_init_centaur(struct cpuinfo_x86 *c)
 {
+	switch (c->x86) {
 #ifdef CONFIG_X86_32
-	/* Emulate MTRRs using Centaur's MCR. */
-	if (c->x86 == 5)
+	case 5:
+		/* Emulate MTRRs using Centaur's MCR. */
 		set_cpu_cap(c, X86_FEATURE_CENTAUR_MCR);
+		break;
 #endif
-	if ((c->x86 == 6 && c->x86_model >= 0xf) ||
-	    (c->x86 >= 7))
-		set_cpu_cap(c, X86_FEATURE_CONSTANT_TSC);
-
+	case 6:
+		if (c->x86_model >= 0xf)
+			set_cpu_cap(c, X86_FEATURE_CONSTANT_TSC);
+		break;
+	}
 #ifdef CONFIG_X86_64
 	set_cpu_cap(c, X86_FEATURE_SYSENTER32);
 #endif
 	if (c->x86_power & (1 << 8)) {
 		set_cpu_cap(c, X86_FEATURE_CONSTANT_TSC);
 		set_cpu_cap(c, X86_FEATURE_NONSTOP_TSC);
+	}
+}
+
+static void centaur_detect_vmx_virtcap(struct cpuinfo_x86 *c)
+{
+	u32 vmx_msr_low, vmx_msr_high, msr_ctl, msr_ctl2;
+
+	rdmsr(MSR_IA32_VMX_PROCBASED_CTLS, vmx_msr_low, vmx_msr_high);
+	msr_ctl = vmx_msr_high | vmx_msr_low;
+
+	if (msr_ctl & X86_VMX_FEATURE_PROC_CTLS_TPR_SHADOW)
+		set_cpu_cap(c, X86_FEATURE_TPR_SHADOW);
+	if (msr_ctl & X86_VMX_FEATURE_PROC_CTLS_VNMI)
+		set_cpu_cap(c, X86_FEATURE_VNMI);
+	if (msr_ctl & X86_VMX_FEATURE_PROC_CTLS_2ND_CTLS) {
+		rdmsr(MSR_IA32_VMX_PROCBASED_CTLS2,
+		      vmx_msr_low, vmx_msr_high);
+		msr_ctl2 = vmx_msr_high | vmx_msr_low;
+		if ((msr_ctl2 & X86_VMX_FEATURE_PROC_CTLS2_VIRT_APIC) &&
+		    (msr_ctl & X86_VMX_FEATURE_PROC_CTLS_TPR_SHADOW))
+			set_cpu_cap(c, X86_FEATURE_FLEXPRIORITY);
+		if (msr_ctl2 & X86_VMX_FEATURE_PROC_CTLS2_EPT)
+			set_cpu_cap(c, X86_FEATURE_EPT);
+		if (msr_ctl2 & X86_VMX_FEATURE_PROC_CTLS2_VPID)
+			set_cpu_cap(c, X86_FEATURE_VPID);
 	}
 }
 
@@ -145,8 +178,9 @@ static void init_centaur(struct cpuinfo_x86 *c)
 			set_cpu_cap(c, X86_FEATURE_ARCH_PERFMON);
 	}
 
+	switch (c->x86) {
 #ifdef CONFIG_X86_32
-	if (c->x86 == 5) {
+	case 5:
 		switch (c->x86_model) {
 		case 4:
 			name = "C6";
@@ -206,15 +240,18 @@ static void init_centaur(struct cpuinfo_x86 *c)
 			c->x86_cache_size = (cc>>24)+(dd>>24);
 		}
 		sprintf(c->x86_model_id, "WinChip %s", name);
-	}
+		break;
 #endif
-	if (c->x86 == 6 || c->x86 >= 7)
+	case 6:
 		init_c3(c);
+		break;
+	}
 #ifdef CONFIG_X86_64
 	set_cpu_cap(c, X86_FEATURE_LFENCE_RDTSC);
 #endif
 
-	init_ia32_feat_ctl(c);
+	if (cpu_has(c, X86_FEATURE_VMX))
+		centaur_detect_vmx_virtcap(c);
 }
 
 #ifdef CONFIG_X86_32

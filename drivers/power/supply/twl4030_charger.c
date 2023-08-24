@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * TWL4030/TPS65950 BCI (Battery Charger Interface) driver
  *
@@ -6,6 +5,11 @@
  *
  * based on twl4030_bci_battery.c by TI
  * Copyright (C) 2008 Texas Instruments, Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  */
 
 #include <linux/init.h>
@@ -726,10 +730,10 @@ twl4030_bci_mode_show(struct device *dev,
 
 	for (i = 0; i < ARRAY_SIZE(modes); i++)
 		if (mode == i)
-			len += scnprintf(buf+len, PAGE_SIZE-len,
+			len += snprintf(buf+len, PAGE_SIZE-len,
 					"[%s] ", modes[i]);
 		else
-			len += scnprintf(buf+len, PAGE_SIZE-len,
+			len += snprintf(buf+len, PAGE_SIZE-len,
 					"%s ", modes[i]);
 	buf[len-1] = '\n';
 	return len;
@@ -805,9 +809,7 @@ static int twl4030_bci_get_property(struct power_supply *psy,
 		is_charging = state & TWL4030_MSTATEC_AC;
 	if (!is_charging) {
 		u8 s;
-		ret = twl4030_bci_read(TWL4030_BCIMDEN, &s);
-		if (ret < 0)
-			return ret;
+		twl4030_bci_read(TWL4030_BCIMDEN, &s);
 		if (psy->desc->type == POWER_SUPPLY_TYPE_USB)
 			is_charging = s & 1;
 		else

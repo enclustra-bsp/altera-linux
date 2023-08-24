@@ -38,6 +38,8 @@
 	fan0: pwm-fan {
 		compatible = "pwm-fan";
 		pwms = <&pwm 0 20972 0>;
+		cooling-min-state = <0>;
+		cooling-max-state = <3>;
 		#cooling-cells = <2>;
 		cooling-levels = <0 130 170 230>;
 	};
@@ -85,11 +87,6 @@
 	};
 };
 
-&adc {
-	vdd-supply = <&ldo10_reg>;
-	status = "okay";
-};
-
 &audi2s0 {
 	status = "okay";
 };
@@ -109,10 +106,10 @@
 	assigned-clock-parents = <&clock CLK_FOUT_EPLL>,
 			<&clock_audss EXYNOS_MOUT_AUDSS>;
 
-	assigned-clock-rates = <0>,
-			       <0>,
-			       <96000000>,
-			       <19200000>;
+	assigned-clock-rates =  <0>,
+				<0>,
+				<96000000>,
+				<19200000>;
 };
 
 &cpu0_thermal {
@@ -170,7 +167,7 @@
 
 		intn-gpios = <&gpx0 7 GPIO_ACTIVE_HIGH>;
 		connect-gpios = <&gpx0 6 GPIO_ACTIVE_HIGH>;
-		reset-gpios = <&gpx1 4 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpx1 4 GPIO_ACTIVE_HIGH>;
 		initial-mode = <1>;
 
 		clock-names = "refclk";
@@ -327,8 +324,6 @@
 				regulator-name = "vddq_lcd";
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
-				/* Supplies also GPK and GPJ */
-				regulator-always-on;
 			};
 
 			ldo8_reg: LDO8 {
@@ -639,11 +634,11 @@
 };
 
 &usbdrd_dwc3_0 {
-	dr_mode = "peripheral";
+	dr_mode = "host";
 };
 
 &usbdrd_dwc3_1 {
-	dr_mode = "host";
+	dr_mode = "peripheral";
 };
 
 &usbdrd3_0 {

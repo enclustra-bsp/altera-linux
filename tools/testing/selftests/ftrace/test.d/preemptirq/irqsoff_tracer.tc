@@ -1,7 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 # description: test for the preemptirqsoff tracer
-# requires: preemptoff:tracer irqsoff:tracer
 
 MOD=preemptirq_delay_test
 
@@ -18,15 +17,11 @@ unsup() { #msg
     exit_unsupported
 }
 
-unres() { #msg
-    reset_tracer
-    rmmod $MOD || true
-    echo $1
-    exit_unresolved
-}
-
-modprobe $MOD || unres "$MOD module not available"
+modprobe $MOD || unsup "$MOD module not available"
 rmmod $MOD
+
+grep -q "preemptoff" available_tracers || unsup "preemptoff tracer not enabled"
+grep -q "irqsoff" available_tracers || unsup "irqsoff tracer not enabled"
 
 reset_tracer
 

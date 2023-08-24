@@ -56,7 +56,7 @@ struct hwspinlock_device {
 	const struct hwspinlock_ops *ops;
 	int base_id;
 	int num_locks;
-	struct hwspinlock lock[];
+	struct hwspinlock lock[0];
 };
 
 static inline int hwlock_to_id(struct hwspinlock *hwlock)

@@ -50,7 +50,7 @@ static ssize_t board_id_show(struct device *device,
 			     struct device_attribute *attr, char *buf)
 {
 	struct usnic_ib_dev *us_ibdev =
-		rdma_device_to_drv_device(device, struct usnic_ib_dev, ib_dev);
+		container_of(device, struct usnic_ib_dev, ib_dev.dev);
 	unsigned short subsystem_device_id;
 
 	mutex_lock(&us_ibdev->usdev_lock);
@@ -67,12 +67,13 @@ static DEVICE_ATTR_RO(board_id);
 static ssize_t
 config_show(struct device *device, struct device_attribute *attr, char *buf)
 {
-	struct usnic_ib_dev *us_ibdev =
-		rdma_device_to_drv_device(device, struct usnic_ib_dev, ib_dev);
+	struct usnic_ib_dev *us_ibdev;
 	char *ptr;
 	unsigned left;
 	unsigned n;
 	enum usnic_vnic_res_type res_type;
+
+	us_ibdev = container_of(device, struct usnic_ib_dev, ib_dev.dev);
 
 	/* Buffer space limit is 1 page */
 	ptr = buf;
@@ -129,8 +130,9 @@ static DEVICE_ATTR_RO(config);
 static ssize_t
 iface_show(struct device *device, struct device_attribute *attr, char *buf)
 {
-	struct usnic_ib_dev *us_ibdev =
-		rdma_device_to_drv_device(device, struct usnic_ib_dev, ib_dev);
+	struct usnic_ib_dev *us_ibdev;
+
+	us_ibdev = container_of(device, struct usnic_ib_dev, ib_dev.dev);
 
 	return scnprintf(buf, PAGE_SIZE, "%s\n",
 			netdev_name(us_ibdev->netdev));
@@ -140,8 +142,9 @@ static DEVICE_ATTR_RO(iface);
 static ssize_t
 max_vf_show(struct device *device, struct device_attribute *attr, char *buf)
 {
-	struct usnic_ib_dev *us_ibdev =
-		rdma_device_to_drv_device(device, struct usnic_ib_dev, ib_dev);
+	struct usnic_ib_dev *us_ibdev;
+
+	us_ibdev = container_of(device, struct usnic_ib_dev, ib_dev.dev);
 
 	return scnprintf(buf, PAGE_SIZE, "%u\n",
 			kref_read(&us_ibdev->vf_cnt));
@@ -151,10 +154,10 @@ static DEVICE_ATTR_RO(max_vf);
 static ssize_t
 qp_per_vf_show(struct device *device, struct device_attribute *attr, char *buf)
 {
-	struct usnic_ib_dev *us_ibdev =
-		rdma_device_to_drv_device(device, struct usnic_ib_dev, ib_dev);
+	struct usnic_ib_dev *us_ibdev;
 	int qp_per_vf;
 
+	us_ibdev = container_of(device, struct usnic_ib_dev, ib_dev.dev);
 	qp_per_vf = max(us_ibdev->vf_res_cnt[USNIC_VNIC_RES_TYPE_WQ],
 			us_ibdev->vf_res_cnt[USNIC_VNIC_RES_TYPE_RQ]);
 
@@ -166,8 +169,9 @@ static DEVICE_ATTR_RO(qp_per_vf);
 static ssize_t
 cq_per_vf_show(struct device *device, struct device_attribute *attr, char *buf)
 {
-	struct usnic_ib_dev *us_ibdev =
-		rdma_device_to_drv_device(device, struct usnic_ib_dev, ib_dev);
+	struct usnic_ib_dev *us_ibdev;
+
+	us_ibdev = container_of(device, struct usnic_ib_dev, ib_dev.dev);
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n",
 			us_ibdev->vf_res_cnt[USNIC_VNIC_RES_TYPE_CQ]);

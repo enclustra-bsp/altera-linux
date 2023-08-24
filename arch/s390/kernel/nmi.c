@@ -125,7 +125,7 @@ void nmi_free_per_cpu(struct lowcore *lc)
 static notrace void s390_handle_damage(void)
 {
 	smp_emergency_stop();
-	disabled_wait();
+	disabled_wait((unsigned long) __builtin_return_address(0));
 	while (1);
 }
 NOKPROBE_SYMBOL(s390_handle_damage);
@@ -148,6 +148,7 @@ void s390_handle_mcck(void)
 	local_mcck_disable();
 	mcck = *this_cpu_ptr(&cpu_mcck);
 	memset(this_cpu_ptr(&cpu_mcck), 0, sizeof(mcck));
+	clear_cpu_flag(CIF_MCCK_PENDING);
 	local_mcck_enable();
 	local_irq_restore(flags);
 
@@ -332,7 +333,7 @@ NOKPROBE_SYMBOL(s390_backup_mcck_info);
 /*
  * machine check handler.
  */
-int notrace s390_do_machine_check(struct pt_regs *regs)
+void notrace s390_do_machine_check(struct pt_regs *regs)
 {
 	static int ipd_count;
 	static DEFINE_SPINLOCK(ipd_lock);
@@ -341,7 +342,6 @@ int notrace s390_do_machine_check(struct pt_regs *regs)
 	unsigned long long tmp;
 	union mci mci;
 	unsigned long mcck_dam_code;
-	int mcck_pending = 0;
 
 	nmi_enter();
 	inc_irq_stat(NMI_NMI);
@@ -400,7 +400,7 @@ int notrace s390_do_machine_check(struct pt_regs *regs)
 		 */
 		mcck->kill_task = 1;
 		mcck->mcck_code = mci.val;
-		mcck_pending = 1;
+		set_cpu_flag(CIF_MCCK_PENDING);
 	}
 
 	/*
@@ -420,7 +420,8 @@ int notrace s390_do_machine_check(struct pt_regs *regs)
 			mcck->stp_queue |= stp_sync_check();
 		if (S390_lowcore.external_damage_code & (1U << ED_STP_ISLAND))
 			mcck->stp_queue |= stp_island_check();
-		mcck_pending = 1;
+		if (mcck->stp_queue)
+			set_cpu_flag(CIF_MCCK_PENDING);
 	}
 
 	/*
@@ -441,12 +442,12 @@ int notrace s390_do_machine_check(struct pt_regs *regs)
 	if (mci.cp) {
 		/* Channel report word pending */
 		mcck->channel_report = 1;
-		mcck_pending = 1;
+		set_cpu_flag(CIF_MCCK_PENDING);
 	}
 	if (mci.w) {
 		/* Warning pending */
 		mcck->warning = 1;
-		mcck_pending = 1;
+		set_cpu_flag(CIF_MCCK_PENDING);
 	}
 
 	/*
@@ -461,17 +462,7 @@ int notrace s390_do_machine_check(struct pt_regs *regs)
 		*((long *)(regs->gprs[15] + __SF_SIE_REASON)) = -EINTR;
 	}
 	clear_cpu_flag(CIF_MCCK_GUEST);
-
-	if (user_mode(regs) && mcck_pending) {
-		nmi_exit();
-		return 1;
-	}
-
-	if (mcck_pending)
-		schedule_mcck_handler();
-
 	nmi_exit();
-	return 0;
 }
 NOKPROBE_SYMBOL(s390_do_machine_check);
 

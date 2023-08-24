@@ -32,5 +32,9 @@ int
 gm200_ibus_new(struct nvkm_device *device, int index,
 	       struct nvkm_subdev **pibus)
 {
-	return nvkm_subdev_new_(&gm200_ibus, device, index, pibus);
+	struct nvkm_subdev *ibus;
+	if (!(ibus = *pibus = kzalloc(sizeof(*ibus), GFP_KERNEL)))
+		return -ENOMEM;
+	nvkm_subdev_ctor(&gm200_ibus, device, index, ibus);
+	return 0;
 }

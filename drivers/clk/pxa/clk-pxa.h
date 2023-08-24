@@ -1,10 +1,14 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Marvell PXA family clocks
  *
  * Copyright (C) 2014 Robert Jarzmik
  *
  * Common clock code for PXA clocks ("CKEN" type clocks + DT)
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; version 2 of the License.
+ *
  */
 #ifndef _CLK_PXA_
 #define _CLK_PXA_
@@ -19,11 +23,11 @@
 #define MUX_RO_RATE_RO_OPS(name, clk_name)			\
 	static struct clk_hw name ## _mux_hw;			\
 	static struct clk_hw name ## _rate_hw;			\
-	static const struct clk_ops name ## _mux_ops = {	\
+	static struct clk_ops name ## _mux_ops = {		\
 		.get_parent = name ## _get_parent,		\
 		.set_parent = dummy_clk_set_parent,		\
 	};							\
-	static const struct clk_ops name ## _rate_ops = {	\
+	static struct clk_ops name ## _rate_ops = {		\
 		.recalc_rate = name ## _get_rate,		\
 	};							\
 	static struct clk * __init clk_register_ ## name(void)	\
@@ -38,7 +42,7 @@
 
 #define RATE_RO_OPS(name, clk_name)				\
 	static struct clk_hw name ## _rate_hw;			\
-	static const struct clk_ops name ## _rate_ops = {	\
+	static const struct clk_ops name ## _rate_ops = {		\
 		.recalc_rate = name ## _get_rate,		\
 	};							\
 	static struct clk * __init clk_register_ ## name(void)	\
@@ -53,7 +57,7 @@
 
 #define RATE_OPS(name, clk_name)				\
 	static struct clk_hw name ## _rate_hw;			\
-	static const struct clk_ops name ## _rate_ops = {	\
+	static struct clk_ops name ## _rate_ops = {		\
 		.recalc_rate = name ## _get_rate,		\
 		.set_rate = name ## _set_rate,			\
 		.determine_rate = name ## _determine_rate,	\

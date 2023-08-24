@@ -213,7 +213,7 @@ u64 nfp_rtsym_size(const struct nfp_rtsym *sym)
 		return 0;
 	default:
 		pr_warn("rtsym '%s': unknown type: %d\n", sym->name, sym->type);
-		fallthrough;
+		/* fall through */
 	case NFP_RTSYM_TYPE_OBJECT:
 	case NFP_RTSYM_TYPE_FUNCTION:
 		return sym->size;

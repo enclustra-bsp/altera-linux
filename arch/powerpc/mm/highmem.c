@@ -24,35 +24,54 @@
 #include <linux/highmem.h>
 #include <linux/module.h>
 
-void *kmap_atomic_high_prot(struct page *page, pgprot_t prot)
+/*
+ * The use of kmap_atomic/kunmap_atomic is discouraged - kmap/kunmap
+ * gives a more generic (and caching) interface. But kmap_atomic can
+ * be used in IRQ contexts, so in some (very limited) cases we need
+ * it.
+ */
+void *kmap_atomic_prot(struct page *page, pgprot_t prot)
 {
 	unsigned long vaddr;
 	int idx, type;
 
+	preempt_disable();
+	pagefault_disable();
+	if (!PageHighMem(page))
+		return page_address(page);
+
 	type = kmap_atomic_idx_push();
 	idx = type + KM_TYPE_NR*smp_processor_id();
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
-	WARN_ON(IS_ENABLED(CONFIG_DEBUG_HIGHMEM) && !pte_none(*(kmap_pte - idx)));
+#ifdef CONFIG_DEBUG_HIGHMEM
+	BUG_ON(!pte_none(*(kmap_pte-idx)));
+#endif
 	__set_pte_at(&init_mm, vaddr, kmap_pte-idx, mk_pte(page, prot), 1);
 	local_flush_tlb_page(NULL, vaddr);
 
 	return (void*) vaddr;
 }
-EXPORT_SYMBOL(kmap_atomic_high_prot);
+EXPORT_SYMBOL(kmap_atomic_prot);
 
-void kunmap_atomic_high(void *kvaddr)
+void __kunmap_atomic(void *kvaddr)
 {
 	unsigned long vaddr = (unsigned long) kvaddr & PAGE_MASK;
+	int type __maybe_unused;
 
-	if (vaddr < __fix_to_virt(FIX_KMAP_END))
+	if (vaddr < __fix_to_virt(FIX_KMAP_END)) {
+		pagefault_enable();
+		preempt_enable();
 		return;
+	}
 
-	if (IS_ENABLED(CONFIG_DEBUG_HIGHMEM)) {
-		int type = kmap_atomic_idx();
+	type = kmap_atomic_idx();
+
+#ifdef CONFIG_DEBUG_HIGHMEM
+	{
 		unsigned int idx;
 
 		idx = type + KM_TYPE_NR * smp_processor_id();
-		WARN_ON(vaddr != __fix_to_virt(FIX_KMAP_BEGIN + idx));
+		BUG_ON(vaddr != __fix_to_virt(FIX_KMAP_BEGIN + idx));
 
 		/*
 		 * force other mappings to Oops if they'll try to access
@@ -61,7 +80,10 @@ void kunmap_atomic_high(void *kvaddr)
 		pte_clear(&init_mm, vaddr, kmap_pte-idx);
 		local_flush_tlb_page(NULL, vaddr);
 	}
+#endif
 
 	kmap_atomic_idx_pop();
+	pagefault_enable();
+	preempt_enable();
 }
-EXPORT_SYMBOL(kunmap_atomic_high);
+EXPORT_SYMBOL(__kunmap_atomic);

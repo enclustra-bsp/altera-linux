@@ -129,9 +129,6 @@
 #define NCR5380_release_dma_irq(x)
 #endif
 
-static unsigned int disconnect_mask = ~0;
-module_param(disconnect_mask, int, 0444);
-
 static int do_abort(struct Scsi_Host *);
 static void do_reset(struct Scsi_Host *);
 static void bus_reset_cleanup(struct Scsi_Host *);
@@ -152,40 +149,18 @@ static inline void initialize_SCp(struct scsi_cmnd *cmd)
 
 	if (scsi_bufflen(cmd)) {
 		cmd->SCp.buffer = scsi_sglist(cmd);
+		cmd->SCp.buffers_residual = scsi_sg_count(cmd) - 1;
 		cmd->SCp.ptr = sg_virt(cmd->SCp.buffer);
 		cmd->SCp.this_residual = cmd->SCp.buffer->length;
 	} else {
 		cmd->SCp.buffer = NULL;
+		cmd->SCp.buffers_residual = 0;
 		cmd->SCp.ptr = NULL;
 		cmd->SCp.this_residual = 0;
 	}
 
 	cmd->SCp.Status = 0;
 	cmd->SCp.Message = 0;
-}
-
-static inline void advance_sg_buffer(struct scsi_cmnd *cmd)
-{
-	struct scatterlist *s = cmd->SCp.buffer;
-
-	if (!cmd->SCp.this_residual && s && !sg_is_last(s)) {
-		cmd->SCp.buffer = sg_next(s);
-		cmd->SCp.ptr = sg_virt(cmd->SCp.buffer);
-		cmd->SCp.this_residual = cmd->SCp.buffer->length;
-	}
-}
-
-static inline void set_resid_from_SCp(struct scsi_cmnd *cmd)
-{
-	int resid = cmd->SCp.this_residual;
-	struct scatterlist *s = cmd->SCp.buffer;
-
-	if (s)
-		while (!sg_is_last(s)) {
-			s = sg_next(s);
-			resid += s->length;
-		}
-	scsi_set_resid(cmd, resid);
 }
 
 /**
@@ -297,8 +272,9 @@ mrs[] = {
 static void NCR5380_print(struct Scsi_Host *instance)
 {
 	struct NCR5380_hostdata *hostdata = shost_priv(instance);
-	unsigned char status, basr, mr, icr, i;
+	unsigned char status, data, basr, mr, icr, i;
 
+	data = NCR5380_read(CURRENT_SCSI_DATA_REG);
 	status = NCR5380_read(STATUS_REG);
 	mr = NCR5380_read(MODE_REG);
 	icr = NCR5380_read(INITIATOR_COMMAND_REG);
@@ -734,8 +710,6 @@ static void NCR5380_main(struct work_struct *work)
 			NCR5380_information_transfer(instance);
 			done = 0;
 		}
-		if (!hostdata->connected)
-			NCR5380_write(SELECT_ENABLE_REG, hostdata->id_mask);
 		spin_unlock_irq(&hostdata->lock);
 		if (!done)
 			cond_resched();
@@ -970,8 +944,7 @@ static bool NCR5380_select(struct Scsi_Host *instance, struct scsi_cmnd *cmd)
 	int err;
 	bool ret = true;
 	bool can_disconnect = instance->irq != NO_IRQ &&
-			      cmd->cmnd[0] != REQUEST_SENSE &&
-			      (disconnect_mask & BIT(scmd_id(cmd)));
+			      cmd->cmnd[0] != REQUEST_SENSE;
 
 	NCR5380_dprint(NDEBUG_ARBITRATION, instance);
 	dsprintk(NDEBUG_ARBITRATION, instance, "starting arbitration, id = %d\n",
@@ -1138,6 +1111,8 @@ static bool NCR5380_select(struct Scsi_Host *instance, struct scsi_cmnd *cmd)
 		spin_lock_irq(&hostdata->lock);
 		NCR5380_write(INITIATOR_COMMAND_REG, ICR_BASE);
 		NCR5380_reselect(instance);
+		if (!hostdata->connected)
+			NCR5380_write(SELECT_ENABLE_REG, hostdata->id_mask);
 		shost_printk(KERN_ERR, instance, "reselection after won arbitration?\n");
 		goto out;
 	}
@@ -1145,6 +1120,7 @@ static bool NCR5380_select(struct Scsi_Host *instance, struct scsi_cmnd *cmd)
 	if (err < 0) {
 		spin_lock_irq(&hostdata->lock);
 		NCR5380_write(INITIATOR_COMMAND_REG, ICR_BASE);
+		NCR5380_write(SELECT_ENABLE_REG, hostdata->id_mask);
 
 		/* Can't touch cmd if it has been reclaimed by the scsi ML */
 		if (!hostdata->selecting)
@@ -1182,6 +1158,7 @@ static bool NCR5380_select(struct Scsi_Host *instance, struct scsi_cmnd *cmd)
 	if (err < 0) {
 		shost_printk(KERN_ERR, instance, "select: REQ timeout\n");
 		NCR5380_write(INITIATOR_COMMAND_REG, ICR_BASE);
+		NCR5380_write(SELECT_ENABLE_REG, hostdata->id_mask);
 		goto out;
 	}
 	if (!hostdata->selecting) {
@@ -1396,7 +1373,7 @@ static void do_reset(struct Scsi_Host *instance)
  * MESSAGE OUT phase and sending an ABORT message.
  * @instance: relevant scsi host instance
  *
- * Returns 0 on success, negative error code on failure.
+ * Returns 0 on success, -1 on failure.
  */
 
 static int do_abort(struct Scsi_Host *instance)
@@ -1421,7 +1398,7 @@ static int do_abort(struct Scsi_Host *instance)
 
 	rc = NCR5380_poll_politely(hostdata, STATUS_REG, SR_REQ, SR_REQ, 10 * HZ);
 	if (rc < 0)
-		goto out;
+		goto timeout;
 
 	tmp = NCR5380_read(STATUS_REG) & PHASE_MASK;
 
@@ -1432,7 +1409,7 @@ static int do_abort(struct Scsi_Host *instance)
 		              ICR_BASE | ICR_ASSERT_ATN | ICR_ASSERT_ACK);
 		rc = NCR5380_poll_politely(hostdata, STATUS_REG, SR_REQ, 0, 3 * HZ);
 		if (rc < 0)
-			goto out;
+			goto timeout;
 		NCR5380_write(INITIATOR_COMMAND_REG, ICR_BASE | ICR_ASSERT_ATN);
 	}
 
@@ -1441,17 +1418,17 @@ static int do_abort(struct Scsi_Host *instance)
 	len = 1;
 	phase = PHASE_MSGOUT;
 	NCR5380_transfer_pio(instance, &phase, &len, &msgptr);
-	if (len)
-		rc = -ENXIO;
 
 	/*
 	 * If we got here, and the command completed successfully,
 	 * we're about to go into bus free state.
 	 */
 
-out:
+	return len ? -1 : 0;
+
+timeout:
 	NCR5380_write(INITIATOR_COMMAND_REG, ICR_BASE);
-	return rc;
+	return -1;
 }
 
 /*
@@ -1696,7 +1673,12 @@ static void NCR5380_information_transfer(struct Scsi_Host *instance)
 			    sun3_dma_setup_done != cmd) {
 				int count;
 
-				advance_sg_buffer(cmd);
+				if (!cmd->SCp.this_residual && cmd->SCp.buffers_residual) {
+					++cmd->SCp.buffer;
+					--cmd->SCp.buffers_residual;
+					cmd->SCp.this_residual = cmd->SCp.buffer->length;
+					cmd->SCp.ptr = sg_virt(cmd->SCp.buffer);
+				}
 
 				count = sun3scsi_dma_xfer_len(hostdata, cmd);
 
@@ -1746,11 +1728,15 @@ static void NCR5380_information_transfer(struct Scsi_Host *instance)
 				 * scatter-gather list, move onto the next one.
 				 */
 
-				advance_sg_buffer(cmd);
-				dsprintk(NDEBUG_INFORMATION, instance,
-					"this residual %d, sg ents %d\n",
-					cmd->SCp.this_residual,
-					sg_nents(cmd->SCp.buffer));
+				if (!cmd->SCp.this_residual && cmd->SCp.buffers_residual) {
+					++cmd->SCp.buffer;
+					--cmd->SCp.buffers_residual;
+					cmd->SCp.this_residual = cmd->SCp.buffer->length;
+					cmd->SCp.ptr = sg_virt(cmd->SCp.buffer);
+					dsprintk(NDEBUG_INFORMATION, instance, "%d bytes and %d buffers left\n",
+					         cmd->SCp.this_residual,
+					         cmd->SCp.buffers_residual);
+				}
 
 				/*
 				 * The preferred transfer method is going to be
@@ -1778,8 +1764,10 @@ static void NCR5380_information_transfer(struct Scsi_Host *instance)
 						scmd_printk(KERN_INFO, cmd,
 							"switching to slow handshake\n");
 						cmd->device->borken = 1;
-						do_reset(instance);
-						bus_reset_cleanup(instance);
+						sink = 1;
+						do_abort(instance);
+						cmd->result = DID_ERROR << 16;
+						/* XXX - need to source or sink data here, as appropriate */
 					}
 				} else {
 					/* Transfer a small chunk so that the
@@ -1820,8 +1808,6 @@ static void NCR5380_information_transfer(struct Scsi_Host *instance)
 					cmd->result |= cmd->SCp.Status;
 					cmd->result |= cmd->SCp.Message << 8;
 
-					set_resid_from_SCp(cmd);
-
 					if (cmd->cmnd[0] == REQUEST_SENSE)
 						complete_cmd(instance, cmd);
 					else {
@@ -1840,6 +1826,9 @@ static void NCR5380_information_transfer(struct Scsi_Host *instance)
 					 * arbitration can resume.
 					 */
 					NCR5380_write(TARGET_COMMAND_REG, 0);
+
+					/* Enable reselect interrupts */
+					NCR5380_write(SELECT_ENABLE_REG, hostdata->id_mask);
 
 					maybe_release_dma_irq(instance);
 					return;
@@ -1872,6 +1861,8 @@ static void NCR5380_information_transfer(struct Scsi_Host *instance)
 					 */
 					NCR5380_write(TARGET_COMMAND_REG, 0);
 
+					/* Enable reselect interrupts */
+					NCR5380_write(SELECT_ENABLE_REG, hostdata->id_mask);
 #ifdef SUN3_SCSI_VME
 					dregs->csr |= CSR_DMA_ENABLE;
 #endif
@@ -1942,13 +1933,13 @@ static void NCR5380_information_transfer(struct Scsi_Host *instance)
 					if (!hostdata->connected)
 						return;
 
-					/* Reject message */
-					fallthrough;
-				default:
+					/* Fall through to reject message */
+
 					/*
 					 * If we get something weird that we aren't expecting,
-					 * log it.
+					 * reject it.
 					 */
+				default:
 					if (tmp == EXTENDED_MESSAGE)
 						scmd_printk(KERN_INFO, cmd,
 						            "rejecting unknown extended message code %02x, length %d\n",
@@ -1974,6 +1965,7 @@ static void NCR5380_information_transfer(struct Scsi_Host *instance)
 					cmd->result = DID_ERROR << 16;
 					complete_cmd(instance, cmd);
 					maybe_release_dma_irq(instance);
+					NCR5380_write(SELECT_ENABLE_REG, hostdata->id_mask);
 					return;
 				}
 				msgout = NOP;
@@ -2145,7 +2137,12 @@ static void NCR5380_reselect(struct Scsi_Host *instance)
 	if (sun3_dma_setup_done != tmp) {
 		int count;
 
-		advance_sg_buffer(tmp);
+		if (!tmp->SCp.this_residual && tmp->SCp.buffers_residual) {
+			++tmp->SCp.buffer;
+			--tmp->SCp.buffers_residual;
+			tmp->SCp.this_residual = tmp->SCp.buffer->length;
+			tmp->SCp.ptr = sg_virt(tmp->SCp.buffer);
+		}
 
 		count = sun3scsi_dma_xfer_len(hostdata, tmp);
 
@@ -2283,7 +2280,7 @@ static int NCR5380_abort(struct scsi_cmnd *cmd)
 		dsprintk(NDEBUG_ABORT, instance, "abort: cmd %p is connected\n", cmd);
 		hostdata->connected = NULL;
 		hostdata->dma_len = 0;
-		if (do_abort(instance) < 0) {
+		if (do_abort(instance)) {
 			set_host_byte(cmd, DID_ERROR);
 			complete_cmd(instance, cmd);
 			result = FAILED;

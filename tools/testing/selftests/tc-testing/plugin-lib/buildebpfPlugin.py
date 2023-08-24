@@ -34,9 +34,8 @@ class SubPlugin(TdcPlugin):
             'buildebpf',
             'options for buildebpfPlugin')
         self.argparser_group.add_argument(
-            '--nobuildebpf', action='store_false', default=True,
-            dest='buildebpf',
-            help='Don\'t build eBPF programs')
+            '-B', '--buildebpf', action='store_true',
+            help='build eBPF programs')
 
         return self.argparser
 
@@ -54,7 +53,7 @@ class SubPlugin(TdcPlugin):
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=os.environ.copy())
+            env=ENVIR)
         (rawout, serr) = proc.communicate()
 
         if proc.returncode != 0 and len(serr) > 0:

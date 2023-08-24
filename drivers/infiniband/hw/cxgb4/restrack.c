@@ -134,8 +134,10 @@ err:
 	return -EMSGSIZE;
 }
 
-int c4iw_fill_res_qp_entry(struct sk_buff *msg, struct ib_qp *ibqp)
+static int fill_res_qp_entry(struct sk_buff *msg,
+			     struct rdma_restrack_entry *res)
 {
+	struct ib_qp *ibqp = container_of(res, struct ib_qp, res);
 	struct t4_swsqe *fsp = NULL, *lsp = NULL;
 	struct c4iw_qp *qhp = to_c4iw_qp(ibqp);
 	u16 first_sq_idx = 0, last_sq_idx = 0;
@@ -147,7 +149,7 @@ int c4iw_fill_res_qp_entry(struct sk_buff *msg, struct ib_qp *ibqp)
 	if (qhp->ucontext)
 		return 0;
 
-	table_attr = nla_nest_start_noflag(msg, RDMA_NLDEV_ATTR_DRIVER);
+	table_attr = nla_nest_start(msg, RDMA_NLDEV_ATTR_DRIVER);
 	if (!table_attr)
 		goto err;
 
@@ -193,9 +195,10 @@ union union_ep {
 	struct c4iw_ep ep;
 };
 
-int c4iw_fill_res_cm_id_entry(struct sk_buff *msg,
-			      struct rdma_cm_id *cm_id)
+static int fill_res_ep_entry(struct sk_buff *msg,
+			     struct rdma_restrack_entry *res)
 {
+	struct rdma_cm_id *cm_id = rdma_res_to_id(res);
 	struct nlattr *table_attr;
 	struct c4iw_ep_common *epcp;
 	struct c4iw_listen_ep *listen_ep = NULL;
@@ -213,7 +216,7 @@ int c4iw_fill_res_cm_id_entry(struct sk_buff *msg,
 	if (!uep)
 		return 0;
 
-	table_attr = nla_nest_start_noflag(msg, RDMA_NLDEV_ATTR_DRIVER);
+	table_attr = nla_nest_start(msg, RDMA_NLDEV_ATTR_DRIVER);
 	if (!table_attr)
 		goto err_free_uep;
 
@@ -369,8 +372,10 @@ err:
 	return -EMSGSIZE;
 }
 
-int c4iw_fill_res_cq_entry(struct sk_buff *msg, struct ib_cq *ibcq)
+static int fill_res_cq_entry(struct sk_buff *msg,
+			     struct rdma_restrack_entry *res)
 {
+	struct ib_cq *ibcq = container_of(res, struct ib_cq, res);
 	struct c4iw_cq *chp = to_c4iw_cq(ibcq);
 	struct nlattr *table_attr;
 	struct t4_cqe hwcqes[2];
@@ -382,7 +387,7 @@ int c4iw_fill_res_cq_entry(struct sk_buff *msg, struct ib_cq *ibcq)
 	if (ibcq->uobject)
 		return 0;
 
-	table_attr = nla_nest_start_noflag(msg, RDMA_NLDEV_ATTR_DRIVER);
+	table_attr = nla_nest_start(msg, RDMA_NLDEV_ATTR_DRIVER);
 	if (!table_attr)
 		goto err;
 
@@ -428,8 +433,10 @@ err:
 	return -EMSGSIZE;
 }
 
-int c4iw_fill_res_mr_entry(struct sk_buff *msg, struct ib_mr *ibmr)
+static int fill_res_mr_entry(struct sk_buff *msg,
+			     struct rdma_restrack_entry *res)
 {
+	struct ib_mr *ibmr = container_of(res, struct ib_mr, res);
 	struct c4iw_mr *mhp = to_c4iw_mr(ibmr);
 	struct c4iw_dev *dev = mhp->rhp;
 	u32 stag = mhp->attr.stag;
@@ -440,7 +447,7 @@ int c4iw_fill_res_mr_entry(struct sk_buff *msg, struct ib_mr *ibmr)
 	if (!stag)
 		return 0;
 
-	table_attr = nla_nest_start_noflag(msg, RDMA_NLDEV_ATTR_DRIVER);
+	table_attr = nla_nest_start(msg, RDMA_NLDEV_ATTR_DRIVER);
 	if (!table_attr)
 		goto err;
 
@@ -485,3 +492,10 @@ err_cancel_table:
 err:
 	return -EMSGSIZE;
 }
+
+c4iw_restrack_func *c4iw_restrack_funcs[RDMA_RESTRACK_MAX] = {
+	[RDMA_RESTRACK_QP]	= fill_res_qp_entry,
+	[RDMA_RESTRACK_CM_ID]	= fill_res_ep_entry,
+	[RDMA_RESTRACK_CQ]	= fill_res_cq_entry,
+	[RDMA_RESTRACK_MR]	= fill_res_mr_entry,
+};

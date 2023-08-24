@@ -16,7 +16,7 @@
 
 struct net_device;
 
-void lbs_init_mesh(struct lbs_private *priv);
+int lbs_init_mesh(struct lbs_private *priv);
 void lbs_start_mesh(struct lbs_private *priv);
 int lbs_deinit_mesh(struct lbs_private *priv);
 
@@ -24,7 +24,8 @@ void lbs_remove_mesh(struct lbs_private *priv);
 
 static inline bool lbs_mesh_activated(struct lbs_private *priv)
 {
-	return !!priv->mesh_tlv;
+	/* Mesh SSID is only programmed after successful init */
+	return priv->mesh_ssid_len != 0;
 }
 
 int lbs_mesh_set_channel(struct lbs_private *priv, u8 channel);

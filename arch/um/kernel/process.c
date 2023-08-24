@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2015 Anton Ivanov (aivanov@{brocade.com,kot-begemot.co.uk})
  * Copyright (C) 2015 Thomas Meyer (thomas@m3y3r.de)
  * Copyright (C) 2000 - 2007 Jeff Dike (jdike@{addtoit,linux.intel}.com)
  * Copyright 2003 PathScale, Inc.
+ * Licensed under the GPL
  */
 
 #include <linux/stddef.h>
@@ -25,13 +25,14 @@
 #include <linux/threads.h>
 #include <linux/tracehook.h>
 #include <asm/current.h>
+#include <asm/pgtable.h>
 #include <asm/mmu_context.h>
 #include <linux/uaccess.h>
 #include <as-layout.h>
 #include <kern_util.h>
 #include <os.h>
 #include <skas.h>
-#include <linux/time-internal.h>
+#include <timer-internal.h>
 
 /*
  * This is a per-cpu array.  A processor only modifies its entry and it only
@@ -101,7 +102,7 @@ void interrupt_end(void)
 		schedule();
 	if (test_thread_flag(TIF_SIGPENDING))
 		do_signal(regs);
-	if (test_thread_flag(TIF_NOTIFY_RESUME))
+	if (test_and_clear_thread_flag(TIF_NOTIFY_RESUME))
 		tracehook_notify_resume(regs);
 }
 
@@ -153,7 +154,7 @@ void fork_handler(void)
 }
 
 int copy_thread(unsigned long clone_flags, unsigned long sp,
-		unsigned long arg, struct task_struct * p, unsigned long tls)
+		unsigned long arg, struct task_struct * p)
 {
 	void (*handler)(void);
 	int kthread = current->flags & PF_KTHREAD;
@@ -187,7 +188,7 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 		 * Set a new TLS for the child thread?
 		 */
 		if (clone_flags & CLONE_SETTLS)
-			ret = arch_set_tls(p, tls);
+			ret = arch_copy_tls(p);
 	}
 
 	return ret;
@@ -202,22 +203,11 @@ void initial_thread_cb(void (*proc)(void *), void *arg)
 	kmalloc_ok = save_kmalloc_ok;
 }
 
-static void um_idle_sleep(void)
-{
-	unsigned long long duration = UM_NSEC_PER_SEC;
-
-	if (time_travel_mode != TT_MODE_OFF) {
-		time_travel_sleep(duration);
-	} else {
-		os_idle_sleep(duration);
-	}
-}
-
 void arch_cpu_idle(void)
 {
 	cpu_tasks[current_thread_info()->cpu].pid = os_getpid();
-	um_idle_sleep();
-	raw_local_irq_enable();
+	os_idle_sleep(UM_NSEC_PER_SEC);
+	local_irq_enable();
 }
 
 int __cant_sleep(void) {
@@ -310,12 +300,13 @@ static ssize_t sysemu_proc_write(struct file *file, const char __user *buf,
 	return count;
 }
 
-static const struct proc_ops sysemu_proc_ops = {
-	.proc_open	= sysemu_proc_open,
-	.proc_read	= seq_read,
-	.proc_lseek	= seq_lseek,
-	.proc_release	= single_release,
-	.proc_write	= sysemu_proc_write,
+static const struct file_operations sysemu_proc_fops = {
+	.owner		= THIS_MODULE,
+	.open		= sysemu_proc_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+	.write		= sysemu_proc_write,
 };
 
 int __init make_proc_sysemu(void)
@@ -324,7 +315,7 @@ int __init make_proc_sysemu(void)
 	if (!sysemu_supported)
 		return 0;
 
-	ent = proc_create("sysemu", 0600, NULL, &sysemu_proc_ops);
+	ent = proc_create("sysemu", 0600, NULL, &sysemu_proc_fops);
 
 	if (ent == NULL)
 	{

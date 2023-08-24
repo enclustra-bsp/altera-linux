@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/*
+/**
  * xhci-dbc.c - xHCI debug capability early driver
  *
  * Copyright (C) 2016 Intel Corporation
@@ -18,10 +18,10 @@
 #include <asm/fixmap.h>
 #include <linux/bcd.h>
 #include <linux/export.h>
+#include <linux/version.h>
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/kthread.h>
-#include <linux/usb/xhci-dbgp.h>
 
 #include "../host/xhci.h"
 #include "xhci-dbc.h"
@@ -94,7 +94,7 @@ static void * __init xdbc_get_page(dma_addr_t *dma_addr)
 {
 	void *virt;
 
-	virt = memblock_alloc(PAGE_SIZE, PAGE_SIZE);
+	virt = memblock_alloc_nopanic(PAGE_SIZE, PAGE_SIZE);
 	if (!virt)
 		return NULL;
 
@@ -135,7 +135,6 @@ static int handshake(void __iomem *ptr, u32 mask, u32 done, int wait, int delay)
 {
 	u32 result;
 
-	/* Can not use readl_poll_timeout_atomic() for early boot things */
 	do {
 		result = readl(ptr);
 		result &= mask;
@@ -534,6 +533,8 @@ static int xdbc_handle_external_reset(void)
 
 	xdbc_mem_init();
 
+	mmiowb();
+
 	ret = xdbc_start();
 	if (ret < 0)
 		goto reset_out;
@@ -585,6 +586,8 @@ static int __init xdbc_early_setup(void)
 		return ret;
 
 	xdbc_mem_init();
+
+	mmiowb();
 
 	ret = xdbc_start();
 	if (ret < 0) {
@@ -729,19 +732,19 @@ static void xdbc_handle_tx_event(struct xdbc_trb *evt_trb)
 	case COMP_USB_TRANSACTION_ERROR:
 	case COMP_STALL_ERROR:
 	default:
-		if (ep_id == XDBC_EPID_OUT || ep_id == XDBC_EPID_OUT_INTEL)
+		if (ep_id == XDBC_EPID_OUT)
 			xdbc.flags |= XDBC_FLAGS_OUT_STALL;
-		if (ep_id == XDBC_EPID_IN || ep_id == XDBC_EPID_IN_INTEL)
+		if (ep_id == XDBC_EPID_IN)
 			xdbc.flags |= XDBC_FLAGS_IN_STALL;
 
 		xdbc_trace("endpoint %d stalled\n", ep_id);
 		break;
 	}
 
-	if (ep_id == XDBC_EPID_IN || ep_id == XDBC_EPID_IN_INTEL) {
+	if (ep_id == XDBC_EPID_IN) {
 		xdbc.flags &= ~XDBC_FLAGS_IN_PROCESS;
 		xdbc_bulk_transfer(NULL, XDBC_MAX_PACKET, true);
-	} else if (ep_id == XDBC_EPID_OUT || ep_id == XDBC_EPID_OUT_INTEL) {
+	} else if (ep_id == XDBC_EPID_OUT) {
 		xdbc.flags &= ~XDBC_FLAGS_OUT_PROCESS;
 	} else {
 		xdbc_trace("invalid endpoint id %d\n", ep_id);
@@ -972,7 +975,7 @@ static int __init xdbc_init(void)
 		goto free_and_quit;
 	}
 
-	base = ioremap(xdbc.xhci_start, xdbc.xhci_length);
+	base = ioremap_nocache(xdbc.xhci_start, xdbc.xhci_length);
 	if (!base) {
 		xdbc_trace("failed to remap the io address\n");
 		ret = -ENOMEM;

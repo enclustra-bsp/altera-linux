@@ -8,10 +8,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <linux/err.h>
-#include <linux/string.h>
-#include <linux/zalloc.h>
 #include "debug.h"
 #include "llvm-utils.h"
 #include "config.h"
@@ -233,14 +230,14 @@ static int detect_kbuild_dir(char **kbuild_dir)
 	const char *prefix_dir = "";
 	const char *suffix_dir = "";
 
-	/* _UTSNAME_LENGTH is 65 */
-	char release[128];
-
 	char *autoconf_path;
 
 	int err;
 
 	if (!test_dir) {
+		/* _UTSNAME_LENGTH is 65 */
+		char release[128];
+
 		err = fetch_kernel_version(NULL, release,
 					   sizeof(release));
 		if (err)
@@ -265,8 +262,6 @@ static int detect_kbuild_dir(char **kbuild_dir)
 			return -ENOMEM;
 		return 0;
 	}
-	pr_debug("%s: Couldn't find \"%s\", missing kernel-devel package?.\n",
-		 __func__, autoconf_path);
 	free(autoconf_path);
 	return -ENOENT;
 }
@@ -290,7 +285,6 @@ static const char *kinc_fetch_script =
 "obj-y := dummy.o\n"
 "\\$(obj)/%.o: \\$(src)/%.c\n"
 "\t@echo -n \"\\$(NOSTDINC_FLAGS) \\$(LINUXINCLUDE) \\$(EXTRA_CFLAGS)\"\n"
-"\t\\$(CC) -c -o \\$@ \\$<\n"
 "EOF\n"
 "touch $TMPDIR/dummy.c\n"
 "make -s -C $KBUILD_DIR M=$TMPDIR $KBUILD_OPTS dummy.o 2>/dev/null\n"
@@ -358,7 +352,8 @@ void llvm__get_kbuild_opts(char **kbuild_dir, char **kbuild_include_opts)
 "     \toption in [llvm] to \"\" to suppress this detection.\n\n",
 			*kbuild_dir);
 
-		zfree(kbuild_dir);
+		free(*kbuild_dir);
+		*kbuild_dir = NULL;
 		goto errout;
 	}
 
@@ -421,9 +416,10 @@ void llvm__dump_obj(const char *path, void *obj_buf, size_t size)
 		goto out;
 	}
 
-	pr_debug("LLVM: dumping %s\n", obj_path);
+	pr_info("LLVM: dumping %s\n", obj_path);
 	if (fwrite(obj_buf, size, 1, fp) != 1)
-		pr_debug("WARNING: failed to write to file '%s': %s, skip object dumping\n", obj_path, strerror(errno));
+		pr_warning("WARNING: failed to write to file '%s': %s, skip object dumping\n",
+			   obj_path, strerror(errno));
 	fclose(fp);
 out:
 	free(obj_path);
@@ -504,7 +500,6 @@ int llvm__compile_bpf(const char *path, void **p_obj_buf,
 			goto errout;
 		}
 
-		err = -ENOMEM;
 		if (asprintf(&pipe_template, "%s -emit-llvm | %s -march=bpf %s -filetype=obj -o -",
 			      template, llc_path, opts) < 0) {
 			pr_err("ERROR:\tnot enough memory to setup command line\n");
@@ -525,7 +520,6 @@ int llvm__compile_bpf(const char *path, void **p_obj_buf,
 
 	pr_debug("llvm compiling command template: %s\n", template);
 
-	err = -ENOMEM;
 	if (asprintf(&command_echo, "echo -n \"%s\"", template) < 0)
 		goto errout;
 

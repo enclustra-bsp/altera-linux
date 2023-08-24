@@ -1,8 +1,21 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Sony CXD2820R demodulator driver
  *
  * Copyright (C) 2010 Antti Palosaari <crope@iki.fi>
+ *
+ *    This program is free software; you can redistribute it and/or modify
+ *    it under the terms of the GNU General Public License as published by
+ *    the Free Software Foundation; either version 2 of the License, or
+ *    (at your option) any later version.
+ *
+ *    This program is distributed in the hope that it will be useful,
+ *    but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *    GNU General Public License for more details.
+ *
+ *    You should have received a copy of the GNU General Public License along
+ *    with this program; if not, write to the Free Software Foundation, Inc.,
+ *    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 
@@ -530,8 +543,8 @@ struct dvb_frontend *cxd2820r_attach(const struct cxd2820r_config *config,
 	strscpy(board_info.type, "cxd2820r", I2C_NAME_SIZE);
 	board_info.addr = config->i2c_address;
 	board_info.platform_data = &pdata;
-	client = i2c_new_client_device(adapter, &board_info);
-	if (!i2c_client_has_driver(client))
+	client = i2c_new_device(adapter, &board_info);
+	if (!client || !client->dev.driver)
 		return NULL;
 
 	return pdata.get_dvb_frontend(client);
@@ -632,11 +645,12 @@ static int cxd2820r_probe(struct i2c_client *client,
 	 * one dummy I2C client in in order to get own I2C client for each
 	 * register bank.
 	 */
-	priv->client[1] = i2c_new_dummy_device(client->adapter, client->addr | (1 << 1));
-	if (IS_ERR(priv->client[1])) {
-		ret = PTR_ERR(priv->client[1]);
+	priv->client[1] = i2c_new_dummy(client->adapter, client->addr | (1 << 1));
+	if (!priv->client[1]) {
+		ret = -ENODEV;
 		dev_err(&client->dev, "I2C registration failed\n");
-		goto err_regmap_0_regmap_exit;
+		if (ret)
+			goto err_regmap_0_regmap_exit;
 	}
 
 	priv->regmap[1] = regmap_init_i2c(priv->client[1], &regmap_config1);

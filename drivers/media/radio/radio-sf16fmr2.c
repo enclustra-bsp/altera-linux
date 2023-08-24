@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /* SF16-FMR2 and SF16-FMD2 radio driver for Linux
  * Copyright (c) 2011 Ondrej Zary
  *

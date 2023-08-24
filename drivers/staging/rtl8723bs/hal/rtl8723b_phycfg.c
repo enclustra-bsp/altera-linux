@@ -45,7 +45,7 @@ static	u32 phy_CalculateBitShift(u32 BitMask)
 /**
 * Function:	PHY_QueryBBReg
 *
-* OverView:	Read "specific bits" from BB register
+* OverView:	Read "sepcific bits" from BB register
 *
 * Input:
 *		struct adapter *	Adapter,
@@ -58,7 +58,7 @@ static	u32 phy_CalculateBitShift(u32 BitMask)
 */
 u32 PHY_QueryBBReg_8723B(struct adapter *Adapter, u32 RegAddr, u32 BitMask)
 {
-	u32 OriginalValue, BitShift;
+	u32 ReturnValue = 0, OriginalValue, BitShift;
 
 #if (DISABLE_BB_RF == 1)
 	return 0;
@@ -68,8 +68,9 @@ u32 PHY_QueryBBReg_8723B(struct adapter *Adapter, u32 RegAddr, u32 BitMask)
 
 	OriginalValue = rtw_read32(Adapter, RegAddr);
 	BitShift = phy_CalculateBitShift(BitMask);
+	ReturnValue = (OriginalValue & BitMask) >> BitShift;
 
-	return (OriginalValue & BitMask) >> BitShift;
+	return ReturnValue;
 
 }
 
@@ -283,16 +284,18 @@ u32 PHY_QueryRFReg_8723B(
 	u32 BitMask
 )
 {
-	u32 Original_Value, BitShift;
+	u32 Original_Value, Readback_Value, BitShift;
 
 #if (DISABLE_BB_RF == 1)
 	return 0;
 #endif
 
 	Original_Value = phy_RFSerialRead_8723B(Adapter, eRFPath, RegAddr);
-	BitShift =  phy_CalculateBitShift(BitMask);
 
-	return (Original_Value & BitMask) >> BitShift;
+	BitShift =  phy_CalculateBitShift(BitMask);
+	Readback_Value = (Original_Value & BitMask) >> BitShift;
+
+	return Readback_Value;
 }
 
 /**
@@ -362,10 +365,24 @@ void PHY_SetRFReg_8723B(
  */
 s32 PHY_MACConfig8723B(struct adapter *Adapter)
 {
+	int rtStatus = _SUCCESS;
 	struct hal_com_data	*pHalData = GET_HAL_DATA(Adapter);
+	s8 *pszMACRegFile;
+	s8 sz8723MACRegFile[] = RTL8723B_PHY_MACREG;
 
-	ODM_ReadAndConfig_MP_8723B_MAC_REG(&pHalData->odmpriv);
-	return _SUCCESS;
+
+	pszMACRegFile = sz8723MACRegFile;
+
+	/*  */
+	/*  Config MAC */
+	/*  */
+	rtStatus = phy_ConfigMACWithParaFile(Adapter, pszMACRegFile);
+	if (rtStatus == _FAIL) {
+		ODM_ConfigMACWithHeaderFile(&pHalData->odmpriv);
+		rtStatus = _SUCCESS;
+	}
+
+	return rtStatus;
 }
 
 /**
@@ -413,6 +430,19 @@ static void phy_InitBBRFRegisterDefinition(struct adapter *Adapter)
 static int phy_BB8723b_Config_ParaFile(struct adapter *Adapter)
 {
 	struct hal_com_data *pHalData = GET_HAL_DATA(Adapter);
+	int rtStatus = _SUCCESS;
+	u8 sz8723BBRegFile[] = RTL8723B_PHY_REG;
+	u8 sz8723AGCTableFile[] = RTL8723B_AGC_TAB;
+	u8 sz8723BBBRegPgFile[] = RTL8723B_PHY_REG_PG;
+	u8 sz8723BBRegMpFile[] = RTL8723B_PHY_REG_MP;
+	u8 sz8723BRFTxPwrLmtFile[] = RTL8723B_TXPWR_LMT;
+	u8 *pszBBRegFile = NULL, *pszAGCTableFile = NULL, *pszBBRegPgFile = NULL, *pszBBRegMpFile = NULL, *pszRFTxPwrLmtFile = NULL;
+
+	pszBBRegFile = sz8723BBRegFile;
+	pszAGCTableFile = sz8723AGCTableFile;
+	pszBBRegPgFile = sz8723BBBRegPgFile;
+	pszBBRegMpFile = sz8723BBRegMpFile;
+	pszRFTxPwrLmtFile = sz8723BRFTxPwrLmtFile;
 
 	/*  Read Tx Power Limit File */
 	PHY_InitTxPowerLimit(Adapter);
@@ -420,14 +450,30 @@ static int phy_BB8723b_Config_ParaFile(struct adapter *Adapter)
 		Adapter->registrypriv.RegEnableTxPowerLimit == 1 ||
 		(Adapter->registrypriv.RegEnableTxPowerLimit == 2 && pHalData->EEPROMRegulatory == 1)
 	) {
-		ODM_ConfigRFWithHeaderFile(&pHalData->odmpriv,
-					   CONFIG_RF_TXPWR_LMT, 0);
+		if (PHY_ConfigRFWithPowerLimitTableParaFile(Adapter, pszRFTxPwrLmtFile) == _FAIL) {
+			if (HAL_STATUS_SUCCESS != ODM_ConfigRFWithHeaderFile(&pHalData->odmpriv, CONFIG_RF_TXPWR_LMT, (ODM_RF_RADIO_PATH_E)0))
+				rtStatus = _FAIL;
+		}
+
+		if (rtStatus != _SUCCESS) {
+			DBG_871X("%s():Read Tx power limit fail\n", __func__);
+			goto phy_BB8190_Config_ParaFile_Fail;
+		}
 	}
 
 	/*  */
 	/*  1. Read PHY_REG.TXT BB INIT!! */
 	/*  */
-	ODM_ConfigBBWithHeaderFile(&pHalData->odmpriv, CONFIG_BB_PHY_REG);
+	if (phy_ConfigBBWithParaFile(Adapter, pszBBRegFile, CONFIG_BB_PHY_REG) ==
+		_FAIL) {
+		if (HAL_STATUS_SUCCESS != ODM_ConfigBBWithHeaderFile(&pHalData->odmpriv, CONFIG_BB_PHY_REG))
+			rtStatus = _FAIL;
+	}
+
+	if (rtStatus != _SUCCESS) {
+		DBG_8192C("%s():Write BB Reg Fail!!", __func__);
+		goto phy_BB8190_Config_ParaFile_Fail;
+	}
 
 	/*  If EEPROM or EFUSE autoload OK, We must config by PHY_REG_PG.txt */
 	PHY_InitTxPowerByRate(Adapter);
@@ -435,8 +481,11 @@ static int phy_BB8723b_Config_ParaFile(struct adapter *Adapter)
 		Adapter->registrypriv.RegEnableTxPowerByRate == 1 ||
 		(Adapter->registrypriv.RegEnableTxPowerByRate == 2 && pHalData->EEPROMRegulatory != 2)
 	) {
-		ODM_ConfigBBWithHeaderFile(&pHalData->odmpriv,
-					   CONFIG_BB_PHY_REG_PG);
+		if (phy_ConfigBBWithPgParaFile(Adapter, pszBBRegPgFile) ==
+			_FAIL) {
+			if (HAL_STATUS_SUCCESS != ODM_ConfigBBWithHeaderFile(&pHalData->odmpriv, CONFIG_BB_PHY_REG_PG))
+				rtStatus = _FAIL;
+		}
 
 		if (pHalData->odmpriv.PhyRegPgValueType == PHY_REG_PG_EXACT_VALUE)
 			PHY_TxPowerByRateConfiguration(Adapter);
@@ -446,14 +495,29 @@ static int phy_BB8723b_Config_ParaFile(struct adapter *Adapter)
 			(Adapter->registrypriv.RegEnableTxPowerLimit == 2 && pHalData->EEPROMRegulatory == 1)
 		)
 			PHY_ConvertTxPowerLimitToPowerIndex(Adapter);
+
+		if (rtStatus != _SUCCESS) {
+			DBG_8192C("%s():BB_PG Reg Fail!!\n", __func__);
+		}
 	}
 
 	/*  */
 	/*  2. Read BB AGC table Initialization */
 	/*  */
-	ODM_ConfigBBWithHeaderFile(&pHalData->odmpriv, CONFIG_BB_AGC_TAB);
+	if (phy_ConfigBBWithParaFile(Adapter, pszAGCTableFile,
+				     CONFIG_BB_AGC_TAB) == _FAIL) {
+		if (HAL_STATUS_SUCCESS != ODM_ConfigBBWithHeaderFile(&pHalData->odmpriv, CONFIG_BB_AGC_TAB))
+			rtStatus = _FAIL;
+	}
 
-	return _SUCCESS;
+	if (rtStatus != _SUCCESS) {
+		DBG_8192C("%s():AGC Table Fail\n", __func__);
+		goto phy_BB8190_Config_ParaFile_Fail;
+	}
+
+phy_BB8190_Config_ParaFile_Fail:
+
+	return rtStatus;
 }
 
 
@@ -524,7 +588,7 @@ int PHY_RFConfig8723B(struct adapter *Adapter)
  *                                                                                    <20120830, Kordan>
  **************************************************************************************************************/
 
-void PHY_SetTxPowerIndex(
+void PHY_SetTxPowerIndex_8723B(
 	struct adapter *Adapter,
 	u32 PowerIndex,
 	u8 RFPath,
@@ -607,7 +671,7 @@ void PHY_SetTxPowerIndex(
 	}
 }
 
-u8 PHY_GetTxPowerIndex(
+u8 PHY_GetTxPowerIndex_8723B(
 	struct adapter *padapter,
 	u8 RFPath,
 	u8 Rate,
@@ -763,7 +827,7 @@ static u8 phy_GetSecondaryChnl_8723B(struct adapter *Adapter)
 	}
 
 	RT_TRACE(_module_hal_init_c_, _drv_info_, ("SCMapping: SC Value %x\n", ((SCSettingOf40 << 4) | SCSettingOf20)));
-	return  (SCSettingOf40 << 4) | SCSettingOf20;
+	return  ((SCSettingOf40 << 4) | SCSettingOf20);
 }
 
 static void phy_PostSetBwMode8723B(struct adapter *Adapter)

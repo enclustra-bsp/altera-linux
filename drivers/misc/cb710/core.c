@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  cb710/core.c
  *
  *  Copyright by Michał Mirosław, 2008-2009
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -166,23 +169,36 @@ void cb710_set_irq_handler(struct cb710_slot *slot,
 }
 EXPORT_SYMBOL_GPL(cb710_set_irq_handler);
 
-static int __maybe_unused cb710_suspend(struct device *dev_d)
+#ifdef CONFIG_PM
+
+static int cb710_suspend(struct pci_dev *pdev, pm_message_t state)
 {
-	struct pci_dev *pdev = to_pci_dev(dev_d);
 	struct cb710_chip *chip = pci_get_drvdata(pdev);
 
 	devm_free_irq(&pdev->dev, pdev->irq, chip);
+	pci_save_state(pdev);
+	pci_disable_device(pdev);
+	if (state.event & PM_EVENT_SLEEP)
+		pci_set_power_state(pdev, PCI_D3hot);
 	return 0;
 }
 
-static int __maybe_unused cb710_resume(struct device *dev_d)
+static int cb710_resume(struct pci_dev *pdev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev_d);
 	struct cb710_chip *chip = pci_get_drvdata(pdev);
+	int err;
+
+	pci_set_power_state(pdev, PCI_D0);
+	pci_restore_state(pdev);
+	err = pcim_enable_device(pdev);
+	if (err)
+		return err;
 
 	return devm_request_irq(&pdev->dev, pdev->irq,
 		cb710_irq_handler, IRQF_SHARED, KBUILD_MODNAME, chip);
 }
+
+#endif /* CONFIG_PM */
 
 static int cb710_probe(struct pci_dev *pdev,
 	const struct pci_device_id *ent)
@@ -299,14 +315,15 @@ static const struct pci_device_id cb710_pci_tbl[] = {
 	{ 0, }
 };
 
-static SIMPLE_DEV_PM_OPS(cb710_pm_ops, cb710_suspend, cb710_resume);
-
 static struct pci_driver cb710_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = cb710_pci_tbl,
 	.probe = cb710_probe,
 	.remove = cb710_remove_one,
-	.driver.pm = &cb710_pm_ops,
+#ifdef CONFIG_PM
+	.suspend = cb710_suspend,
+	.resume = cb710_resume,
+#endif
 };
 
 static int __init cb710_init_module(void)

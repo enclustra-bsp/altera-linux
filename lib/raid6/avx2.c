@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /* -*- linux-c -*- ------------------------------------------------------- *
  *
  *   Copyright (C) 2012 Intel Corporation
@@ -6,12 +5,21 @@
  *
  *   Based on sse2.c: Copyright 2002 H. Peter Anvin - All Rights Reserved
  *
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, Inc., 53 Temple Place Ste 330,
+ *   Boston MA 02111-1307, USA; either version 2 of the License, or
+ *   (at your option) any later version; incorporated herein by reference.
+ *
  * ----------------------------------------------------------------------- */
 
 /*
  * AVX2 implementation of RAID-6 syndrome functions
  *
  */
+
+#ifdef CONFIG_AS_AVX2
 
 #include <linux/raid/pq.h>
 #include "x86.h"
@@ -468,3 +476,5 @@ const struct raid6_calls raid6_avx2x4 = {
 	1			/* Has cache hints */
 };
 #endif
+
+#endif /* CONFIG_AS_AVX2 */

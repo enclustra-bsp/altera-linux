@@ -163,13 +163,13 @@ static void bounce_end_io(struct bio *bio, mempool_t *pool)
 {
 	struct bio *bio_orig = bio->bi_private;
 	struct bio_vec *bvec, orig_vec;
+	int i;
 	struct bvec_iter orig_iter = bio_orig->bi_iter;
-	struct bvec_iter_all iter_all;
 
 	/*
 	 * free up bounce indirect pages used
 	 */
-	bio_for_each_segment_all(bvec, bio, iter_all) {
+	bio_for_each_segment_all(bvec, bio, i) {
 		orig_vec = bio_iter_iovec(bio_orig, orig_iter);
 		if (bvec->bv_page != orig_vec.bv_page) {
 			dec_zone_page_state(bvec->bv_page, NR_BOUNCE);
@@ -267,21 +267,19 @@ static struct bio *bounce_clone_bio(struct bio *bio_src, gfp_t gfp_mask,
 		break;
 	}
 
-	if (bio_crypt_clone(bio, bio_src, gfp_mask) < 0)
-		goto err_put;
+	if (bio_integrity(bio_src)) {
+		int ret;
 
-	if (bio_integrity(bio_src) &&
-	    bio_integrity_clone(bio, bio_src, gfp_mask) < 0)
-		goto err_put;
+		ret = bio_integrity_clone(bio, bio_src, gfp_mask);
+		if (ret < 0) {
+			bio_put(bio);
+			return NULL;
+		}
+	}
 
-	bio_clone_blkg_association(bio, bio_src);
-	blkcg_bio_issue_init(bio);
+	bio_clone_blkcg_association(bio, bio_src);
 
 	return bio;
-
-err_put:
-	bio_put(bio);
-	return NULL;
 }
 
 static void __blk_queue_bounce(struct request_queue *q, struct bio **bio_orig,
@@ -308,18 +306,13 @@ static void __blk_queue_bounce(struct request_queue *q, struct bio **bio_orig,
 	if (!passthrough && sectors < bio_sectors(*bio_orig)) {
 		bio = bio_split(*bio_orig, sectors, GFP_NOIO, &bounce_bio_split);
 		bio_chain(bio, *bio_orig);
-		submit_bio_noacct(*bio_orig);
+		generic_make_request(*bio_orig);
 		*bio_orig = bio;
 	}
 	bio = bounce_clone_bio(*bio_orig, GFP_NOIO, passthrough ? NULL :
 			&bounce_bio_set);
 
-	/*
-	 * Bvec table can't be updated by bio_for_each_segment_all(),
-	 * so retrieve bvec from the table directly. This way is safe
-	 * because the 'bio' is single-page bvec.
-	 */
-	for (i = 0, to = bio->bi_io_vec; i < bio->bi_vcnt; to++, i++) {
+	bio_for_each_segment_all(to, bio, i) {
 		struct page *page = to->bv_page;
 
 		if (page_to_pfn(page) <= q->limits.bounce_pfn)

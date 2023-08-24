@@ -1,10 +1,18 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  hdac-ext-controller.c - HD-audio extended controller functions.
  *
  *  Copyright (C) 2014-2015 Intel Corp
  *  Author: Jeeja KP <jeeja.kp@intel.com>
  *  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ *
+ *  This program is free software; you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation; version 2 of the License.
+ *
+ *  This program is distributed in the hope that it will be useful, but
+ *  WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  General Public License for more details.
  *
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  */
@@ -28,7 +36,7 @@
 
 /**
  * snd_hdac_ext_bus_ppcap_enable - enable/disable processing pipe capability
- * @bus: the pointer to HDAC bus object
+ * @ebus: HD-audio extended core bus
  * @enable: flag to turn on/off the capability
  */
 void snd_hdac_ext_bus_ppcap_enable(struct hdac_bus *bus, bool enable)
@@ -50,7 +58,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_ppcap_enable);
 
 /**
  * snd_hdac_ext_bus_ppcap_int_enable - ppcap interrupt enable/disable
- * @bus: the pointer to HDAC bus object
+ * @ebus: HD-audio extended core bus
  * @enable: flag to enable/disable interrupt
  */
 void snd_hdac_ext_bus_ppcap_int_enable(struct hdac_bus *bus, bool enable)
@@ -77,7 +85,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_ppcap_int_enable);
 
 /**
  * snd_hdac_ext_bus_get_ml_capabilities - get multilink capability
- * @bus: the pointer to HDAC bus object
+ * @ebus: HD-audio extended core bus
  *
  * This will parse all links and read the mlink capabilities and add them
  * in hlink_list of extended hdac bus
@@ -117,7 +125,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_get_ml_capabilities);
 /**
  * snd_hdac_link_free_all- free hdac extended link objects
  *
- * @bus: the pointer to HDAC bus object
+ * @ebus: HD-audio ext core bus
  */
 
 void snd_hdac_link_free_all(struct hdac_bus *bus)
@@ -134,7 +142,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_link_free_all);
 
 /**
  * snd_hdac_ext_bus_get_link_index - get link based on codec name
- * @bus: the pointer to HDAC bus object
+ * @ebus: HD-audio extended core bus
  * @codec_name: codec name
  */
 struct hdac_ext_link *snd_hdac_ext_bus_get_link(struct hdac_bus *bus,
@@ -147,8 +155,6 @@ struct hdac_ext_link *snd_hdac_ext_bus_get_link(struct hdac_bus *bus,
 	if (sscanf(codec_name, "ehdaudio%dD%d", &bus_idx, &addr) != 2)
 		return NULL;
 	if (bus->idx != bus_idx)
-		return NULL;
-	if (addr < 0 || addr > 31)
 		return NULL;
 
 	list_for_each_entry(hlink, &bus->hlink_list, list) {
@@ -213,7 +219,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_link_power_down);
 
 /**
  * snd_hdac_ext_bus_link_power_up_all -power up all hda link
- * @bus: the pointer to HDAC bus object
+ * @ebus: HD-audio extended bus
  */
 int snd_hdac_ext_bus_link_power_up_all(struct hdac_bus *bus)
 {
@@ -234,7 +240,7 @@ EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_link_power_up_all);
 
 /**
  * snd_hdac_ext_bus_link_power_down_all -power down all hda link
- * @bus: the pointer to HDAC bus object
+ * @ebus: HD-audio extended bus
  */
 int snd_hdac_ext_bus_link_power_down_all(struct hdac_bus *bus)
 {
@@ -256,7 +262,6 @@ EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_link_power_down_all);
 int snd_hdac_ext_bus_link_get(struct hdac_bus *bus,
 				struct hdac_ext_link *link)
 {
-	unsigned long codec_mask;
 	int ret = 0;
 
 	mutex_lock(&bus->lock);
@@ -274,20 +279,13 @@ int snd_hdac_ext_bus_link_get(struct hdac_bus *bus,
 		ret = snd_hdac_ext_bus_link_power_up(link);
 
 		/*
-		 * clear the register to invalidate all the output streams
-		 */
-		snd_hdac_updatew(link->ml_addr, AZX_REG_ML_LOSIDV,
-				 ML_LOSIDV_STREAM_MASK, 0);
-		/*
 		 *  wait for 521usec for codec to report status
 		 *  HDA spec section 4.3 - Codec Discovery
 		 */
 		udelay(521);
-		codec_mask = snd_hdac_chip_readw(bus, STATESTS);
-		dev_dbg(bus->dev, "codec_mask = 0x%lx\n", codec_mask);
-		snd_hdac_chip_writew(bus, STATESTS, codec_mask);
-		if (!bus->codec_mask)
-			bus->codec_mask = codec_mask;
+		bus->codec_mask = snd_hdac_chip_readw(bus, STATESTS);
+		dev_dbg(bus->dev, "codec_mask = 0x%lx\n", bus->codec_mask);
+		snd_hdac_chip_writew(bus, STATESTS, bus->codec_mask);
 	}
 
 	mutex_unlock(&bus->lock);

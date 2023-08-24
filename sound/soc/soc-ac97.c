@@ -82,12 +82,13 @@ static int snd_soc_ac97_gpio_get(struct gpio_chip *chip, unsigned offset)
 	struct snd_soc_component *component = gpio_to_component(chip);
 	int ret;
 
-	ret = snd_soc_component_read(component, AC97_GPIO_STATUS);
+	if (snd_soc_component_read(component, AC97_GPIO_STATUS, &ret) < 0)
+		ret = -1;
 
 	dev_dbg(component->dev, "get gpio %d : %d\n", offset,
-		ret & (1 << offset));
+		ret < 0 ? ret : ret & (1 << offset));
 
-	return !!(ret & (1 << offset));
+	return ret < 0 ? ret : !!(ret & (1 << offset));
 }
 
 static void snd_soc_ac97_gpio_set(struct gpio_chip *chip, unsigned offset,
@@ -393,8 +394,6 @@ EXPORT_SYMBOL_GPL(snd_soc_set_ac97_ops);
 
 /**
  * snd_soc_set_ac97_ops_of_reset - Set ac97 ops with generic ac97 reset functions
- * @ops: bus ops
- * @pdev: platform device
  *
  * This function sets the reset and warm_reset properties of ops and parses
  * the device node of pdev to get pinctrl states and gpio numbers to use.

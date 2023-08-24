@@ -1,7 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 # description: Kprobe events - probe points
-# requires: kprobe_events
+
+[ -f kprobe_events ] || exit_unsupported # this is configurable
 
 TARGET_FUNC=tracefs_create_dir
 

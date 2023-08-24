@@ -1019,7 +1019,7 @@ static int isp116x_hub_control(struct usb_hcd *hcd,
 			spin_lock_irqsave(&isp116x->lock, flags);
 			isp116x_write_reg32(isp116x, HCRHSTATUS, RH_HS_OCIC);
 			spin_unlock_irqrestore(&isp116x->lock, flags);
-			fallthrough;
+			/* fall through */
 		case C_HUB_LOCAL_POWER:
 			DBG("C_HUB_LOCAL_POWER\n");
 			break;
@@ -1421,10 +1421,10 @@ static int isp116x_bus_suspend(struct usb_hcd *hcd)
 		isp116x_write_reg32(isp116x, HCCONTROL,
 				    (val & ~HCCONTROL_HCFS) |
 				    HCCONTROL_USB_RESET);
-		fallthrough;
+		/* fall through */
 	case HCCONTROL_USB_RESET:
 		ret = -EBUSY;
-		fallthrough;
+		/* fall through */
 	default:		/* HCCONTROL_USB_SUSPEND */
 		spin_unlock_irqrestore(&isp116x->lock, flags);
 		break;
@@ -1580,6 +1580,12 @@ static int isp116x_probe(struct platform_device *pdev)
 
 	irq = ires->start;
 	irqflags = ires->flags & IRQF_TRIGGER_MASK;
+
+	if (pdev->dev.dma_mask) {
+		DBG("DMA not supported\n");
+		ret = -EINVAL;
+		goto err1;
+	}
 
 	if (!request_mem_region(addr->start, 2, hcd_name)) {
 		ret = -EBUSY;

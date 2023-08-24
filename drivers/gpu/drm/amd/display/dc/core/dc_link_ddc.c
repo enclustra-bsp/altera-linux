@@ -23,8 +23,6 @@
  *
  */
 
-#include <linux/slab.h>
-
 #include "dm_services.h"
 #include "dm_helpers.h"
 #include "gpio_service_interface.h"
@@ -35,7 +33,7 @@
 #include "include/vector.h"
 #include "core_types.h"
 #include "dc_link_ddc.h"
-#include "dce/dce_aux.h"
+#include "aux_engine.h"
 
 #define AUX_POWER_UP_WA_DELAY 500
 #define I2C_OVER_AUX_DEFER_WA_DELAY 70
@@ -44,6 +42,7 @@
 #define CV_SMART_DONGLE_ADDRESS 0x20
 /* DVI-HDMI dongle slave address for retrieving dongle signature*/
 #define DVI_HDMI_DONGLE_ADDRESS 0x68
+static const int8_t dvi_hdmi_dongle_signature_str[] = "6140063500G";
 struct dvi_hdmi_dongle_signature_data {
 	int8_t vendor[3];/* "AMD" */
 	uint8_t version[2];
@@ -93,8 +92,6 @@ union hdmi_scdc_status_flags_data {
 		uint8_t CH2_LOCKED:1;
 		uint8_t RESERVED:4;
 		uint8_t RESERVED2:8;
-		uint8_t RESERVED3:8;
-
 	} fields;
 };
 
@@ -111,10 +108,14 @@ union hdmi_scdc_ced_data {
 		uint8_t CH2_7HIGH:7;
 		uint8_t CH2_VALID:1;
 		uint8_t CHECKSUM:8;
-		uint8_t RESERVED:8;
-		uint8_t RESERVED2:8;
-		uint8_t RESERVED3:8;
-		uint8_t RESERVED4:4;
+	} fields;
+};
+
+union hdmi_scdc_test_config_Data {
+	uint8_t byte;
+	struct {
+		uint8_t TEST_READ_REQUEST_DELAY:7;
+		uint8_t TEST_READ_REQUEST: 1;
 	} fields;
 };
 
@@ -126,16 +127,22 @@ struct aux_payloads {
 	struct vector payloads;
 };
 
-static bool dal_ddc_i2c_payloads_create(
-		struct dc_context *ctx,
-		struct i2c_payloads *payloads,
-		uint32_t count)
+static struct i2c_payloads *dal_ddc_i2c_payloads_create(struct dc_context *ctx, uint32_t count)
 {
+	struct i2c_payloads *payloads;
+
+	payloads = kzalloc(sizeof(struct i2c_payloads), GFP_KERNEL);
+
+	if (!payloads)
+		return NULL;
+
 	if (dal_vector_construct(
 		&payloads->payloads, ctx, count, sizeof(struct i2c_payload)))
-		return true;
+		return payloads;
 
-	return false;
+	kfree(payloads);
+	return NULL;
+
 }
 
 static struct i2c_payload *dal_ddc_i2c_payloads_get(struct i2c_payloads *p)
@@ -146,6 +153,53 @@ static struct i2c_payload *dal_ddc_i2c_payloads_get(struct i2c_payloads *p)
 static uint32_t dal_ddc_i2c_payloads_get_count(struct i2c_payloads *p)
 {
 	return p->payloads.count;
+}
+
+static void dal_ddc_i2c_payloads_destroy(struct i2c_payloads **p)
+{
+	if (!p || !*p)
+		return;
+	dal_vector_destruct(&(*p)->payloads);
+	kfree(*p);
+	*p = NULL;
+
+}
+
+static struct aux_payloads *dal_ddc_aux_payloads_create(struct dc_context *ctx, uint32_t count)
+{
+	struct aux_payloads *payloads;
+
+	payloads = kzalloc(sizeof(struct aux_payloads), GFP_KERNEL);
+
+	if (!payloads)
+		return NULL;
+
+	if (dal_vector_construct(
+		&payloads->payloads, ctx, count, sizeof(struct aux_payload)))
+		return payloads;
+
+	kfree(payloads);
+	return NULL;
+}
+
+static struct aux_payload *dal_ddc_aux_payloads_get(struct aux_payloads *p)
+{
+	return (struct aux_payload *)p->payloads.container;
+}
+
+static uint32_t  dal_ddc_aux_payloads_get_count(struct aux_payloads *p)
+{
+	return p->payloads.count;
+}
+
+static void dal_ddc_aux_payloads_destroy(struct aux_payloads **p)
+{
+	if (!p || !*p)
+		return;
+
+	dal_vector_destruct(&(*p)->payloads);
+	kfree(*p);
+	*p = NULL;
 }
 
 #define DDC_MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -171,7 +225,28 @@ void dal_ddc_i2c_payloads_add(
 
 }
 
-static void ddc_service_construct(
+void dal_ddc_aux_payloads_add(
+	struct aux_payloads *payloads,
+	uint32_t address,
+	uint32_t len,
+	uint8_t *data,
+	bool write)
+{
+	uint32_t payload_size = DEFAULT_AUX_MAX_DATA_SIZE;
+	uint32_t pos;
+
+	for (pos = 0; pos < len; pos += payload_size) {
+		struct aux_payload payload = {
+			.i2c_over_aux = true,
+			.write = write,
+			.address = address,
+			.length = DDC_MIN(payload_size, len - pos),
+			.data = data + pos };
+		dal_vector_append(&payloads->payloads, &payload);
+	}
+}
+
+static void construct(
 	struct ddc_service *ddc_service,
 	struct ddc_service_init_data *init_data)
 {
@@ -190,10 +265,7 @@ static void ddc_service_construct(
 		ddc_service->ddc_pin = NULL;
 	} else {
 		hw_info.ddc_channel = i2c_info.i2c_line;
-		if (ddc_service->link != NULL)
-			hw_info.hw_supported = i2c_info.i2c_hw_assist;
-		else
-			hw_info.hw_supported = false;
+		hw_info.hw_supported = i2c_info.i2c_hw_assist;
 
 		ddc_service->ddc_pin = dal_gpio_create_ddc(
 			gpio_service,
@@ -223,11 +295,11 @@ struct ddc_service *dal_ddc_service_create(
 	if (!ddc_service)
 		return NULL;
 
-	ddc_service_construct(ddc_service, init_data);
+	construct(ddc_service, init_data);
 	return ddc_service;
 }
 
-static void ddc_service_destruct(struct ddc_service *ddc)
+static void destruct(struct ddc_service *ddc)
 {
 	if (ddc->ddc_pin)
 		dal_gpio_destroy_ddc(&ddc->ddc_pin);
@@ -239,7 +311,7 @@ void dal_ddc_service_destroy(struct ddc_service **ddc)
 		BREAK_TO_DEBUGGER();
 		return;
 	}
-	ddc_service_destruct(*ddc);
+	destruct(*ddc);
 	kfree(*ddc);
 	*ddc = NULL;
 }
@@ -281,7 +353,7 @@ static uint32_t defer_delay_converter_wa(
 {
 	struct dc_link *link = ddc->link;
 
-	if (link->dpcd_caps.branch_dev_id == DP_BRANCH_DEVICE_ID_0080E1 &&
+	if (link->dpcd_caps.branch_dev_id == DP_BRANCH_DEVICE_ID_4 &&
 		!memcmp(link->dpcd_caps.branch_dev_name,
 			DP_DVI_CONVERTER_ID_4,
 			sizeof(link->dpcd_caps.branch_dev_name)))
@@ -361,7 +433,6 @@ void dal_ddc_service_i2c_query_dp_dual_mode_adaptor(
 	enum display_dongle_type *dongle = &sink_cap->dongle_type;
 	uint8_t type2_dongle_buf[DP_ADAPTOR_TYPE2_SIZE];
 	bool is_type2_dongle = false;
-	int retry_count = 2;
 	struct dp_hdmi_dongle_signature_data *dongle_signature;
 
 	/* Assume we have no valid DP passive dongle connected */
@@ -374,24 +445,13 @@ void dal_ddc_service_i2c_query_dp_dual_mode_adaptor(
 		DP_HDMI_DONGLE_ADDRESS,
 		type2_dongle_buf,
 		sizeof(type2_dongle_buf))) {
-		/* Passive HDMI dongles can sometimes fail here without retrying*/
-		while (retry_count > 0) {
-			if (i2c_read(ddc,
-				DP_HDMI_DONGLE_ADDRESS,
-				type2_dongle_buf,
-				sizeof(type2_dongle_buf)))
-				break;
-			retry_count--;
-		}
-		if (retry_count == 0) {
-			*dongle = DISPLAY_DONGLE_DP_DVI_DONGLE;
-			sink_cap->max_hdmi_pixel_clock = DP_ADAPTOR_DVI_MAX_TMDS_CLK;
+		*dongle = DISPLAY_DONGLE_DP_DVI_DONGLE;
+		sink_cap->max_hdmi_pixel_clock = DP_ADAPTOR_DVI_MAX_TMDS_CLK;
 
-			CONN_DATA_DETECT(ddc->link, type2_dongle_buf, sizeof(type2_dongle_buf),
-					"DP-DVI passive dongle %dMhz: ",
-					DP_ADAPTOR_DVI_MAX_TMDS_CLK / 1000);
-			return;
-		}
+		CONN_DATA_DETECT(ddc->link, type2_dongle_buf, sizeof(type2_dongle_buf),
+				"DP-DVI passive dongle %dMhz: ",
+				DP_ADAPTOR_DVI_MAX_TMDS_CLK / 1000);
+		return;
 	}
 
 	/* Check if Type 2 dongle.*/
@@ -495,7 +555,7 @@ bool dal_ddc_service_query_ddc_data(
 	uint8_t *read_buf,
 	uint32_t read_size)
 {
-	bool success = true;
+	bool ret;
 	uint32_t payload_size =
 		dal_ddc_service_is_in_aux_transaction_mode(ddc) ?
 			DEFAULT_AUX_MAX_DATA_SIZE : EDID_SEGMENT_SIZE;
@@ -508,156 +568,119 @@ bool dal_ddc_service_query_ddc_data(
 
 	uint32_t payloads_num = write_payloads + read_payloads;
 
-
 	if (write_size > EDID_SEGMENT_SIZE || read_size > EDID_SEGMENT_SIZE)
-		return false;
-
-	if (!payloads_num)
 		return false;
 
 	/*TODO: len of payload data for i2c and aux is uint8!!!!,
 	 *  but we want to read 256 over i2c!!!!*/
 	if (dal_ddc_service_is_in_aux_transaction_mode(ddc)) {
-		struct aux_payload payload;
 
-		payload.i2c_over_aux = true;
-		payload.address = address;
-		payload.reply = NULL;
-		payload.defer_delay = get_defer_delay(ddc);
+		struct aux_payloads *payloads =
+			dal_ddc_aux_payloads_create(ddc->ctx, payloads_num);
 
-		if (write_size != 0) {
-			payload.write = true;
-			/* should not set mot (middle of transaction) to 0
-			 * if there are pending read payloads
-			 */
-			payload.mot = read_size == 0 ? false : true;
-			payload.length = write_size;
-			payload.data = write_buf;
+		struct aux_command command = {
+			.payloads = dal_ddc_aux_payloads_get(payloads),
+			.number_of_payloads = 0,
+			.defer_delay = get_defer_delay(ddc),
+			.max_defer_write_retry = 0 };
 
-			success = dal_ddc_submit_aux_command(ddc, &payload);
-		}
+		dal_ddc_aux_payloads_add(
+			payloads, address, write_size, write_buf, true);
 
-		if (read_size != 0 && success) {
-			payload.write = false;
-			/* should set mot (middle of transaction) to 0
-			 * since it is the last payload to send
-			 */
-			payload.mot = false;
-			payload.length = read_size;
-			payload.data = read_buf;
-
-			success = dal_ddc_submit_aux_command(ddc, &payload);
-		}
-	} else {
-		struct i2c_command command = {0};
-		struct i2c_payloads payloads;
-
-		if (!dal_ddc_i2c_payloads_create(ddc->ctx, &payloads, payloads_num))
-			return false;
-
-		command.payloads = dal_ddc_i2c_payloads_get(&payloads);
-		command.number_of_payloads = 0;
-		command.engine = DDC_I2C_COMMAND_ENGINE;
-		command.speed = ddc->ctx->dc->caps.i2c_speed_in_khz;
-
-		dal_ddc_i2c_payloads_add(
-			&payloads, address, write_size, write_buf, true);
-
-		dal_ddc_i2c_payloads_add(
-			&payloads, address, read_size, read_buf, false);
+		dal_ddc_aux_payloads_add(
+			payloads, address, read_size, read_buf, false);
 
 		command.number_of_payloads =
-			dal_ddc_i2c_payloads_get_count(&payloads);
+			dal_ddc_aux_payloads_get_count(payloads);
 
-		success = dm_helpers_submit_i2c(
+		ret = dal_i2caux_submit_aux_command(
+				ddc->ctx->i2caux,
+				ddc->ddc_pin,
+				&command);
+
+		dal_ddc_aux_payloads_destroy(&payloads);
+
+	} else {
+		struct i2c_payloads *payloads =
+			dal_ddc_i2c_payloads_create(ddc->ctx, payloads_num);
+
+		struct i2c_command command = {
+			.payloads = dal_ddc_i2c_payloads_get(payloads),
+			.number_of_payloads = 0,
+			.engine = DDC_I2C_COMMAND_ENGINE,
+			.speed = ddc->ctx->dc->caps.i2c_speed_in_khz };
+
+		dal_ddc_i2c_payloads_add(
+			payloads, address, write_size, write_buf, true);
+
+		dal_ddc_i2c_payloads_add(
+			payloads, address, read_size, read_buf, false);
+
+		command.number_of_payloads =
+			dal_ddc_i2c_payloads_get_count(payloads);
+
+		ret = dm_helpers_submit_i2c(
 				ddc->ctx,
 				ddc->link,
 				&command);
 
-		dal_vector_destruct(&payloads.payloads);
+		dal_ddc_i2c_payloads_destroy(&payloads);
 	}
-
-	return success;
-}
-
-bool dal_ddc_submit_aux_command(struct ddc_service *ddc,
-		struct aux_payload *payload)
-{
-	uint32_t retrieved = 0;
-	bool ret = false;
-
-	if (!ddc)
-		return false;
-
-	if (!payload)
-		return false;
-
-	do {
-		struct aux_payload current_payload;
-		bool is_end_of_payload = (retrieved + DEFAULT_AUX_MAX_DATA_SIZE) >=
-			payload->length;
-
-		current_payload.address = payload->address;
-		current_payload.data = &payload->data[retrieved];
-		current_payload.defer_delay = payload->defer_delay;
-		current_payload.i2c_over_aux = payload->i2c_over_aux;
-		current_payload.length = is_end_of_payload ?
-			payload->length - retrieved : DEFAULT_AUX_MAX_DATA_SIZE;
-		/* set mot (middle of transaction) to false
-		 * if it is the last payload
-		 */
-		current_payload.mot = is_end_of_payload ? payload->mot:true;
-		current_payload.reply = payload->reply;
-		current_payload.write = payload->write;
-
-		ret = dc_link_aux_transfer_with_retries(ddc, &current_payload);
-
-		retrieved += current_payload.length;
-	} while (retrieved < payload->length && ret == true);
 
 	return ret;
 }
 
-/* dc_link_aux_transfer_raw() - Attempt to transfer
- * the given aux payload.  This function does not perform
- * retries or handle error states.  The reply is returned
- * in the payload->reply and the result through
- * *operation_result.  Returns the number of bytes transferred,
- * or -1 on a failure.
- */
-int dc_link_aux_transfer_raw(struct ddc_service *ddc,
-		struct aux_payload *payload,
-		enum aux_channel_operation_result *operation_result)
+int dc_link_aux_transfer(struct ddc_service *ddc,
+			     unsigned int address,
+			     uint8_t *reply,
+			     void *buffer,
+			     unsigned int size,
+			     enum aux_transaction_type type,
+			     enum i2caux_transaction_action action)
 {
-	return dce_aux_transfer_raw(ddc, payload, operation_result);
-}
-
-/* dc_link_aux_transfer_with_retries() - Attempt to submit an
- * aux payload, retrying on timeouts, defers, and busy states
- * as outlined in the DP spec.  Returns true if the request
- * was successful.
- *
- * Unless you want to implement your own retry semantics, this
- * is probably the one you want.
- */
-bool dc_link_aux_transfer_with_retries(struct ddc_service *ddc,
-		struct aux_payload *payload)
-{
-	return dce_aux_transfer_with_retries(ddc, payload);
-}
-
-
-bool dc_link_aux_try_to_configure_timeout(struct ddc_service *ddc,
-		uint32_t timeout)
-{
-	bool result = false;
 	struct ddc *ddc_pin = ddc->ddc_pin;
+	struct aux_engine *aux_engine;
+	enum aux_channel_operation_result operation_result;
+	struct aux_request_transaction_data aux_req;
+	struct aux_reply_transaction_data aux_rep;
+	uint8_t returned_bytes = 0;
+	int res = -1;
+	uint32_t status;
 
-	if (ddc->ctx->dc->res_pool->engines[ddc_pin->pin_data->en]->funcs->configure_timeout) {
-		ddc->ctx->dc->res_pool->engines[ddc_pin->pin_data->en]->funcs->configure_timeout(ddc, timeout);
-		result = true;
+	memset(&aux_req, 0, sizeof(aux_req));
+	memset(&aux_rep, 0, sizeof(aux_rep));
+
+	aux_engine = ddc->ctx->dc->res_pool->engines[ddc_pin->pin_data->en];
+	aux_engine->funcs->acquire(aux_engine, ddc_pin);
+
+	aux_req.type = type;
+	aux_req.action = action;
+
+	aux_req.address = address;
+	aux_req.delay = 0;
+	aux_req.length = size;
+	aux_req.data = buffer;
+
+	aux_engine->funcs->submit_channel_request(aux_engine, &aux_req);
+	operation_result = aux_engine->funcs->get_channel_status(aux_engine, &returned_bytes);
+
+	switch (operation_result) {
+	case AUX_CHANNEL_OPERATION_SUCCEEDED:
+		res = aux_engine->funcs->read_channel_reply(aux_engine, size,
+							buffer, reply,
+							&status);
+		break;
+	case AUX_CHANNEL_OPERATION_FAILED_HPD_DISCON:
+		res = 0;
+		break;
+	case AUX_CHANNEL_OPERATION_FAILED_REASON_UNKNOWN:
+	case AUX_CHANNEL_OPERATION_FAILED_INVALID_REPLY:
+	case AUX_CHANNEL_OPERATION_FAILED_TIMEOUT:
+		res = -1;
+		break;
 	}
-	return result;
+	aux_engine->funcs->release_engine(aux_engine);
+	return res;
 }
 
 /*test only function*/
@@ -683,10 +706,6 @@ void dal_ddc_service_write_scdc_data(struct ddc_service *ddc_service,
 	uint8_t sink_version = 0;
 	uint8_t write_buffer[2] = {0};
 	/*Lower than 340 Scramble bit from SCDC caps*/
-
-	if (ddc_service->link->local_sink &&
-		ddc_service->link->local_sink->edid_caps.panel_patch.skip_scdc_overwrite)
-		return;
 
 	dal_ddc_service_query_ddc_data(ddc_service, slave_address, &offset,
 			sizeof(offset), &sink_version, sizeof(sink_version));
@@ -716,10 +735,6 @@ void dal_ddc_service_read_scdc_data(struct ddc_service *ddc_service)
 	uint8_t slave_address = HDMI_SCDC_ADDRESS;
 	uint8_t offset = HDMI_SCDC_TMDS_CONFIG;
 	uint8_t tmds_config = 0;
-
-	if (ddc_service->link->local_sink &&
-		ddc_service->link->local_sink->edid_caps.panel_patch.skip_scdc_overwrite)
-		return;
 
 	dal_ddc_service_query_ddc_data(ddc_service, slave_address, &offset,
 			sizeof(offset), &tmds_config, sizeof(tmds_config));

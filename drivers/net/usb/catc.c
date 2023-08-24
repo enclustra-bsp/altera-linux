@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  Copyright (c) 2001 Vojtech Pavlik
  *
@@ -14,6 +13,18 @@
  */
 
 /*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or 
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  * 
  * Should you need to contact me, the author, you can do so either by
  * e-mail - mail your message to <vojtech@suse.cz>, or by paper mail:
@@ -447,7 +458,7 @@ static netdev_tx_t catc_start_xmit(struct sk_buff *skb,
 	return NETDEV_TX_OK;
 }
 
-static void catc_tx_timeout(struct net_device *netdev, unsigned int txqueue)
+static void catc_tx_timeout(struct net_device *netdev)
 {
 	struct catc *catc = netdev_priv(netdev);
 
@@ -858,7 +869,7 @@ static int catc_probe(struct usb_interface *intf, const struct usb_device_id *id
 		default:
 			dev_warn(&intf->dev,
 				 "Couldn't detect memory size, assuming 32k\n");
-			fallthrough;
+			/* fall through */
 		case 0x87654321:
 			catc_set_reg(catc, TxBufCount, 4);
 			catc_set_reg(catc, RxBufCount, 16);

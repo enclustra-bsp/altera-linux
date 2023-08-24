@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Linux driver for digital TV devices equipped with B2C2 FlexcopII(b)/III
  * flexcop-usb.c - covers the USB part
@@ -87,7 +86,7 @@ static int flexcop_usb_readwrite_dw(struct flexcop_device *fc, u16 wRegOffsPCI, 
 			0,
 			fc_usb->data,
 			sizeof(u32),
-			B2C2_WAIT_FOR_OPERATION_RDW);
+			B2C2_WAIT_FOR_OPERATION_RDW * HZ);
 
 	if (ret != sizeof(u32)) {
 		err("error while %s dword from %d (%d).", read ? "reading" :
@@ -155,7 +154,7 @@ static int flexcop_usb_v8_memory_req(struct flexcop_usb *fc_usb,
 			wIndex,
 			fc_usb->data,
 			buflen,
-			nWaitTime);
+			nWaitTime * HZ);
 	if (ret != buflen)
 		ret = -EIO;
 
@@ -249,13 +248,13 @@ static int flexcop_usb_i2c_req(struct flexcop_i2c_adapter *i2c,
 		/* DKT 020208 - add this to support special case of DiSEqC */
 	case USB_FUNC_I2C_CHECKWRITE:
 		pipe = B2C2_USB_CTRL_PIPE_OUT;
-		nWaitTime = 2000;
+		nWaitTime = 2;
 		request_type |= USB_DIR_OUT;
 		break;
 	case USB_FUNC_I2C_READ:
 	case USB_FUNC_I2C_REPEATREAD:
 		pipe = B2C2_USB_CTRL_PIPE_IN;
-		nWaitTime = 2000;
+		nWaitTime = 2;
 		request_type |= USB_DIR_IN;
 		break;
 	default:
@@ -282,7 +281,7 @@ static int flexcop_usb_i2c_req(struct flexcop_i2c_adapter *i2c,
 			wIndex,
 			fc_usb->data,
 			buflen,
-			nWaitTime);
+			nWaitTime * HZ);
 
 	if (ret != buflen)
 		ret = -EIO;
@@ -295,7 +294,7 @@ static int flexcop_usb_i2c_req(struct flexcop_i2c_adapter *i2c,
 
 	mutex_unlock(&fc_usb->data_mutex);
 
-	return ret;
+	return 0;
 }
 
 /* actual bus specific access functions,
@@ -419,9 +418,10 @@ static void flexcop_usb_transfer_exit(struct flexcop_usb *fc_usb)
 			usb_free_urb(fc_usb->iso_urb[i]);
 		}
 
-	usb_free_coherent(fc_usb->udev, fc_usb->buffer_size,
-			  fc_usb->iso_buffer, fc_usb->dma_addr);
-
+	if (fc_usb->iso_buffer != NULL)
+		usb_free_coherent(fc_usb->udev,
+			fc_usb->buffer_size, fc_usb->iso_buffer,
+			fc_usb->dma_addr);
 }
 
 static int flexcop_usb_transfer_init(struct flexcop_usb *fc_usb)
@@ -503,18 +503,7 @@ urb_error:
 static int flexcop_usb_init(struct flexcop_usb *fc_usb)
 {
 	/* use the alternate setting with the larges buffer */
-	int ret = usb_set_interface(fc_usb->udev, 0, 1);
-
-	if (ret) {
-		err("set interface failed.");
-		return ret;
-	}
-
-	if (fc_usb->uintf->cur_altsetting->desc.bNumEndpoints < 1)
-		return -ENODEV;
-	if (!usb_endpoint_is_isoc_in(&fc_usb->uintf->cur_altsetting->endpoint[1].desc))
-		return -ENODEV;
-
+	usb_set_interface(fc_usb->udev,0,1);
 	switch (fc_usb->udev->speed) {
 	case USB_SPEED_LOW:
 		err("cannot handle USB speed because it is too slow.");
@@ -526,7 +515,7 @@ static int flexcop_usb_init(struct flexcop_usb *fc_usb)
 	case USB_SPEED_HIGH:
 		info("running at HIGH speed.");
 		break;
-	case USB_SPEED_UNKNOWN:
+	case USB_SPEED_UNKNOWN: /* fall through */
 	default:
 		err("cannot handle USB speed because it is unknown.");
 		return -ENODEV;

@@ -1,6 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * net/core/netprio_cgroup.c	Priority Control Group
+ *
+ *		This program is free software; you can redistribute it and/or
+ *		modify it under the terms of the GNU General Public License
+ *		as published by the Free Software Foundation; either version
+ *		2 of the License, or (at your option) any later version.
  *
  * Authors:	Neil Horman <nhorman@tuxdriver.com>
  */
@@ -93,7 +97,7 @@ static int extend_netdev_table(struct net_device *dev, u32 target_idx)
 static u32 netprio_prio(struct cgroup_subsys_state *css, struct net_device *dev)
 {
 	struct netprio_map *map = rcu_dereference_rtnl(dev->priomap);
-	int id = css->id;
+	int id = css->cgroup->id;
 
 	if (map && id < map->priomap_len)
 		return map->priomap[id];
@@ -113,7 +117,7 @@ static int netprio_set_prio(struct cgroup_subsys_state *css,
 			    struct net_device *dev, u32 prio)
 {
 	struct netprio_map *map;
-	int id = css->id;
+	int id = css->cgroup->id;
 	int ret;
 
 	/* avoid extending priomap for zero writes */
@@ -177,7 +181,7 @@ static void cgrp_css_free(struct cgroup_subsys_state *css)
 
 static u64 read_prioidx(struct cgroup_subsys_state *css, struct cftype *cft)
 {
-	return css->id;
+	return css->cgroup->id;
 }
 
 static int read_priomap(struct seq_file *sf, void *v)
@@ -236,10 +240,8 @@ static void net_prio_attach(struct cgroup_taskset *tset)
 	struct task_struct *p;
 	struct cgroup_subsys_state *css;
 
-	cgroup_sk_alloc_disable();
-
 	cgroup_taskset_for_each(p, css, tset) {
-		void *v = (void *)(unsigned long)css->id;
+		void *v = (void *)(unsigned long)css->cgroup->id;
 
 		task_lock(p);
 		iterate_fd(p->files, 0, update_netprio, v);
@@ -299,4 +301,6 @@ static int __init init_cgroup_netprio(void)
 	register_netdevice_notifier(&netprio_device_notifier);
 	return 0;
 }
+
 subsys_initcall(init_cgroup_netprio);
+MODULE_LICENSE("GPL v2");

@@ -451,13 +451,13 @@ static int ak4613_set_bias_level(struct snd_soc_component *component,
 	switch (level) {
 	case SND_SOC_BIAS_ON:
 		mgmt1 |= RSTN;
-		fallthrough;
+		/* fall through */
 	case SND_SOC_BIAS_PREPARE:
 		mgmt1 |= PMADC | PMDAC;
-		fallthrough;
+		/* fall through */
 	case SND_SOC_BIAS_STANDBY:
 		mgmt1 |= PMVR;
-		fallthrough;
+		/* fall through */
 	case SND_SOC_BIAS_OFF:
 	default:
 		break;
@@ -490,8 +490,8 @@ static void ak4613_dummy_write(struct work_struct *work)
 	 */
 	udelay(5000000 / priv->rate);
 
-	mgmt1 = snd_soc_component_read(component, PW_MGMT1);
-	mgmt3 = snd_soc_component_read(component, PW_MGMT3);
+	snd_soc_component_read(component, PW_MGMT1, &mgmt1);
+	snd_soc_component_read(component, PW_MGMT3, &mgmt3);
 
 	snd_soc_component_write(component, PW_MGMT1, mgmt1);
 	snd_soc_component_write(component, PW_MGMT3, mgmt3);

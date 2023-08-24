@@ -139,18 +139,18 @@ static const struct snd_pcm_hardware mt6797_afe_hardware = {
 static int mt6797_memif_fs(struct snd_pcm_substream *substream,
 			   unsigned int rate)
 {
-	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_component *component =
 		snd_soc_rtdcom_lookup(rtd, AFE_PCM_NAME);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(component);
-	int id = asoc_rtd_to_cpu(rtd, 0)->id;
+	int id = rtd->cpu_dai->id;
 
 	return mt6797_rate_transform(afe->dev, rate, id);
 }
 
 static int mt6797_irq_fs(struct snd_pcm_substream *substream, unsigned int rate)
 {
-	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_component *component =
 		snd_soc_rtdcom_lookup(rtd, AFE_PCM_NAME);
 	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(component);
@@ -401,7 +401,9 @@ static const struct mtk_base_memif_data memif_data[MT6797_MEMIF_NUM] = {
 		.hd_reg = AFE_MEMIF_HD_MODE,
 		.hd_shift = DL1_HD_SFT,
 		.agent_disable_reg = -1,
+		.agent_disable_shift = -1,
 		.msb_reg = -1,
+		.msb_shift = -1,
 	},
 	[MT6797_MEMIF_DL2] = {
 		.name = "DL2",
@@ -418,7 +420,9 @@ static const struct mtk_base_memif_data memif_data[MT6797_MEMIF_NUM] = {
 		.hd_reg = AFE_MEMIF_HD_MODE,
 		.hd_shift = DL2_HD_SFT,
 		.agent_disable_reg = -1,
+		.agent_disable_shift = -1,
 		.msb_reg = -1,
+		.msb_shift = -1,
 	},
 	[MT6797_MEMIF_DL3] = {
 		.name = "DL3",
@@ -435,7 +439,9 @@ static const struct mtk_base_memif_data memif_data[MT6797_MEMIF_NUM] = {
 		.hd_reg = AFE_MEMIF_HD_MODE,
 		.hd_shift = DL3_HD_SFT,
 		.agent_disable_reg = -1,
+		.agent_disable_shift = -1,
 		.msb_reg = -1,
+		.msb_shift = -1,
 	},
 	[MT6797_MEMIF_VUL] = {
 		.name = "VUL",
@@ -452,7 +458,9 @@ static const struct mtk_base_memif_data memif_data[MT6797_MEMIF_NUM] = {
 		.hd_reg = AFE_MEMIF_HD_MODE,
 		.hd_shift = VUL_HD_SFT,
 		.agent_disable_reg = -1,
+		.agent_disable_shift = -1,
 		.msb_reg = -1,
+		.msb_shift = -1,
 	},
 	[MT6797_MEMIF_AWB] = {
 		.name = "AWB",
@@ -469,7 +477,9 @@ static const struct mtk_base_memif_data memif_data[MT6797_MEMIF_NUM] = {
 		.hd_reg = AFE_MEMIF_HD_MODE,
 		.hd_shift = AWB_HD_SFT,
 		.agent_disable_reg = -1,
+		.agent_disable_shift = -1,
 		.msb_reg = -1,
+		.msb_shift = -1,
 	},
 	[MT6797_MEMIF_VUL12] = {
 		.name = "VUL12",
@@ -486,7 +496,9 @@ static const struct mtk_base_memif_data memif_data[MT6797_MEMIF_NUM] = {
 		.hd_reg = AFE_MEMIF_HD_MODE,
 		.hd_shift = VUL_DATA2_HD_SFT,
 		.agent_disable_reg = -1,
+		.agent_disable_shift = -1,
 		.msb_reg = -1,
+		.msb_shift = -1,
 	},
 	[MT6797_MEMIF_DAI] = {
 		.name = "DAI",
@@ -503,7 +515,9 @@ static const struct mtk_base_memif_data memif_data[MT6797_MEMIF_NUM] = {
 		.hd_reg = AFE_MEMIF_HD_MODE,
 		.hd_shift = DAI_HD_SFT,
 		.agent_disable_reg = -1,
+		.agent_disable_shift = -1,
 		.msb_reg = -1,
+		.msb_shift = -1,
 	},
 	[MT6797_MEMIF_MOD_DAI] = {
 		.name = "MOD_DAI",
@@ -520,7 +534,9 @@ static const struct mtk_base_memif_data memif_data[MT6797_MEMIF_NUM] = {
 		.hd_reg = AFE_MEMIF_HD_MODE,
 		.hd_shift = MOD_DAI_HD_SFT,
 		.agent_disable_reg = -1,
+		.agent_disable_shift = -1,
 		.msb_reg = -1,
+		.msb_shift = -1,
 	},
 };
 
@@ -710,10 +726,11 @@ static int mt6797_afe_component_probe(struct snd_soc_component *component)
 }
 
 static const struct snd_soc_component_driver mt6797_afe_component = {
-	.name		= AFE_PCM_NAME,
-	.probe		= mt6797_afe_component_probe,
-	.pointer	= mtk_afe_pcm_pointer,
-	.pcm_construct	= mtk_afe_pcm_new,
+	.name = AFE_PCM_NAME,
+	.ops = &mtk_afe_pcm_ops,
+	.pcm_new = mtk_afe_pcm_new,
+	.pcm_free = mtk_afe_pcm_free,
+	.probe = mt6797_afe_component_probe,
 };
 
 static int mt6797_dai_memif_register(struct mtk_base_afe *afe)
@@ -748,6 +765,7 @@ static int mt6797_afe_pcm_dev_probe(struct platform_device *pdev)
 {
 	struct mtk_base_afe *afe;
 	struct mt6797_afe_private *afe_priv;
+	struct resource *res;
 	struct device *dev;
 	int i, irq_id, ret;
 
@@ -772,7 +790,9 @@ static int mt6797_afe_pcm_dev_probe(struct platform_device *pdev)
 	}
 
 	/* regmap init */
-	afe->base_addr = devm_platform_ioremap_resource(pdev, 0);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+
+	afe->base_addr = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(afe->base_addr))
 		return PTR_ERR(afe->base_addr);
 
@@ -807,9 +827,10 @@ static int mt6797_afe_pcm_dev_probe(struct platform_device *pdev)
 
 	/* request irq */
 	irq_id = platform_get_irq(pdev, 0);
-	if (irq_id < 0)
-		return irq_id;
-
+	if (!irq_id) {
+		dev_err(dev, "%s no irq found\n", dev->of_node->name);
+		return -ENXIO;
+	}
 	ret = devm_request_irq(dev, irq_id, mt6797_afe_irq_handler,
 			       IRQF_TRIGGER_NONE, "asys-isr", (void *)afe);
 	if (ret) {

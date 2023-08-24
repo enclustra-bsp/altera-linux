@@ -9,31 +9,25 @@ static struct callback_head work_exited; /* all we need is ->next == NULL */
  * task_work_add - ask the @task to execute @work->func()
  * @task: the task which should run the callback
  * @work: the callback to run
- * @notify: how to notify the targeted task
+ * @notify: send the notification if true
  *
- * Queue @work for task_work_run() below and notify the @task if @notify
- * is @TWA_RESUME or @TWA_SIGNAL. @TWA_SIGNAL works like signals, in that the
- * it will interrupt the targeted task and run the task_work. @TWA_RESUME
- * work is run only when the task exits the kernel and returns to user mode,
- * or before entering guest mode. Fails if the @task is exiting/exited and thus
- * it can't process this @work. Otherwise @work->func() will be called when the
- * @task goes through one of the aforementioned transitions, or exits.
+ * Queue @work for task_work_run() below and notify the @task if @notify.
+ * Fails if the @task is exiting/exited and thus it can't process this @work.
+ * Otherwise @work->func() will be called when the @task returns from kernel
+ * mode or exits.
  *
- * If the targeted task is exiting, then an error is returned and the work item
- * is not queued. It's up to the caller to arrange for an alternative mechanism
- * in that case.
+ * This is like the signal handler which runs in kernel mode, but it doesn't
+ * try to wake up the @task.
  *
- * Note: there is no ordering guarantee on works queued here. The task_work
- * list is LIFO.
+ * Note: there is no ordering guarantee on works queued here.
  *
  * RETURNS:
  * 0 if succeeds or -ESRCH.
  */
-int task_work_add(struct task_struct *task, struct callback_head *work,
-		  enum task_work_notify_mode notify)
+int
+task_work_add(struct task_struct *task, struct callback_head *work, bool notify)
 {
 	struct callback_head *head;
-	unsigned long flags;
 
 	do {
 		head = READ_ONCE(task->task_works);
@@ -42,30 +36,8 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
 		work->next = head;
 	} while (cmpxchg(&task->task_works, head, work) != head);
 
-	switch (notify) {
-	case TWA_NONE:
-		break;
-	case TWA_RESUME:
+	if (notify)
 		set_notify_resume(task);
-		break;
-	case TWA_SIGNAL:
-		/*
-		 * Only grab the sighand lock if we don't already have some
-		 * task_work pending. This pairs with the smp_store_mb()
-		 * in get_signal(), see comment there.
-		 */
-		if (!(READ_ONCE(task->jobctl) & JOBCTL_TASK_WORK) &&
-		    lock_task_sighand(task, &flags)) {
-			task->jobctl |= JOBCTL_TASK_WORK;
-			signal_wake_up(task, 0);
-			unlock_task_sighand(task, &flags);
-		}
-		break;
-	default:
-		WARN_ON_ONCE(1);
-		break;
-	}
-
 	return 0;
 }
 
@@ -125,26 +97,16 @@ void task_work_run(void)
 		 * work->func() can do task_work_add(), do not set
 		 * work_exited unless the list is empty.
 		 */
+		raw_spin_lock_irq(&task->pi_lock);
 		do {
-			head = NULL;
 			work = READ_ONCE(task->task_works);
-			if (!work) {
-				if (task->flags & PF_EXITING)
-					head = &work_exited;
-				else
-					break;
-			}
+			head = !work && (task->flags & PF_EXITING) ?
+				&work_exited : NULL;
 		} while (cmpxchg(&task->task_works, work, head) != work);
+		raw_spin_unlock_irq(&task->pi_lock);
 
 		if (!work)
 			break;
-		/*
-		 * Synchronize with task_work_cancel(). It can not remove
-		 * the first entry == work, cmpxchg(task_works) must fail.
-		 * But it can remove another entry from the ->next list.
-		 */
-		raw_spin_lock_irq(&task->pi_lock);
-		raw_spin_unlock_irq(&task->pi_lock);
 
 		do {
 			next = work->next;

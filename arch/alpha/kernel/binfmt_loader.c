@@ -19,6 +19,10 @@ static int load_binary(struct linux_binprm *bprm)
 	if (bprm->loader)
 		return -ENOEXEC;
 
+	allow_write_access(bprm->file);
+	fput(bprm->file);
+	bprm->file = NULL;
+
 	loader = bprm->vma->vm_end - sizeof(void *);
 
 	file = open_exec("/sbin/loader");
@@ -29,9 +33,12 @@ static int load_binary(struct linux_binprm *bprm)
 	/* Remember if the application is TASO.  */
 	bprm->taso = eh->ah.entry < 0x100000000UL;
 
-	bprm->interpreter = file;
+	bprm->file = file;
 	bprm->loader = loader;
-	return 0;
+	retval = prepare_binprm(bprm);
+	if (retval < 0)
+		return retval;
+	return search_binary_handler(bprm);
 }
 
 static struct linux_binfmt loader_format = {

@@ -45,8 +45,8 @@ struct wep_key {
  *	function prototypes
  */
 static int ks_wlan_open(struct net_device *dev);
-static void ks_wlan_tx_timeout(struct net_device *dev, unsigned int txqueue);
-static netdev_tx_t ks_wlan_start_xmit(struct sk_buff *skb, struct net_device *dev);
+static void ks_wlan_tx_timeout(struct net_device *dev);
+static int ks_wlan_start_xmit(struct sk_buff *skb, struct net_device *dev);
 static int ks_wlan_close(struct net_device *dev);
 static void ks_wlan_set_rx_mode(struct net_device *dev);
 static struct net_device_stats *ks_wlan_get_stats(struct net_device *dev);
@@ -182,7 +182,7 @@ static int ks_wlan_set_freq(struct net_device *dev,
 	/* for SLEEP MODE */
 	/* If setting by frequency, convert to a channel */
 	if ((fwrq->freq.e == 1) &&
-	    (fwrq->freq.m >= 241200000) && (fwrq->freq.m <= 248700000)) {
+	    (fwrq->freq.m >= (int)2.412e8) && (fwrq->freq.m <= (int)2.487e8)) {
 		int f = fwrq->freq.m / 100000;
 		int c = 0;
 
@@ -426,16 +426,16 @@ static int ks_wlan_set_rate(struct net_device *dev,
 					priv->reg.rate_set.body[3] =
 					    TX_RATE_11M;
 					i++;
-					fallthrough;
+					/* fall through */
 				case 5500000:
 					priv->reg.rate_set.body[2] = TX_RATE_5M;
 					i++;
-					fallthrough;
+					/* fall through */
 				case 2000000:
 					priv->reg.rate_set.body[1] =
 					    TX_RATE_2M | BASIC_RATE;
 					i++;
-					fallthrough;
+					/* fall through */
 				case 1000000:
 					priv->reg.rate_set.body[0] =
 					    TX_RATE_1M | BASIC_RATE;
@@ -491,17 +491,17 @@ static int ks_wlan_set_rate(struct net_device *dev,
 					priv->reg.rate_set.body[11] =
 					    TX_RATE_54M;
 					i++;
-					fallthrough;
+					/* fall through */
 				case 48000000:
 					priv->reg.rate_set.body[10] =
 					    TX_RATE_48M;
 					i++;
-					fallthrough;
+					/* fall through */
 				case 36000000:
 					priv->reg.rate_set.body[9] =
 					    TX_RATE_36M;
 					i++;
-					fallthrough;
+					/* fall through */
 				case 24000000:
 				case 18000000:
 				case 12000000:
@@ -578,17 +578,17 @@ static int ks_wlan_set_rate(struct net_device *dev,
 						    TX_RATE_6M | BASIC_RATE;
 						i++;
 					}
-					fallthrough;
+					/* fall through */
 				case 5500000:
 					priv->reg.rate_set.body[2] =
 					    TX_RATE_5M | BASIC_RATE;
 					i++;
-					fallthrough;
+					/* fall through */
 				case 2000000:
 					priv->reg.rate_set.body[1] =
 					    TX_RATE_2M | BASIC_RATE;
 					i++;
-					fallthrough;
+					/* fall through */
 				case 1000000:
 					priv->reg.rate_set.body[0] =
 					    TX_RATE_1M | BASIC_RATE;
@@ -1120,7 +1120,6 @@ static int ks_wlan_set_scan(struct net_device *dev,
 {
 	struct ks_wlan_private *priv = netdev_priv(dev);
 	struct iw_scan_req *req = NULL;
-	int len;
 
 	if (priv->sleep_mode == SLP_SLEEP)
 		return -EPERM;
@@ -1130,9 +1129,8 @@ static int ks_wlan_set_scan(struct net_device *dev,
 	if (wrqu->data.length == sizeof(struct iw_scan_req) &&
 	    wrqu->data.flags & IW_SCAN_THIS_ESSID) {
 		req = (struct iw_scan_req *)extra;
-		len = min_t(int, req->essid_len, IW_ESSID_MAX_SIZE);
-		priv->scan_ssid_len = len;
-		memcpy(priv->scan_ssid, req->essid, len);
+		priv->scan_ssid_len = req->essid_len;
+		memcpy(priv->scan_ssid, req->essid, priv->scan_ssid_len);
 	} else {
 		priv->scan_ssid_len = 0;
 	}
@@ -2500,7 +2498,7 @@ int ks_wlan_set_mac_address(struct net_device *dev, void *addr)
 }
 
 static
-void ks_wlan_tx_timeout(struct net_device *dev, unsigned int txqueue)
+void ks_wlan_tx_timeout(struct net_device *dev)
 {
 	struct ks_wlan_private *priv = netdev_priv(dev);
 
@@ -2513,7 +2511,7 @@ void ks_wlan_tx_timeout(struct net_device *dev, unsigned int txqueue)
 }
 
 static
-netdev_tx_t ks_wlan_start_xmit(struct sk_buff *skb, struct net_device *dev)
+int ks_wlan_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ks_wlan_private *priv = netdev_priv(dev);
 	int ret;

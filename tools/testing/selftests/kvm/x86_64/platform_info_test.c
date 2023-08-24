@@ -58,7 +58,8 @@ static void test_msr_platform_info_enabled(struct kvm_vm *vm)
 			exit_reason_str(run->exit_reason));
 	get_ucall(vm, VCPU_ID, &uc);
 	TEST_ASSERT(uc.cmd == UCALL_SYNC,
-			"Received ucall other than UCALL_SYNC: %lu\n", uc.cmd);
+			"Received ucall other than UCALL_SYNC: %u\n",
+			ucall);
 	TEST_ASSERT((uc.args[1] & MSR_PLATFORM_INFO_MAX_TURBO_RATIO) ==
 		MSR_PLATFORM_INFO_MAX_TURBO_RATIO,
 		"Expected MSR_PLATFORM_INFO to have max turbo ratio mask: %i.",
@@ -80,6 +81,7 @@ static void test_msr_platform_info_disabled(struct kvm_vm *vm)
 int main(int argc, char *argv[])
 {
 	struct kvm_vm *vm;
+	struct kvm_run *state;
 	int rv;
 	uint64_t msr_platform_info;
 
@@ -88,7 +90,8 @@ int main(int argc, char *argv[])
 
 	rv = kvm_check_cap(KVM_CAP_MSR_PLATFORM_INFO);
 	if (!rv) {
-		print_skip("KVM_CAP_MSR_PLATFORM_INFO not supported");
+		fprintf(stderr,
+			"KVM_CAP_MSR_PLATFORM_INFO not supported, skip test\n");
 		exit(KSFT_SKIP);
 	}
 
@@ -97,8 +100,8 @@ int main(int argc, char *argv[])
 	msr_platform_info = vcpu_get_msr(vm, VCPU_ID, MSR_PLATFORM_INFO);
 	vcpu_set_msr(vm, VCPU_ID, MSR_PLATFORM_INFO,
 		msr_platform_info | MSR_PLATFORM_INFO_MAX_TURBO_RATIO);
-	test_msr_platform_info_enabled(vm);
 	test_msr_platform_info_disabled(vm);
+	test_msr_platform_info_enabled(vm);
 	vcpu_set_msr(vm, VCPU_ID, MSR_PLATFORM_INFO, msr_platform_info);
 
 	kvm_vm_free(vm);

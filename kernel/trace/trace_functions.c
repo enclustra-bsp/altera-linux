@@ -34,37 +34,29 @@ enum {
 	TRACE_FUNC_OPT_STACK	= 0x1,
 };
 
-int ftrace_allocate_ftrace_ops(struct trace_array *tr)
+static int allocate_ftrace_ops(struct trace_array *tr)
 {
 	struct ftrace_ops *ops;
-
-	/* The top level array uses the "global_ops" */
-	if (tr->flags & TRACE_ARRAY_FL_GLOBAL)
-		return 0;
 
 	ops = kzalloc(sizeof(*ops), GFP_KERNEL);
 	if (!ops)
 		return -ENOMEM;
 
-	/* Currently only the non stack version is supported */
+	/* Currently only the non stack verision is supported */
 	ops->func = function_trace_call;
 	ops->flags = FTRACE_OPS_FL_RECURSION_SAFE | FTRACE_OPS_FL_PID;
 
 	tr->ops = ops;
 	ops->private = tr;
-
 	return 0;
 }
 
-void ftrace_free_ftrace_ops(struct trace_array *tr)
-{
-	kfree(tr->ops);
-	tr->ops = NULL;
-}
 
 int ftrace_create_function_files(struct trace_array *tr,
 				 struct dentry *parent)
 {
+	int ret;
+
 	/*
 	 * The top level array uses the "global_ops", and the files are
 	 * created on boot up.
@@ -72,8 +64,9 @@ int ftrace_create_function_files(struct trace_array *tr,
 	if (tr->flags & TRACE_ARRAY_FL_GLOBAL)
 		return 0;
 
-	if (!tr->ops)
-		return -EINVAL;
+	ret = allocate_ftrace_ops(tr);
+	if (ret)
+		return ret;
 
 	ftrace_create_filter_files(tr->ops, parent);
 
@@ -83,7 +76,8 @@ int ftrace_create_function_files(struct trace_array *tr,
 void ftrace_destroy_function_files(struct trace_array *tr)
 {
 	ftrace_destroy_filter_files(tr->ops);
-	ftrace_free_ftrace_ops(tr);
+	kfree(tr->ops);
+	tr->ops = NULL;
 }
 
 static int function_trace_init(struct trace_array *tr)
@@ -107,7 +101,7 @@ static int function_trace_init(struct trace_array *tr)
 
 	ftrace_init_array_ops(tr, func);
 
-	tr->array_buffer.cpu = get_cpu();
+	tr->trace_buffer.cpu = get_cpu();
 	put_cpu();
 
 	tracing_start_cmdline_record();
@@ -124,7 +118,7 @@ static void function_trace_reset(struct trace_array *tr)
 
 static void function_trace_start(struct trace_array *tr)
 {
-	tracing_reset_online_cpus(&tr->array_buffer);
+	tracing_reset_online_cpus(&tr->trace_buffer);
 }
 
 static void
@@ -144,12 +138,12 @@ function_trace_call(unsigned long ip, unsigned long parent_ip,
 	pc = preempt_count();
 	preempt_disable_notrace();
 
-	bit = trace_test_and_set_recursion(TRACE_FTRACE_START);
+	bit = trace_test_and_set_recursion(TRACE_FTRACE_START, TRACE_FTRACE_MAX);
 	if (bit < 0)
 		goto out;
 
 	cpu = smp_processor_id();
-	data = per_cpu_ptr(tr->array_buffer.data, cpu);
+	data = per_cpu_ptr(tr->trace_buffer.data, cpu);
 	if (!atomic_read(&data->disabled)) {
 		local_save_flags(flags);
 		trace_function(tr, ip, parent_ip, flags, pc);
@@ -198,7 +192,7 @@ function_stack_trace_call(unsigned long ip, unsigned long parent_ip,
 	 */
 	local_irq_save(flags);
 	cpu = raw_smp_processor_id();
-	data = per_cpu_ptr(tr->array_buffer.data, cpu);
+	data = per_cpu_ptr(tr->trace_buffer.data, cpu);
 	disabled = atomic_inc_return(&data->disabled);
 
 	if (likely(disabled == 1)) {

@@ -1,6 +1,6 @@
 SECTIONS
 {
-  .rodata..compressed : ALIGN(8) {
+  .rodata..compressed : {
 	input_len = .;
 	LONG(input_data_end - input_data) input_data = .;
 	*(.data)

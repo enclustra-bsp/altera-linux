@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * at91sam9rlek.dts - Device Tree file for Atmel at91sam9rl reference board
  *
  *  Copyright (C) 2014 Microchip
  *  Alexandre Belloni <alexandre.belloni@free-electrons.com>
+ *
+ * Licensed under GPLv2 only
  */
 /dts-v1/;
 #include "at91sam9rl.dtsi"
@@ -17,7 +18,7 @@
 		stdout-path = "serial0:115200n8";
 	};
 
-	memory@20000000 {
+	memory {
 		reg = <0x20000000 0x4000000>;
 	};
 
@@ -36,7 +37,7 @@
 			display = <&display0>;
 			status = "okay";
 
-			display0: panel {
+			display0: display {
 				bits-per-pixel = <16>;
 				atmel,lcdcon-backlight;
 				atmel,dmacon = <0x1>;

@@ -38,18 +38,23 @@
 #include "rds.h"
 #include "tcp.h"
 
+static void rds_tcp_cork(struct socket *sock, int val)
+{
+	kernel_setsockopt(sock, SOL_TCP, TCP_CORK, (void *)&val, sizeof(val));
+}
+
 void rds_tcp_xmit_path_prepare(struct rds_conn_path *cp)
 {
 	struct rds_tcp_connection *tc = cp->cp_transport_data;
 
-	tcp_sock_set_cork(tc->t_sock->sk, true);
+	rds_tcp_cork(tc->t_sock, 1);
 }
 
 void rds_tcp_xmit_path_complete(struct rds_conn_path *cp)
 {
 	struct rds_tcp_connection *tc = cp->cp_transport_data;
 
-	tcp_sock_set_cork(tc->t_sock->sk, false);
+	rds_tcp_cork(tc->t_sock, 0);
 }
 
 /* the core send_sem serializes this with other xmit and shutdown */

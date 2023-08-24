@@ -1,14 +1,17 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * AMD Memory Encryption Support
  *
  * Copyright (C) 2016 Advanced Micro Devices, Inc.
  *
  * Author: Tom Lendacky <thomas.lendacky@amd.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/linkage.h>
-#include <linux/pgtable.h>
+#include <asm/pgtable.h>
 #include <asm/page.h>
 #include <asm/processor-flags.h>
 #include <asm/msr-index.h>
@@ -16,7 +19,7 @@
 
 	.text
 	.code64
-SYM_FUNC_START(sme_encrypt_execute)
+ENTRY(sme_encrypt_execute)
 
 	/*
 	 * Entry parameters:
@@ -66,9 +69,9 @@ SYM_FUNC_START(sme_encrypt_execute)
 	pop	%rbp
 
 	ret
-SYM_FUNC_END(sme_encrypt_execute)
+ENDPROC(sme_encrypt_execute)
 
-SYM_FUNC_START(__enc_copy)
+ENTRY(__enc_copy)
 /*
  * Routine used to encrypt memory in place.
  *   This routine must be run outside of the kernel proper since
@@ -153,4 +156,4 @@ SYM_FUNC_START(__enc_copy)
 
 	ret
 .L__enc_copy_end:
-SYM_FUNC_END(__enc_copy)
+ENDPROC(__enc_copy)

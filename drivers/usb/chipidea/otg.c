@@ -23,7 +23,6 @@
 
 /**
  * hw_read_otgsc returns otgsc register bits value.
- * @ci: the controller
  * @mask: bitfield mask
  */
 u32 hw_read_otgsc(struct ci_hdrc *ci, u32 mask)
@@ -36,7 +35,7 @@ u32 hw_read_otgsc(struct ci_hdrc *ci, u32 mask)
 	 * detection overwrite OTGSC register value
 	 */
 	cable = &ci->platdata->vbus_extcon;
-	if (!IS_ERR(cable->edev) || ci->role_switch) {
+	if (!IS_ERR(cable->edev)) {
 		if (cable->changed)
 			val |= OTGSC_BSVIS;
 		else
@@ -54,7 +53,7 @@ u32 hw_read_otgsc(struct ci_hdrc *ci, u32 mask)
 	}
 
 	cable = &ci->platdata->id_extcon;
-	if (!IS_ERR(cable->edev) || ci->role_switch) {
+	if (!IS_ERR(cable->edev)) {
 		if (cable->changed)
 			val |= OTGSC_IDIS;
 		else
@@ -76,7 +75,6 @@ u32 hw_read_otgsc(struct ci_hdrc *ci, u32 mask)
 
 /**
  * hw_write_otgsc updates target bits of OTGSC register.
- * @ci: the controller
  * @mask: bitfield mask
  * @data: to be written
  */
@@ -85,7 +83,7 @@ void hw_write_otgsc(struct ci_hdrc *ci, u32 mask, u32 data)
 	struct ci_hdrc_cable *cable;
 
 	cable = &ci->platdata->vbus_extcon;
-	if (!IS_ERR(cable->edev) || ci->role_switch) {
+	if (!IS_ERR(cable->edev)) {
 		if (data & mask & OTGSC_BSVIS)
 			cable->changed = false;
 
@@ -99,7 +97,7 @@ void hw_write_otgsc(struct ci_hdrc *ci, u32 mask, u32 data)
 	}
 
 	cable = &ci->platdata->id_extcon;
-	if (!IS_ERR(cable->edev) || ci->role_switch) {
+	if (!IS_ERR(cable->edev)) {
 		if (data & mask & OTGSC_IDIS)
 			cable->changed = false;
 
@@ -172,13 +170,6 @@ static void ci_handle_id_switch(struct ci_hdrc *ci)
 		dev_dbg(ci->dev, "switching from %s to %s\n",
 			ci_role(ci)->name, ci->roles[role]->name);
 
-		if (ci->vbus_active && ci->role == CI_ROLE_GADGET)
-			/*
-			 * vbus disconnect event is lost due to role
-			 * switch occurs during system suspend.
-			 */
-			usb_gadget_vbus_disconnect(&ci->gadget);
-
 		ci_role_stop(ci);
 
 		if (role == CI_ROLE_GADGET &&
@@ -231,7 +222,7 @@ static void ci_otg_work(struct work_struct *work)
 
 /**
  * ci_hdrc_otg_init - initialize otg struct
- * @ci: the controller
+ * ci: the controller
  */
 int ci_hdrc_otg_init(struct ci_hdrc *ci)
 {
@@ -250,7 +241,7 @@ int ci_hdrc_otg_init(struct ci_hdrc *ci)
 
 /**
  * ci_hdrc_otg_destroy - destroy otg struct
- * @ci: the controller
+ * ci: the controller
  */
 void ci_hdrc_otg_destroy(struct ci_hdrc *ci)
 {

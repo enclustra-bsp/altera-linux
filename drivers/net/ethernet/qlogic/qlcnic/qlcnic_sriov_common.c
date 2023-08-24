@@ -1,7 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * QLogic qlcnic NIC Driver
  * Copyright (c) 2009-2013 QLogic Corporation
+ *
+ * See LICENSE.qlcnic for copyright and licensing details.
  */
 
 #include <linux/types.h>
@@ -432,7 +433,7 @@ static int qlcnic_sriov_set_guest_vlan_mode(struct qlcnic_adapter *adapter,
 					    struct qlcnic_cmd_args *cmd)
 {
 	struct qlcnic_sriov *sriov = adapter->ahw->sriov;
-	int i, num_vlans, ret;
+	int i, num_vlans;
 	u16 *vlans;
 
 	if (sriov->allowed_vlans)
@@ -443,9 +444,7 @@ static int qlcnic_sriov_set_guest_vlan_mode(struct qlcnic_adapter *adapter,
 	dev_info(&adapter->pdev->dev, "Number of allowed Guest VLANs = %d\n",
 		 sriov->num_allowed_vlans);
 
-	ret = qlcnic_sriov_alloc_vlans(adapter);
-	if (ret)
-		return ret;
+	qlcnic_sriov_alloc_vlans(adapter);
 
 	if (!sriov->any_vlan)
 		return 0;
@@ -1583,10 +1582,10 @@ void qlcnic_sriov_vf_set_multi(struct net_device *netdev)
 		if (mode == VPORT_MISS_MODE_ACCEPT_ALL &&
 		    !adapter->fdb_mac_learn) {
 			qlcnic_alloc_lb_filters_mem(adapter);
-			adapter->drv_mac_learn = true;
+			adapter->drv_mac_learn = 1;
 			adapter->rx_mac_learn = true;
 		} else {
-			adapter->drv_mac_learn = false;
+			adapter->drv_mac_learn = 0;
 			adapter->rx_mac_learn = false;
 		}
 	}
@@ -2161,7 +2160,7 @@ static int qlcnic_sriov_vf_resume(struct qlcnic_adapter *adapter)
 	return err;
 }
 
-int qlcnic_sriov_alloc_vlans(struct qlcnic_adapter *adapter)
+void qlcnic_sriov_alloc_vlans(struct qlcnic_adapter *adapter)
 {
 	struct qlcnic_sriov *sriov = adapter->ahw->sriov;
 	struct qlcnic_vf_info *vf;
@@ -2171,11 +2170,7 @@ int qlcnic_sriov_alloc_vlans(struct qlcnic_adapter *adapter)
 		vf = &sriov->vf_info[i];
 		vf->sriov_vlans = kcalloc(sriov->num_allowed_vlans,
 					  sizeof(*vf->sriov_vlans), GFP_KERNEL);
-		if (!vf->sriov_vlans)
-			return -ENOMEM;
 	}
-
-	return 0;
 }
 
 void qlcnic_sriov_free_vlans(struct qlcnic_adapter *adapter)

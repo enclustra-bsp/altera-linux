@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Hisilicon Ltd. HiP04 SoC
  *
@@ -6,6 +5,10 @@
  * Copyright (C) 2013-2014 Linaro Ltd.
  *
  * Author: Haojian Zhuang <haojian.zhuang@linaro.org>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 / {
@@ -213,7 +216,7 @@
 		};
 
 		sysctrl: sysctrl {
-			compatible = "hisilicon,sysctrl", "syscon";
+			compatible = "hisilicon,sysctrl";
 			reg = <0x3e00000 0x00100000>;
 		};
 
@@ -226,8 +229,8 @@
 			compatible = "arm,sp804", "arm,primecell";
 			reg = <0x3000000 0x1000>;
 			interrupts = <0 224 4>;
-			clocks = <&clk_50m>, <&clk_50m>, <&clk_50m>;
-			clock-names = "timer0clk", "timer1clk", "apb_pclk";
+			clocks = <&clk_50m>, <&clk_50m>;
+			clock-names = "apb_pclk";
 		};
 
 		arm-pmu {
@@ -347,7 +350,7 @@
 		/* non-configurable replicators don't show up on the
 		 * AMBA bus.  As such no need to add "arm,primecell".
 		 */
-		compatible = "arm,coresight-static-replicator";
+		compatible = "arm,coresight-replicator";
 
 		out-ports {
 			#address-cells = <1>;
@@ -382,7 +385,7 @@
 		/* non-configurable replicators don't show up on the
 		 * AMBA bus.  As such no need to add "arm,primecell".
 		 */
-		compatible = "arm,coresight-static-replicator";
+		compatible = "arm,coresight-replicator";
 
 		out-ports {
 			#address-cells = <1>;
@@ -417,7 +420,7 @@
 		/* non-configurable replicators don't show up on the
 		 * AMBA bus.  As such no need to add "arm,primecell".
 		 */
-		compatible = "arm,coresight-static-replicator";
+		compatible = "arm,coresight-replicator";
 
 		out-ports {
 			#address-cells = <1>;
@@ -451,7 +454,7 @@
 		/* non-configurable replicators don't show up on the
 		 * AMBA bus.  As such no need to add "arm,primecell".
 		 */
-		compatible = "arm,coresight-static-replicator";
+		compatible = "arm,coresight-replicator";
 
 		out-ports {
 			#address-cells = <1>;
@@ -482,7 +485,7 @@
 	};
 
 	funnel@0,e3c41000 {
-		compatible = "arm,coresight-dynamic-funnel", "arm,primecell";
+		compatible = "arm,coresight-funnel", "arm,primecell";
 		reg = <0 0xe3c41000 0 0x1000>;
 
 		clocks = <&clk_375m>;
@@ -531,7 +534,7 @@
 	};
 
 	funnel@0,e3c81000 {
-		compatible = "arm,coresight-dynamic-funnel", "arm,primecell";
+		compatible = "arm,coresight-funnel", "arm,primecell";
 		reg = <0 0xe3c81000 0 0x1000>;
 
 		clocks = <&clk_375m>;
@@ -580,7 +583,7 @@
 	};
 
 	funnel@0,e3cc1000 {
-		compatible = "arm,coresight-dynamic-funnel", "arm,primecell";
+		compatible = "arm,coresight-funnel", "arm,primecell";
 		reg = <0 0xe3cc1000 0 0x1000>;
 
 		clocks = <&clk_375m>;
@@ -629,7 +632,7 @@
 	};
 
 	funnel@0,e3d01000 {
-		compatible = "arm,coresight-dynamic-funnel", "arm,primecell";
+		compatible = "arm,coresight-funnel", "arm,primecell";
 		reg = <0 0xe3d01000 0 0x1000>;
 
 		clocks = <&clk_375m>;
@@ -678,7 +681,7 @@
 	};
 
 	funnel@0,e3c04000 {
-		compatible = "arm,coresight-dynamic-funnel", "arm,primecell";
+		compatible = "arm,coresight-funnel", "arm,primecell";
 		reg = <0 0xe3c04000 0 0x1000>;
 
 		clocks = <&clk_375m>;

@@ -822,6 +822,17 @@ out:
 	spin_unlock_irqrestore(&d->lock, flags);
 }
 
+static unsigned long
+rqbiocnt(struct request *r)
+{
+	struct bio *bio;
+	unsigned long n = 0;
+
+	__rq_for_each_bio(bio, r)
+		n++;
+	return n;
+}
+
 static void
 bufinit(struct buf *buf, struct request *rq, struct bio *bio)
 {
@@ -836,7 +847,6 @@ nextbuf(struct aoedev *d)
 {
 	struct request *rq;
 	struct request_queue *q;
-	struct aoe_req *req;
 	struct buf *buf;
 	struct bio *bio;
 
@@ -855,11 +865,7 @@ nextbuf(struct aoedev *d)
 		blk_mq_start_request(rq);
 		d->ip.rq = rq;
 		d->ip.nxbio = rq->bio;
-
-		req = blk_mq_rq_to_pdu(rq);
-		req->nr_bios = 0;
-		__rq_for_each_bio(bio, rq)
-			req->nr_bios++;
+		rq->special = (void *) rqbiocnt(rq);
 	}
 	buf = mempool_alloc(d->bufpool, GFP_ATOMIC);
 	if (buf == NULL) {
@@ -900,7 +906,9 @@ aoecmd_sleepwork(struct work_struct *work)
 		ssize = get_capacity(d->gd);
 		bd = bdget_disk(d->gd, 0);
 		if (bd) {
-			bd_set_nr_sectors(bd, ssize);
+			inode_lock(bd->bd_inode);
+			i_size_write(bd->bd_inode, (loff_t)ssize<<9);
+			inode_unlock(bd->bd_inode);
 			bdput(bd);
 		}
 		spin_lock_irq(&d->lock);
@@ -1061,13 +1069,16 @@ aoe_end_request(struct aoedev *d, struct request *rq, int fastfail)
 static void
 aoe_end_buf(struct aoedev *d, struct buf *buf)
 {
-	struct request *rq = buf->rq;
-	struct aoe_req *req = blk_mq_rq_to_pdu(rq);
+	struct request *rq;
+	unsigned long n;
 
 	if (buf == d->ip.buf)
 		d->ip.buf = NULL;
+	rq = buf->rq;
 	mempool_free(buf, d->bufpool);
-	if (--req->nr_bios == 0)
+	n = (unsigned long) rq->special;
+	rq->special = (void *) --n;
+	if (n == 0)
 		aoe_end_request(d, rq, 0);
 }
 
@@ -1133,7 +1144,7 @@ noskb:		if (buf)
 			break;
 		}
 		bvcpy(skb, f->buf->bio, f->iter, n);
-		fallthrough;
+		/* fall through */
 	case ATA_CMD_PIO_WRITE:
 	case ATA_CMD_PIO_WRITE_EXT:
 		spin_lock_irq(&d->lock);

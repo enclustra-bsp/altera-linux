@@ -18,6 +18,7 @@
 
 #include <linux/nl80211.h>
 #include <linux/pci.h>
+#include <linux/pci-aspm.h>
 #include <linux/etherdevice.h>
 #include <linux/module.h>
 #include "../ath.h"
@@ -300,7 +301,8 @@ ath5k_pci_remove(struct pci_dev *pdev)
 #ifdef CONFIG_PM_SLEEP
 static int ath5k_pci_suspend(struct device *dev)
 {
-	struct ieee80211_hw *hw = dev_get_drvdata(dev);
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct ieee80211_hw *hw = pci_get_drvdata(pdev);
 	struct ath5k_hw *ah = hw->priv;
 
 	ath5k_led_off(ah);

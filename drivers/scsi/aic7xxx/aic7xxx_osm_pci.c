@@ -250,7 +250,6 @@ ahc_linux_pci_dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		}
 	}
 	ahc->dev_softc = pci;
-	ahc->dev = &pci->dev;
 	error = ahc_pci_config(ahc, entry);
 	if (error != 0) {
 		ahc_free(ahc);
@@ -372,7 +371,7 @@ ahc_linux_pci_reserve_mem_region(struct ahc_softc *ahc,
 		if (!request_mem_region(start, 0x1000, "aic7xxx"))
 			error = ENOMEM;
 		if (error == 0) {
-			*maddr = ioremap(start, 256);
+			*maddr = ioremap_nocache(start, 256);
 			if (*maddr == NULL) {
 				error = ENOMEM;
 				release_mem_region(start, 0x1000);

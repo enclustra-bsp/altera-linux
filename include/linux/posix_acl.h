@@ -28,7 +28,7 @@ struct posix_acl {
 	refcount_t		a_refcount;
 	struct rcu_head		a_rcu;
 	unsigned int		a_count;
-	struct posix_acl_entry	a_entries[];
+	struct posix_acl_entry	a_entries[0];
 };
 
 #define FOREACH_ACL_ENTRY(pa, acl, pe) \

@@ -5,8 +5,9 @@
 #define __ASM_CSKY_REGDEF_H
 
 #define syscallid	r7
+#define r11_sig		r11
+
 #define regs_syscallid(regs) regs->regs[3]
-#define regs_fp(regs) regs->regs[4]
 
 /*
  * PSR format:
@@ -21,7 +22,5 @@
 #define DEFAULT_PSR_VALUE	0x80000200
 
 #define SYSTRACE_SAVENUM	5
-
-#define TRAP0_SIZE		4
 
 #endif /* __ASM_CSKY_REGDEF_H */

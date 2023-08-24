@@ -1,7 +1,15 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2008 ARM Limited
  * Copyright (C) 2014 Regents of the University of California
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  */
 
 #include <linux/export.h>
@@ -12,8 +20,6 @@
 #include <linux/stacktrace.h>
 #include <linux/ftrace.h>
 
-register unsigned long sp_in_global __asm__("sp");
-
 #ifdef CONFIG_FRAME_POINTER
 
 struct stackframe {
@@ -21,17 +27,17 @@ struct stackframe {
 	unsigned long ra;
 };
 
-void notrace walk_stackframe(struct task_struct *task, struct pt_regs *regs,
-			     bool (*fn)(unsigned long, void *), void *arg)
+static void notrace walk_stackframe(struct task_struct *task,
+	struct pt_regs *regs, bool (*fn)(unsigned long, void *), void *arg)
 {
 	unsigned long fp, sp, pc;
 
 	if (regs) {
-		fp = frame_pointer(regs);
-		sp = user_stack_pointer(regs);
-		pc = instruction_pointer(regs);
+		fp = GET_FP(regs);
+		sp = GET_USP(regs);
+		pc = GET_IP(regs);
 	} else if (task == NULL || task == current) {
-		const register unsigned long current_sp = sp_in_global;
+		const register unsigned long current_sp __asm__ ("sp");
 		fp = (unsigned long)__builtin_frame_address(0);
 		sp = current_sp;
 		pc = (unsigned long)walk_stackframe;
@@ -58,24 +64,29 @@ void notrace walk_stackframe(struct task_struct *task, struct pt_regs *regs,
 		frame = (struct stackframe *)fp - 1;
 		sp = fp;
 		fp = frame->fp;
+#ifdef HAVE_FUNCTION_GRAPH_RET_ADDR_PTR
 		pc = ftrace_graph_ret_addr(current, NULL, frame->ra,
 					   (unsigned long *)(fp - 8));
+#else
+		pc = frame->ra - 0x4;
+#endif
 	}
 }
 
 #else /* !CONFIG_FRAME_POINTER */
 
-void notrace walk_stackframe(struct task_struct *task,
+static void notrace walk_stackframe(struct task_struct *task,
 	struct pt_regs *regs, bool (*fn)(unsigned long, void *), void *arg)
 {
 	unsigned long sp, pc;
 	unsigned long *ksp;
 
 	if (regs) {
-		sp = user_stack_pointer(regs);
-		pc = instruction_pointer(regs);
+		sp = GET_USP(regs);
+		pc = GET_IP(regs);
 	} else if (task == NULL || task == current) {
-		sp = sp_in_global;
+		const register unsigned long current_sp __asm__ ("sp");
+		sp = current_sp;
 		pc = (unsigned long)walk_stackframe;
 	} else {
 		/* task blocked in __switch_to */
@@ -99,17 +110,16 @@ void notrace walk_stackframe(struct task_struct *task,
 
 static bool print_trace_address(unsigned long pc, void *arg)
 {
-	const char *loglvl = arg;
-
-	print_ip_sym(loglvl, pc);
+	print_ip_sym(pc);
 	return false;
 }
 
-void show_stack(struct task_struct *task, unsigned long *sp, const char *loglvl)
+void show_stack(struct task_struct *task, unsigned long *sp)
 {
 	pr_cont("Call Trace:\n");
-	walk_stackframe(task, NULL, print_trace_address, (void *)loglvl);
+	walk_stackframe(task, NULL, print_trace_address, NULL);
 }
+
 
 static bool save_wchan(unsigned long pc, void *arg)
 {
@@ -159,6 +169,8 @@ static bool save_trace(unsigned long pc, void *arg)
 void save_stack_trace_tsk(struct task_struct *tsk, struct stack_trace *trace)
 {
 	walk_stackframe(tsk, NULL, save_trace, trace);
+	if (trace->nr_entries < trace->max_entries)
+		trace->entries[trace->nr_entries++] = ULONG_MAX;
 }
 EXPORT_SYMBOL_GPL(save_stack_trace_tsk);
 

@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Support code for Analog Devices Sigma-Delta ADCs
  *
  * Copyright 2012 Analog Devices Inc.
  *  Author: Lars-Peter Clausen <lars@metafoo.de>
+ *
+ * Licensed under the GPL-2.
  */
 
 #include <linux/interrupt.h>
@@ -57,11 +58,11 @@ EXPORT_SYMBOL_GPL(ad_sd_set_comm);
 int ad_sd_write_reg(struct ad_sigma_delta *sigma_delta, unsigned int reg,
 	unsigned int size, unsigned int val)
 {
-	uint8_t *data = sigma_delta->tx_buf;
+	uint8_t *data = sigma_delta->data;
 	struct spi_transfer t = {
 		.tx_buf		= data,
 		.len		= size + 1,
-		.cs_change	= sigma_delta->keep_cs_asserted,
+		.cs_change	= sigma_delta->bus_locked,
 	};
 	struct spi_message m;
 	int ret;
@@ -70,7 +71,9 @@ int ad_sd_write_reg(struct ad_sigma_delta *sigma_delta, unsigned int reg,
 
 	switch (size) {
 	case 3:
-		put_unaligned_be24(val, &data[1]);
+		data[1] = val >> 16;
+		data[2] = val >> 8;
+		data[3] = val;
 		break;
 	case 2:
 		put_unaligned_be16(val, &data[1]);
@@ -99,7 +102,7 @@ EXPORT_SYMBOL_GPL(ad_sd_write_reg);
 static int ad_sd_read_reg_raw(struct ad_sigma_delta *sigma_delta,
 	unsigned int reg, unsigned int size, uint8_t *val)
 {
-	uint8_t *data = sigma_delta->tx_buf;
+	uint8_t *data = sigma_delta->data;
 	int ret;
 	struct spi_transfer t[] = {
 		{
@@ -118,7 +121,6 @@ static int ad_sd_read_reg_raw(struct ad_sigma_delta *sigma_delta,
 	if (sigma_delta->info->has_registers) {
 		data[0] = reg << sigma_delta->info->addr_shift;
 		data[0] |= sigma_delta->info->read_mask;
-		data[0] |= sigma_delta->comm;
 		spi_message_add_tail(&t[0], &m);
 	}
 	spi_message_add_tail(&t[1], &m);
@@ -146,22 +148,24 @@ int ad_sd_read_reg(struct ad_sigma_delta *sigma_delta,
 {
 	int ret;
 
-	ret = ad_sd_read_reg_raw(sigma_delta, reg, size, sigma_delta->rx_buf);
+	ret = ad_sd_read_reg_raw(sigma_delta, reg, size, sigma_delta->data);
 	if (ret < 0)
 		goto out;
 
 	switch (size) {
 	case 4:
-		*val = get_unaligned_be32(sigma_delta->rx_buf);
+		*val = get_unaligned_be32(sigma_delta->data);
 		break;
 	case 3:
-		*val = get_unaligned_be24(sigma_delta->rx_buf);
+		*val = (sigma_delta->data[0] << 16) |
+			(sigma_delta->data[1] << 8) |
+			sigma_delta->data[2];
 		break;
 	case 2:
-		*val = get_unaligned_be16(sigma_delta->rx_buf);
+		*val = get_unaligned_be16(sigma_delta->data);
 		break;
 	case 1:
-		*val = sigma_delta->rx_buf[0];
+		*val = sigma_delta->data[0];
 		break;
 	default:
 		ret = -EINVAL;
@@ -201,7 +205,7 @@ int ad_sd_reset(struct ad_sigma_delta *sigma_delta,
 }
 EXPORT_SYMBOL_GPL(ad_sd_reset);
 
-int ad_sd_calibrate(struct ad_sigma_delta *sigma_delta,
+static int ad_sd_calibrate(struct ad_sigma_delta *sigma_delta,
 	unsigned int mode, unsigned int channel)
 {
 	int ret;
@@ -213,7 +217,6 @@ int ad_sd_calibrate(struct ad_sigma_delta *sigma_delta,
 
 	spi_bus_lock(sigma_delta->spi->master);
 	sigma_delta->bus_locked = true;
-	sigma_delta->keep_cs_asserted = true;
 	reinit_completion(&sigma_delta->completion);
 
 	ret = ad_sigma_delta_set_mode(sigma_delta, mode);
@@ -231,14 +234,12 @@ int ad_sd_calibrate(struct ad_sigma_delta *sigma_delta,
 		ret = 0;
 	}
 out:
-	sigma_delta->keep_cs_asserted = false;
-	ad_sigma_delta_set_mode(sigma_delta, AD_SD_MODE_IDLE);
 	sigma_delta->bus_locked = false;
 	spi_bus_unlock(sigma_delta->spi->master);
+	ad_sigma_delta_set_mode(sigma_delta, AD_SD_MODE_IDLE);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(ad_sd_calibrate);
 
 /**
  * ad_sd_calibrate_all() - Performs channel calibration
@@ -277,7 +278,6 @@ int ad_sigma_delta_single_conversion(struct iio_dev *indio_dev,
 {
 	struct ad_sigma_delta *sigma_delta = iio_device_get_drvdata(indio_dev);
 	unsigned int sample, raw_sample;
-	unsigned int data_reg;
 	int ret = 0;
 
 	if (iio_buffer_enabled(indio_dev))
@@ -288,7 +288,6 @@ int ad_sigma_delta_single_conversion(struct iio_dev *indio_dev,
 
 	spi_bus_lock(sigma_delta->spi->master);
 	sigma_delta->bus_locked = true;
-	sigma_delta->keep_cs_asserted = true;
 	reinit_completion(&sigma_delta->completion);
 
 	ad_sigma_delta_set_mode(sigma_delta, AD_SD_MODE_SINGLE);
@@ -298,17 +297,15 @@ int ad_sigma_delta_single_conversion(struct iio_dev *indio_dev,
 	ret = wait_for_completion_interruptible_timeout(
 			&sigma_delta->completion, HZ);
 
+	sigma_delta->bus_locked = false;
+	spi_bus_unlock(sigma_delta->spi->master);
+
 	if (ret == 0)
 		ret = -EIO;
 	if (ret < 0)
 		goto out;
 
-	if (sigma_delta->info->data_reg != 0)
-		data_reg = sigma_delta->info->data_reg;
-	else
-		data_reg = AD_SD_REG_DATA;
-
-	ret = ad_sd_read_reg(sigma_delta, data_reg,
+	ret = ad_sd_read_reg(sigma_delta, AD_SD_REG_DATA,
 		DIV_ROUND_UP(chan->scan_type.realbits + chan->scan_type.shift, 8),
 		&raw_sample);
 
@@ -318,10 +315,7 @@ out:
 		sigma_delta->irq_dis = true;
 	}
 
-	sigma_delta->keep_cs_asserted = false;
 	ad_sigma_delta_set_mode(sigma_delta, AD_SD_MODE_IDLE);
-	sigma_delta->bus_locked = false;
-	spi_bus_unlock(sigma_delta->spi->master);
 	mutex_unlock(&indio_dev->mlock);
 
 	if (ret)
@@ -345,17 +339,19 @@ static int ad_sd_buffer_postenable(struct iio_dev *indio_dev)
 	unsigned int channel;
 	int ret;
 
+	ret = iio_triggered_buffer_postenable(indio_dev);
+	if (ret < 0)
+		return ret;
+
 	channel = find_first_bit(indio_dev->active_scan_mask,
 				 indio_dev->masklength);
 	ret = ad_sigma_delta_set_channel(sigma_delta,
 		indio_dev->channels[channel].address);
 	if (ret)
-		return ret;
+		goto err_predisable;
 
 	spi_bus_lock(sigma_delta->spi->master);
 	sigma_delta->bus_locked = true;
-	sigma_delta->keep_cs_asserted = true;
-
 	ret = ad_sigma_delta_set_mode(sigma_delta, AD_SD_MODE_CONTINUOUS);
 	if (ret)
 		goto err_unlock;
@@ -367,6 +363,7 @@ static int ad_sd_buffer_postenable(struct iio_dev *indio_dev)
 
 err_unlock:
 	spi_bus_unlock(sigma_delta->spi->master);
+err_predisable:
 
 	return ret;
 }
@@ -383,7 +380,6 @@ static int ad_sd_buffer_postdisable(struct iio_dev *indio_dev)
 		sigma_delta->irq_dis = true;
 	}
 
-	sigma_delta->keep_cs_asserted = false;
 	ad_sigma_delta_set_mode(sigma_delta, AD_SD_MODE_IDLE);
 
 	sigma_delta->bus_locked = false;
@@ -395,29 +391,28 @@ static irqreturn_t ad_sd_trigger_handler(int irq, void *p)
 	struct iio_poll_func *pf = p;
 	struct iio_dev *indio_dev = pf->indio_dev;
 	struct ad_sigma_delta *sigma_delta = iio_device_get_drvdata(indio_dev);
-	uint8_t *data = sigma_delta->rx_buf;
 	unsigned int reg_size;
-	unsigned int data_reg;
+	uint8_t data[16];
+	int ret;
+
+	memset(data, 0x00, 16);
 
 	reg_size = indio_dev->channels[0].scan_type.realbits +
 			indio_dev->channels[0].scan_type.shift;
 	reg_size = DIV_ROUND_UP(reg_size, 8);
 
-	if (sigma_delta->info->data_reg != 0)
-		data_reg = sigma_delta->info->data_reg;
-	else
-		data_reg = AD_SD_REG_DATA;
-
 	switch (reg_size) {
 	case 4:
 	case 2:
 	case 1:
-		ad_sd_read_reg_raw(sigma_delta, data_reg, reg_size, &data[0]);
+		ret = ad_sd_read_reg_raw(sigma_delta, AD_SD_REG_DATA,
+			reg_size, &data[0]);
 		break;
 	case 3:
 		/* We store 24 bit samples in a 32 bit word. Keep the upper
 		 * byte set to zero. */
-		ad_sd_read_reg_raw(sigma_delta, data_reg, reg_size, &data[1]);
+		ret = ad_sd_read_reg_raw(sigma_delta, AD_SD_REG_DATA,
+			reg_size, &data[1]);
 		break;
 	}
 
@@ -432,6 +427,7 @@ static irqreturn_t ad_sd_trigger_handler(int irq, void *p)
 
 static const struct iio_buffer_setup_ops ad_sd_buffer_setup_ops = {
 	.postenable = &ad_sd_buffer_postenable,
+	.predisable = &iio_triggered_buffer_predisable,
 	.postdisable = &ad_sd_buffer_postdisable,
 	.validate_scan_mask = &iio_validate_scan_mask_onehot,
 };
@@ -486,7 +482,7 @@ static int ad_sd_probe_trigger(struct iio_dev *indio_dev)
 
 	ret = request_irq(sigma_delta->spi->irq,
 			  ad_sd_data_rdy_trig_poll,
-			  sigma_delta->info->irq_flags,
+			  IRQF_TRIGGER_LOW,
 			  indio_dev->name,
 			  sigma_delta);
 	if (ret)

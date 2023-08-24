@@ -6,16 +6,14 @@
  *          Yannick Fertre <yannick.fertre@st.com>
  */
 
-#include <linux/delay.h>
+#include <linux/backlight.h>
 #include <linux/gpio/consumer.h>
-#include <linux/mod_devicetable.h>
-#include <linux/module.h>
 #include <linux/regulator/consumer.h>
 
 #include <video/mipi_display.h>
 
+#include <drm/drmP.h>
 #include <drm/drm_mipi_dsi.h>
-#include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
 
 /*** Manufacturer Command Set ***/
@@ -77,6 +75,7 @@ struct rm68200 {
 	struct drm_panel panel;
 	struct gpio_desc *reset_gpio;
 	struct regulator *supply;
+	struct backlight_device *backlight;
 	bool prepared;
 	bool enabled;
 };
@@ -91,6 +90,7 @@ static const struct drm_display_mode default_mode = {
 	.vsync_start = 1280 + 12,
 	.vsync_end = 1280 + 12 + 4,
 	.vtotal = 1280 + 12 + 4 + 12,
+	.vrefresh = 50,
 	.flags = 0,
 	.width_mm = 68,
 	.height_mm = 122,
@@ -109,7 +109,8 @@ static void rm68200_dcs_write_buf(struct rm68200 *ctx, const void *data,
 
 	err = mipi_dsi_dcs_write_buffer(dsi, data, len);
 	if (err < 0)
-		dev_err_ratelimited(ctx->dev, "MIPI DSI DCS write buffer failed: %d\n", err);
+		DRM_ERROR_RATELIMITED("MIPI DSI DCS write buffer failed: %d\n",
+				      err);
 }
 
 static void rm68200_dcs_write_cmd(struct rm68200 *ctx, u8 cmd, u8 value)
@@ -119,7 +120,7 @@ static void rm68200_dcs_write_cmd(struct rm68200 *ctx, u8 cmd, u8 value)
 
 	err = mipi_dsi_dcs_write(dsi, cmd, &value, 1);
 	if (err < 0)
-		dev_err_ratelimited(ctx->dev, "MIPI DSI DCS write failed: %d\n", err);
+		DRM_ERROR_RATELIMITED("MIPI DSI DCS write failed: %d\n", err);
 }
 
 #define dcs_write_seq(ctx, seq...)				\
@@ -238,6 +239,8 @@ static int rm68200_disable(struct drm_panel *panel)
 	if (!ctx->enabled)
 		return 0;
 
+	backlight_disable(ctx->backlight);
+
 	ctx->enabled = false;
 
 	return 0;
@@ -254,11 +257,11 @@ static int rm68200_unprepare(struct drm_panel *panel)
 
 	ret = mipi_dsi_dcs_set_display_off(dsi);
 	if (ret)
-		dev_warn(panel->dev, "failed to set display off: %d\n", ret);
+		DRM_WARN("failed to set display off: %d\n", ret);
 
 	ret = mipi_dsi_dcs_enter_sleep_mode(dsi);
 	if (ret)
-		dev_warn(panel->dev, "failed to enter sleep mode: %d\n", ret);
+		DRM_WARN("failed to enter sleep mode: %d\n", ret);
 
 	msleep(120);
 
@@ -285,7 +288,7 @@ static int rm68200_prepare(struct drm_panel *panel)
 
 	ret = regulator_enable(ctx->supply);
 	if (ret < 0) {
-		dev_err(ctx->dev, "failed to enable supply: %d\n", ret);
+		DRM_ERROR("failed to enable supply: %d\n", ret);
 		return ret;
 	}
 
@@ -322,31 +325,32 @@ static int rm68200_enable(struct drm_panel *panel)
 	if (ctx->enabled)
 		return 0;
 
+	backlight_enable(ctx->backlight);
+
 	ctx->enabled = true;
 
 	return 0;
 }
 
-static int rm68200_get_modes(struct drm_panel *panel,
-			     struct drm_connector *connector)
+static int rm68200_get_modes(struct drm_panel *panel)
 {
 	struct drm_display_mode *mode;
 
-	mode = drm_mode_duplicate(connector->dev, &default_mode);
+	mode = drm_mode_duplicate(panel->drm, &default_mode);
 	if (!mode) {
-		dev_err(panel->dev, "failed to add mode %ux%u@%u\n",
-			default_mode.hdisplay, default_mode.vdisplay,
-			drm_mode_vrefresh(&default_mode));
+		DRM_ERROR("failed to add mode %ux%ux@%u\n",
+			  default_mode.hdisplay, default_mode.vdisplay,
+			  default_mode.vrefresh);
 		return -ENOMEM;
 	}
 
 	drm_mode_set_name(mode);
 
 	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
-	drm_mode_probed_add(connector, mode);
+	drm_mode_probed_add(panel->connector, mode);
 
-	connector->display_info.width_mm = mode->width_mm;
-	connector->display_info.height_mm = mode->height_mm;
+	panel->connector->display_info.width_mm = mode->width_mm;
+	panel->connector->display_info.height_mm = mode->height_mm;
 
 	return 1;
 }
@@ -379,10 +383,13 @@ static int rm68200_probe(struct mipi_dsi_device *dsi)
 	ctx->supply = devm_regulator_get(dev, "power");
 	if (IS_ERR(ctx->supply)) {
 		ret = PTR_ERR(ctx->supply);
-		if (ret != -EPROBE_DEFER)
-			dev_err(dev, "cannot get regulator: %d\n", ret);
+		dev_err(dev, "cannot get regulator: %d\n", ret);
 		return ret;
 	}
+
+	ctx->backlight = devm_of_find_backlight(dev);
+	if (IS_ERR(ctx->backlight))
+		return PTR_ERR(ctx->backlight);
 
 	mipi_dsi_set_drvdata(dsi, ctx);
 
@@ -393,12 +400,9 @@ static int rm68200_probe(struct mipi_dsi_device *dsi)
 	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
 			  MIPI_DSI_MODE_LPM;
 
-	drm_panel_init(&ctx->panel, dev, &rm68200_drm_funcs,
-		       DRM_MODE_CONNECTOR_DSI);
-
-	ret = drm_panel_of_backlight(&ctx->panel);
-	if (ret)
-		return ret;
+	drm_panel_init(&ctx->panel);
+	ctx->panel.dev = dev;
+	ctx->panel.funcs = &rm68200_drm_funcs;
 
 	drm_panel_add(&ctx->panel);
 

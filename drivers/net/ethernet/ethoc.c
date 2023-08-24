@@ -1,9 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * linux/drivers/net/ethernet/ethoc.c
  *
  * Copyright (C) 2007-2008 Avionic Design Development GmbH
  * Copyright (C) 2008-2009 Avionic Design GmbH
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  *
  * Written by Thierry Reding <thierry.reding@avionic-design.de>
  */
@@ -177,7 +180,6 @@ MODULE_PARM_DESC(buffer_size, "DMA buffer allocation size");
  * struct ethoc - driver-private device structure
  * @iobase:	pointer to I/O memory region
  * @membase:	pointer to buffer memory region
- * @big_endian: just big or little (endian)
  * @num_bd:	number of buffer descriptors
  * @num_tx:	number of send buffers
  * @cur_tx:	last send buffer written
@@ -190,10 +192,7 @@ MODULE_PARM_DESC(buffer_size, "DMA buffer allocation size");
  * @msg_enable:	device state flags
  * @lock:	device lock
  * @mdio:	MDIO bus for PHY access
- * @clk:	clock
  * @phy_id:	address of attached PHY
- * @old_link:	previous link info
- * @old_duplex: previous duplex info
  */
 struct ethoc {
 	void __iomem *iobase;
@@ -873,7 +872,7 @@ static int ethoc_change_mtu(struct net_device *dev, int new_mtu)
 	return -ENOSYS;
 }
 
-static void ethoc_tx_timeout(struct net_device *dev, unsigned int txqueue)
+static void ethoc_tx_timeout(struct net_device *dev)
 {
 	struct ethoc *priv = netdev_priv(dev);
 	u32 pending = ethoc_read(priv, INT_SOURCE);
@@ -1019,7 +1018,7 @@ static const struct net_device_ops ethoc_netdev_ops = {
 
 /**
  * ethoc_probe - initialize OpenCores ethernet MAC
- * @pdev:	platform device
+ * pdev:	platform device
  */
 static int ethoc_probe(struct platform_device *pdev)
 {
@@ -1091,7 +1090,7 @@ static int ethoc_probe(struct platform_device *pdev)
 	priv = netdev_priv(netdev);
 	priv->netdev = netdev;
 
-	priv->iobase = devm_ioremap(&pdev->dev, netdev->base_addr,
+	priv->iobase = devm_ioremap_nocache(&pdev->dev, netdev->base_addr,
 			resource_size(mmio));
 	if (!priv->iobase) {
 		dev_err(&pdev->dev, "cannot remap I/O memory space\n");
@@ -1100,7 +1099,7 @@ static int ethoc_probe(struct platform_device *pdev)
 	}
 
 	if (netdev->mem_end) {
-		priv->membase = devm_ioremap(&pdev->dev,
+		priv->membase = devm_ioremap_nocache(&pdev->dev,
 			netdev->mem_start, resource_size(mem));
 		if (!priv->membase) {
 			dev_err(&pdev->dev, "cannot remap memory space\n");
@@ -1154,7 +1153,7 @@ static int ethoc_probe(struct platform_device *pdev)
 		const void *mac;
 
 		mac = of_get_mac_address(pdev->dev.of_node);
-		if (!IS_ERR(mac))
+		if (mac)
 			ether_addr_copy(netdev->dev_addr, mac);
 		priv->phy_id = -1;
 	}
@@ -1211,7 +1210,7 @@ static int ethoc_probe(struct platform_device *pdev)
 	ret = mdiobus_register(priv->mdio);
 	if (ret) {
 		dev_err(&netdev->dev, "failed to register MDIO bus\n");
-		goto free3;
+		goto free2;
 	}
 
 	ret = ethoc_mdio_probe(netdev);
@@ -1243,7 +1242,6 @@ error2:
 	netif_napi_del(&priv->napi);
 error:
 	mdiobus_unregister(priv->mdio);
-free3:
 	mdiobus_free(priv->mdio);
 free2:
 	clk_disable_unprepare(priv->clk);

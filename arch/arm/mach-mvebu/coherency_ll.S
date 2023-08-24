@@ -35,8 +35,13 @@ ENTRY(ll_get_coherency_base)
 
 	/*
 	 * MMU is disabled, use the physical address of the coherency
-	 * base address, (or 0x0 if the coherency fabric is not mapped)
+	 * base address. However, if the coherency fabric isn't mapped
+	 * (i.e its virtual address is zero), it means coherency is
+	 * not enabled, so we return 0.
 	 */
+	ldr	r1, =coherency_base
+	cmp	r1, #0
+	beq	2f
 	adr	r1, 3f
 	ldr	r3, [r1]
 	ldr	r1, [r1, r3]
@@ -61,7 +66,7 @@ ENDPROC(ll_get_coherency_base)
  * fabric registers
  */
 ENTRY(ll_get_coherency_cpumask)
-	mrc	p15, 0, r3, cr0, cr0, 5
+	mrc	15, 0, r3, cr0, cr0, 5
 	and	r3, r3, #15
 	mov	r2, #(1 << 24)
 	lsl	r3, r2, r3

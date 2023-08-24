@@ -147,12 +147,19 @@ static inline void flush_tlb_fix_spurious_fault(struct vm_area_struct *vma,
 		flush_tlb_page(vma, address);
 }
 
-extern bool tlbie_capable;
-extern bool tlbie_enabled;
-
-static inline bool cputlb_use_tlbie(void)
+/*
+ * flush the page walk cache for the address
+ */
+static inline void flush_tlb_pgtable(struct mmu_gather *tlb, unsigned long address)
 {
-	return tlbie_enabled;
-}
+	/*
+	 * Flush the page table walk cache on freeing a page table. We already
+	 * have marked the upper/higher level page table entry none by now.
+	 * So it is safe to flush PWC here.
+	 */
+	if (!radix_enabled())
+		return;
 
+	radix__flush_tlb_pwc(tlb, address);
+}
 #endif /*  _ASM_POWERPC_BOOK3S_64_TLBFLUSH_H */

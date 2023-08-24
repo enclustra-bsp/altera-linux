@@ -16,21 +16,18 @@
 #include <linux/gpio/machine.h>
 #include <linux/i2c.h>
 #include <linux/platform_data/pcf857x.h>
+#include <linux/platform_data/at24.h>
 #include <linux/platform_data/gpio-davinci.h>
-#include <linux/property.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/rawnand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/physmap.h>
-#include <linux/nvmem-provider.h>
 #include <linux/phy.h>
 #include <linux/clk.h>
 #include <linux/videodev2.h>
 #include <linux/v4l2-dv-timings.h>
 #include <linux/export.h>
 #include <linux/leds.h>
-#include <linux/regulator/fixed.h>
-#include <linux/regulator/machine.h>
 
 #include <media/i2c/tvp514x.h>
 
@@ -38,10 +35,9 @@
 #include <asm/mach/arch.h>
 
 #include <mach/common.h>
-#include <mach/mux.h>
-#include <mach/serial.h>
-
 #include <linux/platform_data/i2c-davinci.h>
+#include <mach/serial.h>
+#include <mach/mux.h>
 #include <linux/platform_data/mtd-davinci.h>
 #include <linux/platform_data/mmc-davinci.h>
 #include <linux/platform_data/usb-davinci.h>
@@ -49,7 +45,6 @@
 #include <linux/platform_data/ti-aemif.h>
 
 #include "davinci.h"
-#include "irqs.h"
 
 #define DM644X_EVM_PHY_ID		"davinci_mdio-0:01"
 #define LXT971_PHY_ID	(0x001378e2)
@@ -162,7 +157,7 @@ static struct davinci_nand_pdata davinci_evm_nandflash_data = {
 	.core_chipsel	= 0,
 	.parts		= davinci_evm_nandflash_partition,
 	.nr_parts	= ARRAY_SIZE(davinci_evm_nandflash_partition),
-	.engine_type	= NAND_ECC_ENGINE_TYPE_ON_HOST,
+	.ecc_mode	= NAND_ECC_HW,
 	.ecc_bits	= 1,
 	.bbt_options	= NAND_BBT_USE_FLASH,
 	.timing		= &davinci_evm_nandflash_timing,
@@ -515,30 +510,12 @@ static struct pcf857x_platform_data pcf_data_u35 = {
  *  - ... newer boards may have more
  */
 
-static struct nvmem_cell_info dm644evm_nvmem_cells[] = {
-	{
-		.name		= "macaddr",
-		.offset		= 0x7f00,
-		.bytes		= ETH_ALEN,
-	}
-};
-
-static struct nvmem_cell_table dm644evm_nvmem_cell_table = {
-	.nvmem_name	= "1-00500",
-	.cells		= dm644evm_nvmem_cells,
-	.ncells		= ARRAY_SIZE(dm644evm_nvmem_cells),
-};
-
-static struct nvmem_cell_lookup dm644evm_nvmem_cell_lookup = {
-	.nvmem_name	= "1-00500",
-	.cell_name	= "macaddr",
-	.dev_id		= "davinci_emac.1",
-	.con_id		= "mac-address",
-};
-
-static const struct property_entry eeprom_properties[] = {
-	PROPERTY_ENTRY_U32("pagesize", 64),
-	{ }
+static struct at24_platform_data eeprom_info = {
+	.byte_len	= (256*1024) / 8,
+	.page_size	= 64,
+	.flags		= AT24_FLAG_ADDR16,
+	.setup          = davinci_get_mac_addr,
+	.context	= (void *)0x7f00,
 };
 
 /*
@@ -548,7 +525,8 @@ static const struct property_entry eeprom_properties[] = {
  */
 static struct i2c_client *dm6446evm_msp;
 
-static int dm6446evm_msp_probe(struct i2c_client *client)
+static int dm6446evm_msp_probe(struct i2c_client *client,
+		const struct i2c_device_id *id)
 {
 	dm6446evm_msp = client;
 	return 0;
@@ -568,7 +546,7 @@ static const struct i2c_device_id dm6446evm_msp_ids[] = {
 static struct i2c_driver dm6446evm_msp_driver = {
 	.driver.name	= "dm6446evm_msp",
 	.id_table	= dm6446evm_msp_ids,
-	.probe_new	= dm6446evm_msp_probe,
+	.probe		= dm6446evm_msp_probe,
 	.remove		= dm6446evm_msp_remove,
 };
 
@@ -647,7 +625,7 @@ static struct i2c_board_info __initdata i2c_info[] =  {
 	},
 	{
 		I2C_BOARD_INFO("24c256", 0x50),
-		.properties = eeprom_properties,
+		.platform_data	= &eeprom_info,
 	},
 	{
 		I2C_BOARD_INFO("tlv320aic33", 0x1b),
@@ -660,11 +638,10 @@ static struct i2c_board_info __initdata i2c_info[] =  {
 static struct gpiod_lookup_table i2c_recovery_gpiod_table = {
 	.dev_id = "i2c_davinci.1",
 	.table = {
-		GPIO_LOOKUP("davinci_gpio", DM644X_I2C_SDA_PIN, "sda",
+		GPIO_LOOKUP("davinci_gpio.0", DM644X_I2C_SDA_PIN, "sda",
 			    GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN),
-		GPIO_LOOKUP("davinci_gpio", DM644X_I2C_SCL_PIN, "scl",
+		GPIO_LOOKUP("davinci_gpio.0", DM644X_I2C_SCL_PIN, "scl",
 			    GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN),
-		{ }
 	},
 };
 
@@ -685,19 +662,6 @@ static void __init evm_init_i2c(void)
 	i2c_register_board_info(1, i2c_info, ARRAY_SIZE(i2c_info));
 }
 #endif
-
-/* Fixed regulator support */
-static struct regulator_consumer_supply fixed_supplies_3_3v[] = {
-	/* Baseboard 3.3V: 5V -> TPS54310PWP -> 3.3V */
-	REGULATOR_SUPPLY("AVDD", "1-001b"),
-	REGULATOR_SUPPLY("DRVDD", "1-001b"),
-};
-
-static struct regulator_consumer_supply fixed_supplies_1_8v[] = {
-	/* Baseboard 1.8V: 5V -> TPS54310PWP -> 1.8V */
-	REGULATOR_SUPPLY("IOVDD", "1-001b"),
-	REGULATOR_SUPPLY("DVDD", "1-001b"),
-};
 
 #define VENC_STD_ALL	(V4L2_STD_NTSC | V4L2_STD_PAL)
 
@@ -837,17 +801,6 @@ static int davinci_phy_fixup(struct phy_device *phydev)
 
 #define HAS_NAND	IS_ENABLED(CONFIG_MTD_NAND_DAVINCI)
 
-#define GPIO_nVBUS_DRV		160
-
-static struct gpiod_lookup_table dm644evm_usb_gpio_table = {
-	.dev_id = "musb-davinci",
-	.table = {
-		GPIO_LOOKUP("davinci_gpio", GPIO_nVBUS_DRV, NULL,
-			    GPIO_ACTIVE_HIGH),
-		{ }
-	},
-};
-
 static __init void davinci_evm_init(void)
 {
 	int ret;
@@ -855,11 +808,6 @@ static __init void davinci_evm_init(void)
 	struct davinci_soc_info *soc_info = &davinci_soc_info;
 
 	dm644x_register_clocks();
-
-	regulator_register_always_on(0, "fixed-dummy", fixed_supplies_1_8v,
-				     ARRAY_SIZE(fixed_supplies_1_8v), 1800000);
-	regulator_register_always_on(1, "fixed-dummy", fixed_supplies_3_3v,
-				     ARRAY_SIZE(fixed_supplies_3_3v), 3300000);
 
 	dm644x_init_devices();
 
@@ -894,8 +842,6 @@ static __init void davinci_evm_init(void)
 	platform_add_devices(davinci_evm_devices,
 			     ARRAY_SIZE(davinci_evm_devices));
 #ifdef CONFIG_I2C
-	nvmem_add_cell_table(&dm644evm_nvmem_cell_table);
-	nvmem_add_cell_lookups(&dm644evm_nvmem_cell_lookup, 1);
 	evm_init_i2c();
 	davinci_setup_mmc(0, &dm6446evm_mmc_config);
 #endif
@@ -905,7 +851,6 @@ static __init void davinci_evm_init(void)
 	dm644x_init_asp();
 
 	/* irlml6401 switches over 1A, in under 8 msec */
-	gpiod_add_lookup_table(&dm644evm_usb_gpio_table);
 	davinci_setup_usb(1000, 8);
 
 	if (IS_BUILTIN(CONFIG_PHYLIB)) {
@@ -920,7 +865,7 @@ MACHINE_START(DAVINCI_EVM, "DaVinci DM644x EVM")
 	/* Maintainer: MontaVista Software <source@mvista.com> */
 	.atag_offset  = 0x100,
 	.map_io	      = davinci_evm_map_io,
-	.init_irq     = dm644x_init_irq,
+	.init_irq     = davinci_irq_init,
 	.init_time	= dm644x_init_time,
 	.init_machine = davinci_evm_init,
 	.init_late	= davinci_init_late,

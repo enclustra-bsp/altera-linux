@@ -3,7 +3,7 @@
  *
  * Module Name: exserial - field_unit support for serial address spaces
  *
- * Copyright (C) 2000 - 2020, Intel Corp.
+ * Copyright (C) 2000 - 2018, Intel Corp.
  *
  *****************************************************************************/
 
@@ -21,7 +21,7 @@ ACPI_MODULE_NAME("exserial")
  * FUNCTION:    acpi_ex_read_gpio
  *
  * PARAMETERS:  obj_desc            - The named field to read
- *              buffer              - Where the return data is returned
+ *              buffer              - Where the return data is returnd
  *
  * RETURN:      Status
  *
@@ -244,7 +244,6 @@ acpi_ex_write_serial_bus(union acpi_operand_object *source_desc,
 {
 	acpi_status status;
 	u32 buffer_length;
-	u32 data_length;
 	void *buffer;
 	union acpi_operand_object *buffer_desc;
 	u32 function;
@@ -325,9 +324,8 @@ acpi_ex_write_serial_bus(union acpi_operand_object *source_desc,
 	/* Copy the input buffer data to the transfer buffer */
 
 	buffer = buffer_desc->buffer.pointer;
-	data_length = (buffer_length < source_desc->buffer.length ?
-		       buffer_length : source_desc->buffer.length);
-	memcpy(buffer, source_desc->buffer.pointer, data_length);
+	memcpy(buffer, source_desc->buffer.pointer,
+	       min(buffer_length, source_desc->buffer.length));
 
 	/* Lock entire transaction if requested */
 

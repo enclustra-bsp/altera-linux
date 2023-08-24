@@ -89,7 +89,7 @@ static inline bool pv_hybrid_queued_unfair_trylock(struct qspinlock *lock)
 
 		if (!(val & _Q_LOCKED_PENDING_MASK) &&
 		   (cmpxchg_acquire(&lock->locked, 0, _Q_LOCKED_VAL) == 0)) {
-			lockevent_inc(pv_lock_stealing);
+			qstat_inc(qstat_pv_lock_stealing, true);
 			return true;
 		}
 		if (!(val & _Q_TAIL_MASK) || (val & _Q_PENDING_MASK))
@@ -219,7 +219,7 @@ static struct qspinlock **pv_hash(struct qspinlock *lock, struct pv_node *node)
 		hopcnt++;
 		if (!cmpxchg(&he->lock, NULL, lock)) {
 			WRITE_ONCE(he->node, node);
-			lockevent_pv_hop(hopcnt);
+			qstat_hop(hopcnt);
 			return &he->lock;
 		}
 	}
@@ -269,7 +269,7 @@ pv_wait_early(struct pv_node *prev, int loop)
 	if ((loop & PV_PREV_CHECK_MASK) != 0)
 		return false;
 
-	return READ_ONCE(prev->state) != vcpu_running;
+	return READ_ONCE(prev->state) != vcpu_running || vcpu_is_preempted(prev->cpu);
 }
 
 /*
@@ -320,8 +320,8 @@ static void pv_wait_node(struct mcs_spinlock *node, struct mcs_spinlock *prev)
 		smp_store_mb(pn->state, vcpu_halted);
 
 		if (!READ_ONCE(node->locked)) {
-			lockevent_inc(pv_wait_node);
-			lockevent_cond_inc(pv_wait_early, wait_early);
+			qstat_inc(qstat_pv_wait_node, true);
+			qstat_inc(qstat_pv_wait_early, wait_early);
 			pv_wait(&pn->state, vcpu_halted);
 		}
 
@@ -339,8 +339,7 @@ static void pv_wait_node(struct mcs_spinlock *node, struct mcs_spinlock *prev)
 		 * So it is better to spin for a while in the hope that the
 		 * MCS lock will be released soon.
 		 */
-		lockevent_cond_inc(pv_spurious_wakeup,
-				  !READ_ONCE(node->locked));
+		qstat_inc(qstat_pv_spurious_wakeup, !READ_ONCE(node->locked));
 	}
 
 	/*
@@ -417,7 +416,7 @@ pv_wait_head_or_lock(struct qspinlock *lock, struct mcs_spinlock *node)
 	/*
 	 * Tracking # of slowpath locking operations
 	 */
-	lockevent_inc(lock_slowpath);
+	qstat_inc(qstat_lock_slowpath, true);
 
 	for (;; waitcnt++) {
 		/*
@@ -465,8 +464,8 @@ pv_wait_head_or_lock(struct qspinlock *lock, struct mcs_spinlock *node)
 			}
 		}
 		WRITE_ONCE(pn->state, vcpu_hashed);
-		lockevent_inc(pv_wait_head);
-		lockevent_cond_inc(pv_wait_again, waitcnt);
+		qstat_inc(qstat_pv_wait_head, true);
+		qstat_inc(qstat_pv_wait_again, waitcnt);
 		pv_wait(&lock->locked, _Q_SLOW_VAL);
 
 		/*
@@ -529,7 +528,7 @@ __pv_queued_spin_unlock_slowpath(struct qspinlock *lock, u8 locked)
 	 * vCPU is harmless other than the additional latency in completing
 	 * the unlock.
 	 */
-	lockevent_inc(pv_kick_unlock);
+	qstat_inc(qstat_pv_kick_unlock, true);
 	pv_kick(node->cpu);
 }
 

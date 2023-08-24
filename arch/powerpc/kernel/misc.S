@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * This file contains miscellaneous low-level functions.
  *    Copyright (C) 1995-1996 Gary Thomas (gdt@linuxppc.org)
@@ -9,6 +8,11 @@
  * PPC64 updates by Dave Engebretsen (engebret@us.ibm.com)
  *
  * setjmp/longjmp code by Paul Mackerras.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version
+ * 2 of the License, or (at your option) any later version.
  */
 #include <asm/ppc_asm.h>
 #include <asm/unistd.h>
@@ -36,8 +40,6 @@ _GLOBAL(add_reloc_offset)
 	add	r3,r3,r5
 	mtlr	r0
 	blr
-_ASM_NOKPROBE_SYMBOL(reloc_offset)
-_ASM_NOKPROBE_SYMBOL(add_reloc_offset)
 
 	.align	3
 2:	PPC_LONG 1b
@@ -112,7 +114,7 @@ _GLOBAL(longjmp)
 	li	r3, 1
 	blr
 
-_GLOBAL(current_stack_frame)
+_GLOBAL(current_stack_pointer)
 	PPC_LL	r3,0(r1)
 	blr
-EXPORT_SYMBOL(current_stack_frame)
+EXPORT_SYMBOL(current_stack_pointer)

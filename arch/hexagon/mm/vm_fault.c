@@ -1,8 +1,21 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Memory fault handling for Hexagon
  *
  * Copyright (c) 2010-2011, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301, USA.
  */
 
 /*
@@ -11,6 +24,7 @@
  * execptions.
  */
 
+#include <asm/pgtable.h>
 #include <asm/traps.h>
 #include <linux/uaccess.h>
 #include <linux/mm.h>
@@ -18,7 +32,6 @@
 #include <linux/signal.h>
 #include <linux/extable.h>
 #include <linux/hardirq.h>
-#include <linux/perf_event.h>
 
 /*
  * Decode of hardware exception sends us to one of several
@@ -41,7 +54,7 @@ void do_page_fault(unsigned long address, long cause, struct pt_regs *regs)
 	int si_code = SEGV_MAPERR;
 	vm_fault_t fault;
 	const struct exception_table_entry *fixup;
-	unsigned int flags = FAULT_FLAG_DEFAULT;
+	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 
 	/*
 	 * If we're in an interrupt or have no user context,
@@ -54,10 +67,8 @@ void do_page_fault(unsigned long address, long cause, struct pt_regs *regs)
 
 	if (user_mode(regs))
 		flags |= FAULT_FLAG_USER;
-
-	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
 retry:
-	mmap_read_lock(mm);
+	down_read(&mm->mmap_sem);
 	vma = find_vma(mm, address);
 	if (!vma)
 		goto bad_area;
@@ -91,25 +102,30 @@ good_area:
 		break;
 	}
 
-	fault = handle_mm_fault(vma, address, flags, regs);
+	fault = handle_mm_fault(vma, address, flags);
 
-	if (fault_signal_pending(fault, regs))
+	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
 		return;
 
 	/* The most common case -- we are done. */
 	if (likely(!(fault & VM_FAULT_ERROR))) {
 		if (flags & FAULT_FLAG_ALLOW_RETRY) {
+			if (fault & VM_FAULT_MAJOR)
+				current->maj_flt++;
+			else
+				current->min_flt++;
 			if (fault & VM_FAULT_RETRY) {
+				flags &= ~FAULT_FLAG_ALLOW_RETRY;
 				flags |= FAULT_FLAG_TRIED;
 				goto retry;
 			}
 		}
 
-		mmap_read_unlock(mm);
+		up_read(&mm->mmap_sem);
 		return;
 	}
 
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 
 	/* Handle copyin/out exception cases */
 	if (!user_mode(regs))
@@ -132,14 +148,14 @@ good_area:
 		si_signo = SIGSEGV;
 		si_code  = SEGV_ACCERR;
 	}
-	force_sig_fault(si_signo, si_code, (void __user *)address);
+	force_sig_fault(si_signo, si_code, (void __user *)address, current);
 	return;
 
 bad_area:
-	mmap_read_unlock(mm);
+	up_read(&mm->mmap_sem);
 
 	if (user_mode(regs)) {
-		force_sig_fault(SIGSEGV, si_code, (void __user *)address);
+		force_sig_fault(SIGSEGV, si_code, (void __user *)address, current);
 		return;
 	}
 	/* Kernel-mode fault falls through */

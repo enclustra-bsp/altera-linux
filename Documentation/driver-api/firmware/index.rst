@@ -6,7 +6,6 @@ Linux Firmware API
 
    introduction
    core
-   efi/index
    request_firmware
    other_interfaces
 

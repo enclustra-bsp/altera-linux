@@ -63,4 +63,3 @@ __print_symbolic(etype,                         \
 #include "trace_tx.h"
 #include "trace_mmu.h"
 #include "trace_iowait.h"
-#include "trace_tid.h"

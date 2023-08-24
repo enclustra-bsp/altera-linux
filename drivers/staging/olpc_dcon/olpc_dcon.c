@@ -250,7 +250,11 @@ static bool dcon_blank_fb(struct dcon_priv *dcon, bool blank)
 	int err;
 
 	console_lock();
-	lock_fb_info(dcon->fbinfo);
+	if (!lock_fb_info(dcon->fbinfo)) {
+		console_unlock();
+		dev_err(&dcon->client->dev, "unable to lock framebuffer\n");
+		return false;
+	}
 
 	dcon->ignore_fb_events = true;
 	err = fb_blank(dcon->fbinfo,
@@ -790,11 +794,15 @@ static struct i2c_driver dcon_driver = {
 
 static int __init olpc_dcon_init(void)
 {
+#ifdef CONFIG_FB_OLPC_DCON_1_5
 	/* XO-1.5 */
 	if (olpc_board_at_least(olpc_board(0xd0)))
 		pdata = &dcon_pdata_xo_1_5;
-	else
+#endif
+#ifdef CONFIG_FB_OLPC_DCON_1
+	if (!pdata)
 		pdata = &dcon_pdata_xo_1;
+#endif
 
 	return i2c_add_driver(&dcon_driver);
 }

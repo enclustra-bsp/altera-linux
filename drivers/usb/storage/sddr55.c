@@ -29,7 +29,6 @@
 MODULE_DESCRIPTION("Driver for SanDisk SDDR-55 SmartMedia reader");
 MODULE_AUTHOR("Simon Munton");
 MODULE_LICENSE("GPL");
-MODULE_IMPORT_NS(USB_STORAGE);
 
 /*
  * The table of devices
@@ -554,8 +553,8 @@ static int sddr55_reset(struct us_data *us)
 
 static unsigned long sddr55_get_capacity(struct us_data *us) {
 
-	unsigned char manufacturerID;
-	unsigned char deviceID;
+	unsigned char uninitialized_var(manufacturerID);
+	unsigned char uninitialized_var(deviceID);
 	int result;
 	struct sddr55_card_info *info = (struct sddr55_card_info *)us->extra;
 
@@ -592,7 +591,7 @@ static unsigned long sddr55_get_capacity(struct us_data *us) {
 	case 0x64:
 		info->pageshift = 8;
 		info->smallpageshift = 1;
-		fallthrough;
+		/* fall through */
 	case 0x5d: // 5d is a ROM card with pagesize 512.
 		return 0x00200000;
 

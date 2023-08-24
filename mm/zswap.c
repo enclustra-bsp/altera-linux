@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * zswap.c - zswap driver file
  *
@@ -9,6 +8,16 @@
  * than reading from the swap device, can also improve workload performance.
  *
  * Copyright (C) 2012  Seth Jennings <sjenning@linux.vnet.ibm.com>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
 */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -32,7 +41,6 @@
 #include <linux/swapops.h>
 #include <linux/writeback.h>
 #include <linux/pagemap.h>
-#include <linux/workqueue.h>
 
 /*********************************
 * statistics
@@ -66,19 +74,14 @@ static u64 zswap_reject_kmemcache_fail;
 /* Duplicate store was encountered (rare) */
 static u64 zswap_duplicate_entry;
 
-/* Shrinker work queue */
-static struct workqueue_struct *shrink_wq;
-/* Pool limit was hit, we need to calm down */
-static bool zswap_pool_reached_full;
-
 /*********************************
 * tunables
 **********************************/
 
 #define ZSWAP_PARAM_UNSET ""
 
-/* Enable/disable zswap */
-static bool zswap_enabled = IS_ENABLED(CONFIG_ZSWAP_DEFAULT_ON);
+/* Enable/disable zswap (disabled by default) */
+static bool zswap_enabled;
 static int zswap_enabled_param_set(const char *,
 				   const struct kernel_param *);
 static struct kernel_param_ops zswap_enabled_param_ops = {
@@ -88,7 +91,8 @@ static struct kernel_param_ops zswap_enabled_param_ops = {
 module_param_cb(enabled, &zswap_enabled_param_ops, &zswap_enabled, 0644);
 
 /* Crypto compressor to use */
-static char *zswap_compressor = CONFIG_ZSWAP_COMPRESSOR_DEFAULT;
+#define ZSWAP_COMPRESSOR_DEFAULT "lzo"
+static char *zswap_compressor = ZSWAP_COMPRESSOR_DEFAULT;
 static int zswap_compressor_param_set(const char *,
 				      const struct kernel_param *);
 static struct kernel_param_ops zswap_compressor_param_ops = {
@@ -100,7 +104,8 @@ module_param_cb(compressor, &zswap_compressor_param_ops,
 		&zswap_compressor, 0644);
 
 /* Compressed storage zpool to use */
-static char *zswap_zpool_type = CONFIG_ZSWAP_ZPOOL_DEFAULT;
+#define ZSWAP_ZPOOL_DEFAULT "zbud"
+static char *zswap_zpool_type = ZSWAP_ZPOOL_DEFAULT;
 static int zswap_zpool_param_set(const char *, const struct kernel_param *);
 static struct kernel_param_ops zswap_zpool_param_ops = {
 	.set =		zswap_zpool_param_set,
@@ -112,11 +117,6 @@ module_param_cb(zpool, &zswap_zpool_param_ops, &zswap_zpool_type, 0644);
 /* The maximum percentage of memory that the compressed pool can occupy */
 static unsigned int zswap_max_pool_percent = 20;
 module_param_named(max_pool_percent, zswap_max_pool_percent, uint, 0644);
-
-/* The threshold for accepting new pages after the max_pool_percent was hit */
-static unsigned int zswap_accept_thr_percent = 90; /* of max pool size */
-module_param_named(accept_threshold_percent, zswap_accept_thr_percent,
-		   uint, 0644);
 
 /* Enable/disable handling same-value filled pages (enabled by default) */
 static bool zswap_same_filled_pages_enabled = true;
@@ -132,8 +132,7 @@ struct zswap_pool {
 	struct crypto_comp * __percpu *tfm;
 	struct kref kref;
 	struct list_head list;
-	struct work_struct release_work;
-	struct work_struct shrink_work;
+	struct work_struct work;
 	struct hlist_node node;
 	char tfm_name[CRYPTO_MAX_ALG_NAME];
 };
@@ -220,15 +219,8 @@ static const struct zpool_ops zswap_zpool_ops = {
 
 static bool zswap_is_full(void)
 {
-	return totalram_pages() * zswap_max_pool_percent / 100 <
-			DIV_ROUND_UP(zswap_pool_total_size, PAGE_SIZE);
-}
-
-static bool zswap_can_accept(void)
-{
-	return totalram_pages() * zswap_accept_thr_percent / 100 *
-				zswap_max_pool_percent / 100 >
-			DIV_ROUND_UP(zswap_pool_total_size, PAGE_SIZE);
+	return totalram_pages * zswap_max_pool_percent / 100 <
+		DIV_ROUND_UP(zswap_pool_total_size, PAGE_SIZE);
 }
 
 static void zswap_update_total_size(void)
@@ -518,16 +510,6 @@ static struct zswap_pool *zswap_pool_find_get(char *type, char *compressor)
 	return NULL;
 }
 
-static void shrink_worker(struct work_struct *w)
-{
-	struct zswap_pool *pool = container_of(w, typeof(*pool),
-						shrink_work);
-
-	if (zpool_shrink(pool->zpool, 1, NULL))
-		zswap_reject_reclaim_fail++;
-	zswap_pool_put(pool);
-}
-
 static struct zswap_pool *zswap_pool_create(char *type, char *compressor)
 {
 	struct zswap_pool *pool;
@@ -578,7 +560,6 @@ static struct zswap_pool *zswap_pool_create(char *type, char *compressor)
 	 */
 	kref_init(&pool->kref);
 	INIT_LIST_HEAD(&pool->list);
-	INIT_WORK(&pool->shrink_work, shrink_worker);
 
 	zswap_pool_debug("created", pool);
 
@@ -597,12 +578,11 @@ static __init struct zswap_pool *__zswap_pool_create_fallback(void)
 	bool has_comp, has_zpool;
 
 	has_comp = crypto_has_comp(zswap_compressor, 0, 0);
-	if (!has_comp && strcmp(zswap_compressor,
-				CONFIG_ZSWAP_COMPRESSOR_DEFAULT)) {
+	if (!has_comp && strcmp(zswap_compressor, ZSWAP_COMPRESSOR_DEFAULT)) {
 		pr_err("compressor %s not available, using default %s\n",
-		       zswap_compressor, CONFIG_ZSWAP_COMPRESSOR_DEFAULT);
+		       zswap_compressor, ZSWAP_COMPRESSOR_DEFAULT);
 		param_free_charp(&zswap_compressor);
-		zswap_compressor = CONFIG_ZSWAP_COMPRESSOR_DEFAULT;
+		zswap_compressor = ZSWAP_COMPRESSOR_DEFAULT;
 		has_comp = crypto_has_comp(zswap_compressor, 0, 0);
 	}
 	if (!has_comp) {
@@ -613,12 +593,11 @@ static __init struct zswap_pool *__zswap_pool_create_fallback(void)
 	}
 
 	has_zpool = zpool_has_pool(zswap_zpool_type);
-	if (!has_zpool && strcmp(zswap_zpool_type,
-				 CONFIG_ZSWAP_ZPOOL_DEFAULT)) {
+	if (!has_zpool && strcmp(zswap_zpool_type, ZSWAP_ZPOOL_DEFAULT)) {
 		pr_err("zpool %s not available, using default %s\n",
-		       zswap_zpool_type, CONFIG_ZSWAP_ZPOOL_DEFAULT);
+		       zswap_zpool_type, ZSWAP_ZPOOL_DEFAULT);
 		param_free_charp(&zswap_zpool_type);
-		zswap_zpool_type = CONFIG_ZSWAP_ZPOOL_DEFAULT;
+		zswap_zpool_type = ZSWAP_ZPOOL_DEFAULT;
 		has_zpool = zpool_has_pool(zswap_zpool_type);
 	}
 	if (!has_zpool) {
@@ -654,8 +633,7 @@ static int __must_check zswap_pool_get(struct zswap_pool *pool)
 
 static void __zswap_pool_release(struct work_struct *work)
 {
-	struct zswap_pool *pool = container_of(work, typeof(*pool),
-						release_work);
+	struct zswap_pool *pool = container_of(work, typeof(*pool), work);
 
 	synchronize_rcu();
 
@@ -678,8 +656,8 @@ static void __zswap_pool_empty(struct kref *kref)
 
 	list_del_rcu(&pool->list);
 
-	INIT_WORK(&pool->release_work, __zswap_pool_release);
-	schedule_work(&pool->release_work);
+	INIT_WORK(&pool->work, __zswap_pool_release);
+	schedule_work(&pool->work);
 
 	spin_unlock(&zswap_pools_lock);
 }
@@ -887,6 +865,7 @@ static int zswap_writeback_entry(struct zpool *pool, unsigned long handle)
 	/* extract swpentry from data */
 	zhdr = zpool_map_handle(pool, handle, ZPOOL_MM_RO);
 	swpentry = zhdr->swpentry; /* here */
+	zpool_unmap_handle(pool, handle);
 	tree = zswap_trees[swp_type(swpentry)];
 	offset = swp_offset(swpentry);
 
@@ -896,7 +875,6 @@ static int zswap_writeback_entry(struct zpool *pool, unsigned long handle)
 	if (!entry) {
 		/* entry was invalidated */
 		spin_unlock(&tree->lock);
-		zpool_unmap_handle(pool, handle);
 		return 0;
 	}
 	spin_unlock(&tree->lock);
@@ -917,13 +895,15 @@ static int zswap_writeback_entry(struct zpool *pool, unsigned long handle)
 	case ZSWAP_SWAPCACHE_NEW: /* page is locked */
 		/* decompress */
 		dlen = PAGE_SIZE;
-		src = (u8 *)zhdr + sizeof(struct zswap_header);
+		src = (u8 *)zpool_map_handle(entry->pool->zpool, entry->handle,
+				ZPOOL_MM_RO) + sizeof(struct zswap_header);
 		dst = kmap_atomic(page);
 		tfm = *get_cpu_ptr(entry->pool->tfm);
 		ret = crypto_comp_decompress(tfm, src, entry->length,
 					     dst, &dlen);
 		put_cpu_ptr(entry->pool->tfm);
 		kunmap_atomic(dst);
+		zpool_unmap_handle(entry->pool->zpool, entry->handle);
 		BUG_ON(ret);
 		BUG_ON(dlen != PAGE_SIZE);
 
@@ -969,7 +949,22 @@ fail:
 	spin_unlock(&tree->lock);
 
 end:
-	zpool_unmap_handle(pool, handle);
+	return ret;
+}
+
+static int zswap_shrink(void)
+{
+	struct zswap_pool *pool;
+	int ret;
+
+	pool = zswap_pool_last_get();
+	if (!pool)
+		return -ENOENT;
+
+	ret = zpool_shrink(pool->zpool, 1, NULL);
+
+	zswap_pool_put(pool);
+
 	return ret;
 }
 
@@ -1011,7 +1006,6 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 	char *buf;
 	u8 *src, *dst;
 	struct zswap_header zhdr = { .swpentry = swp_entry(type, offset) };
-	gfp_t gfp;
 
 	/* THP isn't supported */
 	if (PageTransHuge(page)) {
@@ -1026,23 +1020,21 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 
 	/* reclaim space if needed */
 	if (zswap_is_full()) {
-		struct zswap_pool *pool;
-
 		zswap_pool_limit_hit++;
-		zswap_pool_reached_full = true;
-		pool = zswap_pool_last_get();
-		if (pool)
-			queue_work(shrink_wq, &pool->shrink_work);
-		ret = -ENOMEM;
-		goto reject;
-	}
-
-	if (zswap_pool_reached_full) {
-	       if (!zswap_can_accept()) {
+		if (zswap_shrink()) {
+			zswap_reject_reclaim_fail++;
 			ret = -ENOMEM;
 			goto reject;
-		} else
-			zswap_pool_reached_full = false;
+		}
+
+		/* A second zswap_is_full() check after
+		 * zswap_shrink() to make sure it's now
+		 * under the max_pool_percent
+		 */
+		if (zswap_is_full()) {
+			ret = -ENOMEM;
+			goto reject;
+		}
 	}
 
 	/* allocate entry */
@@ -1087,10 +1079,9 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 
 	/* store */
 	hlen = zpool_evictable(entry->pool->zpool) ? sizeof(zhdr) : 0;
-	gfp = __GFP_NORETRY | __GFP_NOWARN | __GFP_KSWAPD_RECLAIM;
-	if (zpool_malloc_support_movable(entry->pool->zpool))
-		gfp |= __GFP_HIGHMEM | __GFP_MOVABLE;
-	ret = zpool_malloc(entry->pool->zpool, hlen + dlen, gfp, &handle);
+	ret = zpool_malloc(entry->pool->zpool, hlen + dlen,
+			   __GFP_NORETRY | __GFP_NOWARN | __GFP_KSWAPD_RECLAIM,
+			   &handle);
 	if (ret == -ENOSPC) {
 		zswap_reject_compress_poor++;
 		goto put_dstmem;
@@ -1271,6 +1262,8 @@ static int __init zswap_debugfs_init(void)
 		return -ENODEV;
 
 	zswap_debugfs_root = debugfs_create_dir("zswap", NULL);
+	if (!zswap_debugfs_root)
+		return -ENOMEM;
 
 	debugfs_create_u64("pool_limit_hit", 0444,
 			   zswap_debugfs_root, &zswap_pool_limit_hit);
@@ -1349,18 +1342,11 @@ static int __init init_zswap(void)
 		zswap_enabled = false;
 	}
 
-	shrink_wq = create_workqueue("zswap-shrink");
-	if (!shrink_wq)
-		goto fallback_fail;
-
 	frontswap_register_ops(&zswap_frontswap_ops);
 	if (zswap_debugfs_init())
 		pr_warn("debugfs initialization failed\n");
 	return 0;
 
-fallback_fail:
-	if (pool)
-		zswap_pool_destroy(pool);
 hp_fail:
 	cpuhp_remove_state(CPUHP_MM_ZSWP_MEM_PREPARE);
 dstmem_fail:

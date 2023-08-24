@@ -1,5 +1,18 @@
-// SPDX-License-Identifier: GPL-2.0+
 /*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ *
  * Copyright (C) 2007 Alan Stern
  * Copyright (C) IBM Corporation, 2009
  * Copyright (C) 2009, Frederic Weisbecker <fweisbec@gmail.com>
@@ -213,15 +226,6 @@ toggle_bp_slot(struct perf_event *bp, bool enable, enum bp_type_idx type,
 		list_del(&bp->hw.bp_list);
 }
 
-__weak int arch_reserve_bp_slot(struct perf_event *bp)
-{
-	return 0;
-}
-
-__weak void arch_release_bp_slot(struct perf_event *bp)
-{
-}
-
 /*
  * Function to perform processor-specific cleanup during unregistration
  */
@@ -234,7 +238,7 @@ __weak void arch_unregister_hw_breakpoint(struct perf_event *bp)
 }
 
 /*
- * Constraints to check before allowing this new breakpoint counter:
+ * Contraints to check before allowing this new breakpoint counter:
  *
  *  == Non-pinned counter == (Considered as pinned for now)
  *
@@ -279,7 +283,6 @@ static int __reserve_bp_slot(struct perf_event *bp, u64 bp_type)
 	struct bp_busy_slots slots = {0};
 	enum bp_type_idx type;
 	int weight;
-	int ret;
 
 	/* We couldn't initialize breakpoint constraints on boot */
 	if (!constraints_initialized)
@@ -304,10 +307,6 @@ static int __reserve_bp_slot(struct perf_event *bp, u64 bp_type)
 	if (slots.pinned + (!!slots.flexible) > nr_slots[type])
 		return -ENOSPC;
 
-	ret = arch_reserve_bp_slot(bp);
-	if (ret)
-		return ret;
-
 	toggle_bp_slot(bp, true, type, weight);
 
 	return 0;
@@ -330,8 +329,6 @@ static void __release_bp_slot(struct perf_event *bp, u64 bp_type)
 {
 	enum bp_type_idx type;
 	int weight;
-
-	arch_release_bp_slot(bp);
 
 	type = find_slot_idx(bp_type);
 	weight = hw_breakpoint_weight(bp);
@@ -429,7 +426,7 @@ static int hw_breakpoint_parse(struct perf_event *bp,
 
 int register_perf_hw_breakpoint(struct perf_event *bp)
 {
-	struct arch_hw_breakpoint hw = { };
+	struct arch_hw_breakpoint hw;
 	int err;
 
 	err = reserve_bp_slot(bp);
@@ -477,7 +474,7 @@ int
 modify_user_hw_breakpoint_check(struct perf_event *bp, struct perf_event_attr *attr,
 			        bool check)
 {
-	struct arch_hw_breakpoint hw = { };
+	struct arch_hw_breakpoint hw;
 	int err;
 
 	err = hw_breakpoint_parse(bp, attr, &hw);

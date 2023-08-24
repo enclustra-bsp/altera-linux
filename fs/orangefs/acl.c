@@ -122,8 +122,6 @@ int orangefs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 	struct iattr iattr;
 	int rc;
 
-	memset(&iattr, 0, sizeof iattr);
-
 	if (type == ACL_TYPE_ACCESS && acl) {
 		/*
 		 * posix_acl_update_mode checks to see if the permissions
@@ -140,17 +138,18 @@ int orangefs_set_acl(struct inode *inode, struct posix_acl *acl, int type)
 			return error;
 		}
 
-		if (inode->i_mode != iattr.ia_mode)
+		if (acl) {
+			rc = __orangefs_set_acl(inode, acl, type);
+		} else {
 			iattr.ia_valid = ATTR_MODE;
+			rc = orangefs_inode_setattr(inode, &iattr);
+		}
 
+		return rc;
+
+	} else {
+		return -EINVAL;
 	}
-
-	rc = __orangefs_set_acl(inode, acl, type);
-
-	if (!rc && (iattr.ia_valid == ATTR_MODE))
-		rc = __orangefs_setattr(inode, &iattr);
-
-	return rc;
 }
 
 int orangefs_init_acl(struct inode *inode, struct inode *dir)
@@ -186,7 +185,7 @@ int orangefs_init_acl(struct inode *inode, struct inode *dir)
 		inode->i_mode = mode;
 		iattr.ia_mode = mode;
 		iattr.ia_valid |= ATTR_MODE;
-		__orangefs_setattr(inode, &iattr);
+		orangefs_inode_setattr(inode, &iattr);
 	}
 
 	return error;

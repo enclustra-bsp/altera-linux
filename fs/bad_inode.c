@@ -15,7 +15,6 @@
 #include <linux/time.h>
 #include <linux/namei.h>
 #include <linux/poll.h>
-#include <linux/fiemap.h>
 
 static int bad_file_open(struct inode *inode, struct file *filp)
 {

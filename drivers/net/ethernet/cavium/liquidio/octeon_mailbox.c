@@ -28,7 +28,7 @@
 
 /**
  * octeon_mbox_read:
- * @mbox: Pointer mailbox
+ * @oct: Pointer mailbox
  *
  * Reads the 8-bytes of data from the mbox register
  * Writes back the acknowldgement inidcating completion of read
@@ -260,7 +260,9 @@ static int octeon_mbox_process_cmd(struct octeon_mbox *mbox,
 		dev_info(&oct->pci_dev->dev,
 			 "got a request for FLR from VF that owns DPI ring %u\n",
 			 mbox->q_no);
-		pcie_flr(oct->sriov_info.dpiring_to_vfpcidev_lut[mbox->q_no]);
+		pcie_capability_set_word(
+			oct->sriov_info.dpiring_to_vfpcidev_lut[mbox->q_no],
+			PCI_EXP_DEVCTL, PCI_EXP_DEVCTL_BCR_FLR);
 		break;
 
 	case OCTEON_PF_CHANGED_VF_MACADDR:
@@ -285,8 +287,7 @@ static int octeon_mbox_process_cmd(struct octeon_mbox *mbox,
 }
 
 /**
- * octeon_mbox_process_message
- * @mbox: mailbox
+ *octeon_mbox_process_message:
  *
  * Process the received mbox message.
  */

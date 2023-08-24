@@ -1,6 +1,18 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright © 2006-2009, Intel Corporation.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * this program; if not, write to the Free Software Foundation, Inc., 59 Temple
+ * Place - Suite 330, Boston, MA 02111-1307 USA.
  *
  * Author: Anil S Keshavamurthy <anil.s.keshavamurthy@intel.com>
  */
@@ -54,17 +66,13 @@ init_iova_domain(struct iova_domain *iovad, unsigned long granule,
 }
 EXPORT_SYMBOL_GPL(init_iova_domain);
 
-bool has_iova_flush_queue(struct iova_domain *iovad)
-{
-	return !!iovad->fq;
-}
-
 static void free_iova_flush_queue(struct iova_domain *iovad)
 {
-	if (!has_iova_flush_queue(iovad))
+	if (!iovad->fq)
 		return;
 
-	del_timer_sync(&iovad->fq_timer);
+	if (timer_pending(&iovad->fq_timer))
+		del_timer(&iovad->fq_timer);
 
 	fq_destroy_all_entries(iovad);
 
@@ -78,14 +86,13 @@ static void free_iova_flush_queue(struct iova_domain *iovad)
 int init_iova_flush_queue(struct iova_domain *iovad,
 			  iova_flush_cb flush_cb, iova_entry_dtor entry_dtor)
 {
-	struct iova_fq __percpu *queue;
 	int cpu;
 
 	atomic64_set(&iovad->fq_flush_start_cnt,  0);
 	atomic64_set(&iovad->fq_flush_finish_cnt, 0);
 
-	queue = alloc_percpu(struct iova_fq);
-	if (!queue)
+	iovad->fq = alloc_percpu(struct iova_fq);
+	if (!iovad->fq)
 		return -ENOMEM;
 
 	iovad->flush_cb   = flush_cb;
@@ -94,16 +101,12 @@ int init_iova_flush_queue(struct iova_domain *iovad,
 	for_each_possible_cpu(cpu) {
 		struct iova_fq *fq;
 
-		fq = per_cpu_ptr(queue, cpu);
+		fq = per_cpu_ptr(iovad->fq, cpu);
 		fq->head = 0;
 		fq->tail = 0;
 
 		spin_lock_init(&fq->lock);
 	}
-
-	smp_wmb();
-
-	iovad->fq = queue;
 
 	timer_setup(&iovad->fq_timer, fq_flush_timeout, 0);
 	atomic_set(&iovad->fq_timer_on, 0);
@@ -136,9 +139,8 @@ __cached_rbnode_delete_update(struct iova_domain *iovad, struct iova *free)
 	struct iova *cached_iova;
 
 	cached_iova = rb_entry(iovad->cached32_node, struct iova, node);
-	if (free == cached_iova ||
-	    (free->pfn_hi < iovad->dma_32bit_pfn &&
-	     free->pfn_lo >= cached_iova->pfn_lo)) {
+	if (free->pfn_hi < iovad->dma_32bit_pfn &&
+	    free->pfn_lo >= cached_iova->pfn_lo) {
 		iovad->cached32_node = rb_next(&free->node);
 		iovad->max32_alloc_size = iovad->dma_32bit_pfn;
 	}
@@ -205,10 +207,8 @@ static int __alloc_and_insert_iova_range(struct iova_domain *iovad,
 		curr_iova = rb_entry(curr, struct iova, node);
 	} while (curr && new_pfn <= curr_iova->pfn_hi);
 
-	if (limit_pfn < size || new_pfn < iovad->start_pfn) {
-		iovad->max32_alloc_size = size;
+	if (limit_pfn < size || new_pfn < iovad->start_pfn)
 		goto iova32_full;
-	}
 
 	/* pfn_lo will point to size aligned address if size_aligned is set */
 	new->pfn_lo = new_pfn;
@@ -222,6 +222,7 @@ static int __alloc_and_insert_iova_range(struct iova_domain *iovad,
 	return 0;
 
 iova32_full:
+	iovad->max32_alloc_size = size;
 	spin_unlock_irqrestore(&iovad->iova_rbtree_lock, flags);
 	return -ENOMEM;
 }
@@ -232,7 +233,7 @@ static DEFINE_MUTEX(iova_cache_mutex);
 
 struct iova *alloc_iova_mem(void)
 {
-	return kmem_cache_zalloc(iova_cache, GFP_ATOMIC | __GFP_NOWARN);
+	return kmem_cache_alloc(iova_cache, GFP_ATOMIC);
 }
 EXPORT_SYMBOL(alloc_iova_mem);
 
@@ -252,7 +253,7 @@ int iova_cache_get(void)
 			SLAB_HWCACHE_ALIGN, NULL);
 		if (!iova_cache) {
 			mutex_unlock(&iova_cache_mutex);
-			pr_err("Couldn't create iova cache\n");
+			printk(KERN_ERR "Couldn't create iova cache\n");
 			return -ENOMEM;
 		}
 	}
@@ -576,9 +577,7 @@ void queue_iova(struct iova_domain *iovad,
 
 	spin_unlock_irqrestore(&fq->lock, flags);
 
-	/* Avoid false sharing as much as possible. */
-	if (!atomic_read(&iovad->fq_timer_on) &&
-	    !atomic_xchg(&iovad->fq_timer_on, 1))
+	if (atomic_cmpxchg(&iovad->fq_timer_on, 0, 1) == 0)
 		mod_timer(&iovad->fq_timer,
 			  jiffies + msecs_to_jiffies(IOVA_FQ_TIMEOUT));
 }
@@ -717,8 +716,8 @@ copy_reserved_iova(struct iova_domain *from, struct iova_domain *to)
 
 		new_iova = reserve_iova(to, iova->pfn_lo, iova->pfn_hi);
 		if (!new_iova)
-			pr_err("Reserve iova range %lx@%lx failed\n",
-			       iova->pfn_lo, iova->pfn_lo);
+			printk(KERN_ERR "Reserve iova range %lx@%lx failed\n",
+				iova->pfn_lo, iova->pfn_lo);
 	}
 	spin_unlock_irqrestore(&from->iova_rbtree_lock, flags);
 }
@@ -810,9 +809,7 @@ iova_magazine_free_pfns(struct iova_magazine *mag, struct iova_domain *iovad)
 	for (i = 0 ; i < mag->size; ++i) {
 		struct iova *iova = private_find_iova(iovad, mag->pfns[i]);
 
-		if (WARN_ON(!iova))
-			continue;
-
+		BUG_ON(!iova);
 		private_free_iova(iovad, iova);
 	}
 

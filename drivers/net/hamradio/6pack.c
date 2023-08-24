@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * 6pack.c	This module implements the 6pack protocol for kernel-based
  *		devices like TTY. It interfaces between a raw TTY and the
@@ -68,9 +67,9 @@
 #define SIXP_DAMA_OFF		0
 
 /* default level 2 parameters */
-#define SIXP_TXDELAY			25	/* 250 ms */
+#define SIXP_TXDELAY			(HZ/4)	/* in 1 s */
 #define SIXP_PERSIST			50	/* in 256ths */
-#define SIXP_SLOTTIME			10	/* 100 ms */
+#define SIXP_SLOTTIME			(HZ/10)	/* in 1 s */
 #define SIXP_INIT_RESYNC_TIMEOUT	(3*HZ/2) /* in 1 s */
 #define SIXP_RESYNC_TIMEOUT		5*HZ	/* in 1 s */
 
@@ -121,7 +120,7 @@ struct sixpack {
 	struct timer_list	tx_t;
 	struct timer_list	resync_t;
 	refcount_t		refcnt;
-	struct completion	dead;
+	struct semaphore	dead_sem;
 	spinlock_t		lock;
 };
 
@@ -344,10 +343,10 @@ static void sp_bump(struct sixpack *sp, char cmd)
 
 	sp->dev->stats.rx_bytes += count;
 
-	if ((skb = dev_alloc_skb(count + 1)) == NULL)
+	if ((skb = dev_alloc_skb(count)) == NULL)
 		goto out_mem;
 
-	ptr = skb_put(skb, count + 1);
+	ptr = skb_put(skb, count);
 	*ptr++ = cmd;	/* KISS command */
 
 	memcpy(ptr, sp->cooked_buf + 1, count);
@@ -390,7 +389,7 @@ static struct sixpack *sp_get(struct tty_struct *tty)
 static void sp_put(struct sixpack *sp)
 {
 	if (refcount_dec_and_test(&sp->refcnt))
-		complete(&sp->dead);
+		up(&sp->dead_sem);
 }
 
 /*
@@ -524,7 +523,10 @@ static void resync_tnc(struct timer_list *t)
 
 
 	/* Start resync timer again -- the TNC might be still absent */
-	mod_timer(&sp->resync_t, jiffies + SIXP_RESYNC_TIMEOUT);
+
+	del_timer(&sp->resync_t);
+	sp->resync_t.expires	= jiffies + SIXP_RESYNC_TIMEOUT;
+	add_timer(&sp->resync_t);
 }
 
 static inline int tnc_init(struct sixpack *sp)
@@ -535,7 +537,9 @@ static inline int tnc_init(struct sixpack *sp)
 
 	sp->tty->ops->write(sp->tty, &inbyte, 1);
 
-	mod_timer(&sp->resync_t, jiffies + SIXP_RESYNC_TIMEOUT);
+	del_timer(&sp->resync_t);
+	sp->resync_t.expires = jiffies + SIXP_RESYNC_TIMEOUT;
+	add_timer(&sp->resync_t);
 
 	return 0;
 }
@@ -572,7 +576,7 @@ static int sixpack_open(struct tty_struct *tty)
 
 	spin_lock_init(&sp->lock);
 	refcount_set(&sp->refcnt, 1);
-	init_completion(&sp->dead);
+	sema_init(&sp->dead_sem, 0);
 
 	/* !!! length of the buffers. MTU is IP MTU, not PACLEN!  */
 
@@ -654,10 +658,10 @@ static void sixpack_close(struct tty_struct *tty)
 {
 	struct sixpack *sp;
 
-	write_lock_irq(&disc_data_lock);
+	write_lock_bh(&disc_data_lock);
 	sp = tty->disc_data;
 	tty->disc_data = NULL;
-	write_unlock_irq(&disc_data_lock);
+	write_unlock_bh(&disc_data_lock);
 	if (!sp)
 		return;
 
@@ -666,10 +670,10 @@ static void sixpack_close(struct tty_struct *tty)
 	 * we have to wait for all existing users to finish.
 	 */
 	if (!refcount_dec_and_test(&sp->refcnt))
-		wait_for_completion(&sp->dead);
+		down(&sp->dead_sem);
 
 	/* We must stop the queue to avoid potentially scribbling
-	 * on the free buffers. The sp->dead completion is not sufficient
+	 * on the free buffers. The sp->dead_sem is not sufficient
 	 * to protect us from sp->xbuff access.
 	 */
 	netif_stop_queue(sp->dev);
@@ -839,12 +843,6 @@ static void decode_data(struct sixpack *sp, unsigned char inbyte)
 		return;
 	}
 
-	if (sp->rx_count_cooked + 2 >= sizeof(sp->cooked_buf)) {
-		pr_err("6pack: cooked buffer overrun, data loss\n");
-		sp->rx_count = 0;
-		return;
-	}
-
 	buf = sp->raw_buf;
 	sp->cooked_buf[sp->rx_count_cooked++] =
 		buf[0] | ((buf[1] << 2) & 0xc0);
@@ -899,8 +897,11 @@ static void decode_prio_command(struct sixpack *sp, unsigned char cmd)
         /* if the state byte has been received, the TNC is present,
            so the resync timer can be reset. */
 
-	if (sp->tnc_state == TNC_IN_SYNC)
-		mod_timer(&sp->resync_t, jiffies + SIXP_INIT_RESYNC_TIMEOUT);
+	if (sp->tnc_state == TNC_IN_SYNC) {
+		del_timer(&sp->resync_t);
+		sp->resync_t.expires	= jiffies + SIXP_INIT_RESYNC_TIMEOUT;
+		add_timer(&sp->resync_t);
+	}
 
 	sp->status1 = cmd & SIXP_PRIO_DATA_MASK;
 }

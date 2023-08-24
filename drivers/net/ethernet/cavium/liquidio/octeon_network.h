@@ -612,7 +612,7 @@ static inline struct list_head *lio_list_delete_head(struct list_head *root)
 {
 	struct list_head *node;
 
-	if (list_empty_careful(root))
+	if (root->prev == root && root->next == root)
 		node = NULL;
 	else
 		node = root->next;

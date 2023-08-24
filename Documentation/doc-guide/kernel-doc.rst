@@ -77,7 +77,7 @@ The general format of a function and function-like macro kernel-doc comment is::
    * Context: Describes whether the function can sleep, what locks it takes,
    *          releases, or expects to be held. It can extend over multiple
    *          lines.
-   * Return: Describe the return value of function_name.
+   * Return: Describe the return value of foobar.
    *
    * The return value description can also have multiple paragraphs, and should
    * be placed at the end of the comment block.
@@ -359,7 +359,7 @@ Domain`_ references.
   ``monospaced font``.
 
   Useful if you need to use special characters that would otherwise have some
-  meaning either by kernel-doc script or by reStructuredText.
+  meaning either by kernel-doc script of by reStructuredText.
 
   This is particularly useful if you need to use things like ``%ph`` inside
   a function description.
@@ -387,23 +387,22 @@ Domain`_ references.
 Cross-referencing from reStructuredText
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-No additional syntax is needed to cross-reference the functions and types
-defined in the kernel-doc comments from reStructuredText documents.
-Just end function names with ``()`` and write ``struct``, ``union``, ``enum``
-or ``typedef`` before types.
-For example::
+To cross-reference the functions and types defined in the kernel-doc comments
+from reStructuredText documents, please use the `Sphinx C Domain`_
+references. For example::
 
-  See foo().
-  See struct foo.
-  See union bar.
-  See enum baz.
-  See typedef meh.
+  See function :c:func:`foo` and struct/union/enum/typedef :c:type:`bar`.
 
-However, if you want custom text in the cross-reference link, that can be done
-through the following syntax::
+While the type reference works with just the type name, without the
+struct/union/enum/typedef part in front, you may want to use::
 
-  See :c:func:`my custom link text for function foo <foo>`.
-  See :c:type:`my custom link text for struct bar <bar>`.
+  See :c:type:`struct foo <foo>`.
+  See :c:type:`union bar <bar>`.
+  See :c:type:`enum baz <baz>`.
+  See :c:type:`typedef meh <meh>`.
+
+This will produce prettier links, and is in line with how kernel-doc does the
+cross-references.
 
 For further details, please refer to the `Sphinx C Domain`_ documentation.
 
@@ -477,30 +476,6 @@ internal: *[source-pattern ...]*
     .. kernel-doc:: drivers/gpu/drm/i915/intel_audio.c
        :internal:
 
-identifiers: *[ function/type ...]*
-  Include documentation for each *function* and *type* in *source*.
-  If no *function* is specified, the documentation for all functions
-  and types in the *source* will be included.
-
-  Examples::
-
-    .. kernel-doc:: lib/bitmap.c
-       :identifiers: bitmap_parselist bitmap_parselist_user
-
-    .. kernel-doc:: lib/idr.c
-       :identifiers:
-
-no-identifiers: *[ function/type ...]*
-  Exclude documentation for each *function* and *type* in *source*.
-
-  Example::
-
-    .. kernel-doc:: lib/bitmap.c
-       :no-identifiers: bitmap_parselist
-
-functions: *[ function/type ...]*
-  This is an alias of the 'identifiers' directive and deprecated.
-
 doc: *title*
   Include documentation for the ``DOC:`` paragraph identified by *title* in
   *source*. Spaces are allowed in *title*; do not quote the *title*. The *title*
@@ -512,6 +487,19 @@ doc: *title*
 
     .. kernel-doc:: drivers/gpu/drm/i915/intel_audio.c
        :doc: High Definition Audio over HDMI and Display Port
+
+functions: *[ function ...]*
+  Include documentation for each *function* in *source*.
+  If no *function* if specified, the documentaion for all functions
+  and types in the *source* will be included.
+
+  Examples::
+
+    .. kernel-doc:: lib/bitmap.c
+       :functions: bitmap_parselist bitmap_parselist_user
+
+    .. kernel-doc:: lib/idr.c
+       :functions:
 
 Without options, the kernel-doc directive includes all documentation comments
 from the source file.
@@ -529,17 +517,4 @@ How to use kernel-doc to generate man pages
 If you just want to use kernel-doc to generate man pages you can do this
 from the kernel git tree::
 
-  $ scripts/kernel-doc -man \
-    $(git grep -l '/\*\*' -- :^Documentation :^tools) \
-    | scripts/split-man.pl /tmp/man
-
-Some older versions of git do not support some of the variants of syntax for
-path exclusion.  One of the following commands may work for those versions::
-
-  $ scripts/kernel-doc -man \
-    $(git grep -l '/\*\*' -- . ':!Documentation' ':!tools') \
-    | scripts/split-man.pl /tmp/man
-
-  $ scripts/kernel-doc -man \
-    $(git grep -l '/\*\*' -- . ":(exclude)Documentation" ":(exclude)tools") \
-    | scripts/split-man.pl /tmp/man
+  $ scripts/kernel-doc -man $(git grep -l '/\*\*' -- :^Documentation :^tools) | scripts/split-man.pl /tmp/man

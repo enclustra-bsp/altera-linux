@@ -16,6 +16,7 @@
 #include <errno.h>
 #include <linux/if_packet.h>
 #include <linux/if_ether.h>
+#include <linux/if_packet.h>
 #include <linux/ipv6.h>
 #include <netinet/ip.h>
 #include <netinet/in.h>
@@ -24,6 +25,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>

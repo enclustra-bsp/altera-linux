@@ -67,6 +67,7 @@ static int kvm_trap_emul_no_handler(struct kvm_vcpu *vcpu)
 static int kvm_trap_emul_handle_cop_unusable(struct kvm_vcpu *vcpu)
 {
 	struct mips_coproc *cop0 = vcpu->arch.cop0;
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *) vcpu->arch.pc;
 	u32 cause = vcpu->arch.host_cp0_cause;
 	enum emulation_result er = EMULATE_DONE;
@@ -80,14 +81,14 @@ static int kvm_trap_emul_handle_cop_unusable(struct kvm_vcpu *vcpu)
 			 * Unusable/no FPU in guest:
 			 * deliver guest COP1 Unusable Exception
 			 */
-			er = kvm_mips_emulate_fpu_exc(cause, opc, vcpu);
+			er = kvm_mips_emulate_fpu_exc(cause, opc, run, vcpu);
 		} else {
 			/* Restore FPU state */
 			kvm_own_fpu(vcpu);
 			er = EMULATE_DONE;
 		}
 	} else {
-		er = kvm_mips_emulate_inst(cause, opc, vcpu);
+		er = kvm_mips_emulate_inst(cause, opc, run, vcpu);
 	}
 
 	switch (er) {
@@ -96,12 +97,12 @@ static int kvm_trap_emul_handle_cop_unusable(struct kvm_vcpu *vcpu)
 		break;
 
 	case EMULATE_FAIL:
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 		break;
 
 	case EMULATE_WAIT:
-		vcpu->run->exit_reason = KVM_EXIT_INTR;
+		run->exit_reason = KVM_EXIT_INTR;
 		ret = RESUME_HOST;
 		break;
 
@@ -115,7 +116,8 @@ static int kvm_trap_emul_handle_cop_unusable(struct kvm_vcpu *vcpu)
 	return ret;
 }
 
-static int kvm_mips_bad_load(u32 cause, u32 *opc, struct kvm_vcpu *vcpu)
+static int kvm_mips_bad_load(u32 cause, u32 *opc, struct kvm_run *run,
+			     struct kvm_vcpu *vcpu)
 {
 	enum emulation_result er;
 	union mips_instruction inst;
@@ -123,7 +125,7 @@ static int kvm_mips_bad_load(u32 cause, u32 *opc, struct kvm_vcpu *vcpu)
 
 	/* A code fetch fault doesn't count as an MMIO */
 	if (kvm_is_ifetch_fault(&vcpu->arch)) {
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		return RESUME_HOST;
 	}
 
@@ -132,22 +134,23 @@ static int kvm_mips_bad_load(u32 cause, u32 *opc, struct kvm_vcpu *vcpu)
 		opc += 1;
 	err = kvm_get_badinstr(opc, vcpu, &inst.word);
 	if (err) {
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		return RESUME_HOST;
 	}
 
 	/* Emulate the load */
-	er = kvm_mips_emulate_load(inst, cause, vcpu);
+	er = kvm_mips_emulate_load(inst, cause, run, vcpu);
 	if (er == EMULATE_FAIL) {
 		kvm_err("Emulate load from MMIO space failed\n");
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 	} else {
-		vcpu->run->exit_reason = KVM_EXIT_MMIO;
+		run->exit_reason = KVM_EXIT_MMIO;
 	}
 	return RESUME_HOST;
 }
 
-static int kvm_mips_bad_store(u32 cause, u32 *opc, struct kvm_vcpu *vcpu)
+static int kvm_mips_bad_store(u32 cause, u32 *opc, struct kvm_run *run,
+			      struct kvm_vcpu *vcpu)
 {
 	enum emulation_result er;
 	union mips_instruction inst;
@@ -158,33 +161,34 @@ static int kvm_mips_bad_store(u32 cause, u32 *opc, struct kvm_vcpu *vcpu)
 		opc += 1;
 	err = kvm_get_badinstr(opc, vcpu, &inst.word);
 	if (err) {
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		return RESUME_HOST;
 	}
 
 	/* Emulate the store */
-	er = kvm_mips_emulate_store(inst, cause, vcpu);
+	er = kvm_mips_emulate_store(inst, cause, run, vcpu);
 	if (er == EMULATE_FAIL) {
 		kvm_err("Emulate store to MMIO space failed\n");
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 	} else {
-		vcpu->run->exit_reason = KVM_EXIT_MMIO;
+		run->exit_reason = KVM_EXIT_MMIO;
 	}
 	return RESUME_HOST;
 }
 
-static int kvm_mips_bad_access(u32 cause, u32 *opc,
+static int kvm_mips_bad_access(u32 cause, u32 *opc, struct kvm_run *run,
 			       struct kvm_vcpu *vcpu, bool store)
 {
 	if (store)
-		return kvm_mips_bad_store(cause, opc, vcpu);
+		return kvm_mips_bad_store(cause, opc, run, vcpu);
 	else
-		return kvm_mips_bad_load(cause, opc, vcpu);
+		return kvm_mips_bad_load(cause, opc, run, vcpu);
 }
 
 static int kvm_trap_emul_handle_tlb_mod(struct kvm_vcpu *vcpu)
 {
 	struct mips_coproc *cop0 = vcpu->arch.cop0;
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *) vcpu->arch.pc;
 	unsigned long badvaddr = vcpu->arch.host_cp0_badvaddr;
 	u32 cause = vcpu->arch.host_cp0_cause;
@@ -208,12 +212,12 @@ static int kvm_trap_emul_handle_tlb_mod(struct kvm_vcpu *vcpu)
 		 * They would indicate stale host TLB entries.
 		 */
 		if (unlikely(index < 0)) {
-			vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+			run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 			return RESUME_HOST;
 		}
 		tlb = vcpu->arch.guest_tlb + index;
 		if (unlikely(!TLB_IS_VALID(*tlb, badvaddr))) {
-			vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+			run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 			return RESUME_HOST;
 		}
 
@@ -222,23 +226,23 @@ static int kvm_trap_emul_handle_tlb_mod(struct kvm_vcpu *vcpu)
 		 * exception. Relay that on to the guest so it can handle it.
 		 */
 		if (!TLB_IS_DIRTY(*tlb, badvaddr)) {
-			kvm_mips_emulate_tlbmod(cause, opc, vcpu);
+			kvm_mips_emulate_tlbmod(cause, opc, run, vcpu);
 			return RESUME_GUEST;
 		}
 
 		if (kvm_mips_handle_mapped_seg_tlb_fault(vcpu, tlb, badvaddr,
 							 true))
 			/* Not writable, needs handling as MMIO */
-			return kvm_mips_bad_store(cause, opc, vcpu);
+			return kvm_mips_bad_store(cause, opc, run, vcpu);
 		return RESUME_GUEST;
 	} else if (KVM_GUEST_KSEGX(badvaddr) == KVM_GUEST_KSEG0) {
 		if (kvm_mips_handle_kseg0_tlb_fault(badvaddr, vcpu, true) < 0)
 			/* Not writable, needs handling as MMIO */
-			return kvm_mips_bad_store(cause, opc, vcpu);
+			return kvm_mips_bad_store(cause, opc, run, vcpu);
 		return RESUME_GUEST;
 	} else {
 		/* host kernel addresses are all handled as MMIO */
-		return kvm_mips_bad_store(cause, opc, vcpu);
+		return kvm_mips_bad_store(cause, opc, run, vcpu);
 	}
 }
 
@@ -272,7 +276,7 @@ static int kvm_trap_emul_handle_tlb_miss(struct kvm_vcpu *vcpu, bool store)
 		 *     into the shadow host TLB
 		 */
 
-		er = kvm_mips_handle_tlbmiss(cause, opc, vcpu, store);
+		er = kvm_mips_handle_tlbmiss(cause, opc, run, vcpu, store);
 		if (er == EMULATE_DONE)
 			ret = RESUME_GUEST;
 		else {
@@ -285,14 +289,14 @@ static int kvm_trap_emul_handle_tlb_miss(struct kvm_vcpu *vcpu, bool store)
 		 * not expect to ever get them
 		 */
 		if (kvm_mips_handle_kseg0_tlb_fault(badvaddr, vcpu, store) < 0)
-			ret = kvm_mips_bad_access(cause, opc, vcpu, store);
+			ret = kvm_mips_bad_access(cause, opc, run, vcpu, store);
 	} else if (KVM_GUEST_KERNEL_MODE(vcpu)
 		   && (KSEGX(badvaddr) == CKSEG0 || KSEGX(badvaddr) == CKSEG1)) {
 		/*
 		 * With EVA we may get a TLB exception instead of an address
 		 * error when the guest performs MMIO to KSeg1 addresses.
 		 */
-		ret = kvm_mips_bad_access(cause, opc, vcpu, store);
+		ret = kvm_mips_bad_access(cause, opc, run, vcpu, store);
 	} else {
 		kvm_err("Illegal TLB %s fault address , cause %#x, PC: %p, BadVaddr: %#lx\n",
 			store ? "ST" : "LD", cause, opc, badvaddr);
@@ -316,6 +320,7 @@ static int kvm_trap_emul_handle_tlb_ld_miss(struct kvm_vcpu *vcpu)
 
 static int kvm_trap_emul_handle_addr_err_st(struct kvm_vcpu *vcpu)
 {
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *) vcpu->arch.pc;
 	unsigned long badvaddr = vcpu->arch.host_cp0_badvaddr;
 	u32 cause = vcpu->arch.host_cp0_cause;
@@ -323,11 +328,11 @@ static int kvm_trap_emul_handle_addr_err_st(struct kvm_vcpu *vcpu)
 
 	if (KVM_GUEST_KERNEL_MODE(vcpu)
 	    && (KSEGX(badvaddr) == CKSEG0 || KSEGX(badvaddr) == CKSEG1)) {
-		ret = kvm_mips_bad_store(cause, opc, vcpu);
+		ret = kvm_mips_bad_store(cause, opc, run, vcpu);
 	} else {
 		kvm_err("Address Error (STORE): cause %#x, PC: %p, BadVaddr: %#lx\n",
 			cause, opc, badvaddr);
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 	}
 	return ret;
@@ -335,17 +340,18 @@ static int kvm_trap_emul_handle_addr_err_st(struct kvm_vcpu *vcpu)
 
 static int kvm_trap_emul_handle_addr_err_ld(struct kvm_vcpu *vcpu)
 {
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *) vcpu->arch.pc;
 	unsigned long badvaddr = vcpu->arch.host_cp0_badvaddr;
 	u32 cause = vcpu->arch.host_cp0_cause;
 	int ret = RESUME_GUEST;
 
 	if (KSEGX(badvaddr) == CKSEG0 || KSEGX(badvaddr) == CKSEG1) {
-		ret = kvm_mips_bad_load(cause, opc, vcpu);
+		ret = kvm_mips_bad_load(cause, opc, run, vcpu);
 	} else {
 		kvm_err("Address Error (LOAD): cause %#x, PC: %p, BadVaddr: %#lx\n",
 			cause, opc, badvaddr);
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 	}
 	return ret;
@@ -353,16 +359,17 @@ static int kvm_trap_emul_handle_addr_err_ld(struct kvm_vcpu *vcpu)
 
 static int kvm_trap_emul_handle_syscall(struct kvm_vcpu *vcpu)
 {
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *) vcpu->arch.pc;
 	u32 cause = vcpu->arch.host_cp0_cause;
 	enum emulation_result er = EMULATE_DONE;
 	int ret = RESUME_GUEST;
 
-	er = kvm_mips_emulate_syscall(cause, opc, vcpu);
+	er = kvm_mips_emulate_syscall(cause, opc, run, vcpu);
 	if (er == EMULATE_DONE)
 		ret = RESUME_GUEST;
 	else {
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 	}
 	return ret;
@@ -370,16 +377,17 @@ static int kvm_trap_emul_handle_syscall(struct kvm_vcpu *vcpu)
 
 static int kvm_trap_emul_handle_res_inst(struct kvm_vcpu *vcpu)
 {
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *) vcpu->arch.pc;
 	u32 cause = vcpu->arch.host_cp0_cause;
 	enum emulation_result er = EMULATE_DONE;
 	int ret = RESUME_GUEST;
 
-	er = kvm_mips_handle_ri(cause, opc, vcpu);
+	er = kvm_mips_handle_ri(cause, opc, run, vcpu);
 	if (er == EMULATE_DONE)
 		ret = RESUME_GUEST;
 	else {
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 	}
 	return ret;
@@ -387,16 +395,17 @@ static int kvm_trap_emul_handle_res_inst(struct kvm_vcpu *vcpu)
 
 static int kvm_trap_emul_handle_break(struct kvm_vcpu *vcpu)
 {
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *) vcpu->arch.pc;
 	u32 cause = vcpu->arch.host_cp0_cause;
 	enum emulation_result er = EMULATE_DONE;
 	int ret = RESUME_GUEST;
 
-	er = kvm_mips_emulate_bp_exc(cause, opc, vcpu);
+	er = kvm_mips_emulate_bp_exc(cause, opc, run, vcpu);
 	if (er == EMULATE_DONE)
 		ret = RESUME_GUEST;
 	else {
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 	}
 	return ret;
@@ -404,16 +413,17 @@ static int kvm_trap_emul_handle_break(struct kvm_vcpu *vcpu)
 
 static int kvm_trap_emul_handle_trap(struct kvm_vcpu *vcpu)
 {
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *)vcpu->arch.pc;
 	u32 cause = vcpu->arch.host_cp0_cause;
 	enum emulation_result er = EMULATE_DONE;
 	int ret = RESUME_GUEST;
 
-	er = kvm_mips_emulate_trap_exc(cause, opc, vcpu);
+	er = kvm_mips_emulate_trap_exc(cause, opc, run, vcpu);
 	if (er == EMULATE_DONE) {
 		ret = RESUME_GUEST;
 	} else {
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 	}
 	return ret;
@@ -421,16 +431,17 @@ static int kvm_trap_emul_handle_trap(struct kvm_vcpu *vcpu)
 
 static int kvm_trap_emul_handle_msa_fpe(struct kvm_vcpu *vcpu)
 {
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *)vcpu->arch.pc;
 	u32 cause = vcpu->arch.host_cp0_cause;
 	enum emulation_result er = EMULATE_DONE;
 	int ret = RESUME_GUEST;
 
-	er = kvm_mips_emulate_msafpe_exc(cause, opc, vcpu);
+	er = kvm_mips_emulate_msafpe_exc(cause, opc, run, vcpu);
 	if (er == EMULATE_DONE) {
 		ret = RESUME_GUEST;
 	} else {
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 	}
 	return ret;
@@ -438,16 +449,17 @@ static int kvm_trap_emul_handle_msa_fpe(struct kvm_vcpu *vcpu)
 
 static int kvm_trap_emul_handle_fpe(struct kvm_vcpu *vcpu)
 {
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *)vcpu->arch.pc;
 	u32 cause = vcpu->arch.host_cp0_cause;
 	enum emulation_result er = EMULATE_DONE;
 	int ret = RESUME_GUEST;
 
-	er = kvm_mips_emulate_fpe_exc(cause, opc, vcpu);
+	er = kvm_mips_emulate_fpe_exc(cause, opc, run, vcpu);
 	if (er == EMULATE_DONE) {
 		ret = RESUME_GUEST;
 	} else {
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 	}
 	return ret;
@@ -462,6 +474,7 @@ static int kvm_trap_emul_handle_fpe(struct kvm_vcpu *vcpu)
 static int kvm_trap_emul_handle_msa_disabled(struct kvm_vcpu *vcpu)
 {
 	struct mips_coproc *cop0 = vcpu->arch.cop0;
+	struct kvm_run *run = vcpu->run;
 	u32 __user *opc = (u32 __user *) vcpu->arch.pc;
 	u32 cause = vcpu->arch.host_cp0_cause;
 	enum emulation_result er = EMULATE_DONE;
@@ -473,10 +486,10 @@ static int kvm_trap_emul_handle_msa_disabled(struct kvm_vcpu *vcpu)
 		 * No MSA in guest, or FPU enabled and not in FR=1 mode,
 		 * guest reserved instruction exception
 		 */
-		er = kvm_mips_emulate_ri_exc(cause, opc, vcpu);
+		er = kvm_mips_emulate_ri_exc(cause, opc, run, vcpu);
 	} else if (!(kvm_read_c0_guest_config5(cop0) & MIPS_CONF5_MSAEN)) {
 		/* MSA disabled by guest, guest MSA disabled exception */
-		er = kvm_mips_emulate_msadis_exc(cause, opc, vcpu);
+		er = kvm_mips_emulate_msadis_exc(cause, opc, run, vcpu);
 	} else {
 		/* Restore MSA/FPU state */
 		kvm_own_msa(vcpu);
@@ -489,7 +502,7 @@ static int kvm_trap_emul_handle_msa_disabled(struct kvm_vcpu *vcpu)
 		break;
 
 	case EMULATE_FAIL:
-		vcpu->run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
+		run->exit_reason = KVM_EXIT_INTERNAL_ERROR;
 		ret = RESUME_HOST;
 		break;
 
@@ -514,9 +527,6 @@ static int kvm_trap_emul_check_extension(struct kvm *kvm, long ext)
 
 	switch (ext) {
 	case KVM_CAP_MIPS_TE:
-		r = 1;
-		break;
-	case KVM_CAP_IOEVENTFD:
 		r = 1;
 		break;
 	default:
@@ -554,7 +564,6 @@ static void kvm_mips_emul_free_gva_pt(pgd_t *pgd)
 	/* Don't free host kernel page tables copied from init_mm.pgd */
 	const unsigned long end = 0x80000000;
 	unsigned long pgd_va, pud_va, pmd_va;
-	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
@@ -567,8 +576,7 @@ static void kvm_mips_emul_free_gva_pt(pgd_t *pgd)
 		pgd_va = (unsigned long)i << PGDIR_SHIFT;
 		if (pgd_va >= end)
 			break;
-		p4d = p4d_offset(pgd, 0);
-		pud = pud_offset(p4d + i, 0);
+		pud = pud_offset(pgd + i, 0);
 		for (j = 0; j < PTRS_PER_PUD; j++) {
 			if (pud_none(pud[j]))
 				continue;
@@ -584,7 +592,7 @@ static void kvm_mips_emul_free_gva_pt(pgd_t *pgd)
 				pmd_va = pud_va | (k << PMD_SHIFT);
 				if (pmd_va >= end)
 					break;
-				pte = pte_offset_kernel(pmd + k, 0);
+				pte = pte_offset(pmd + k, 0);
 				pte_free_kernel(NULL, pte);
 			}
 			pmd_free(NULL, pmd);
@@ -1048,7 +1056,11 @@ static int kvm_trap_emul_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	 */
 	if (current->flags & PF_VCPU) {
 		mm = KVM_GUEST_KERNEL_MODE(vcpu) ? kern_mm : user_mm;
-		check_switch_mmu_context(mm);
+		if ((cpu_context(cpu, mm) ^ asid_cache(cpu)) &
+		    asid_version_mask(cpu))
+			get_new_mmu_context(mm, cpu);
+		write_c0_entryhi(cpu_asid(cpu, mm));
+		TLBMISS_HANDLER_SETUP_PGD(mm->pgd);
 		kvm_mips_suspend_mm(cpu);
 		ehb();
 	}
@@ -1062,7 +1074,11 @@ static int kvm_trap_emul_vcpu_put(struct kvm_vcpu *vcpu, int cpu)
 
 	if (current->flags & PF_VCPU) {
 		/* Restore normal Linux process memory map */
-		check_switch_mmu_context(current->mm);
+		if (((cpu_context(cpu, current->mm) ^ asid_cache(cpu)) &
+		     asid_version_mask(cpu)))
+			get_new_mmu_context(current->mm, cpu);
+		write_c0_entryhi(cpu_asid(cpu, current->mm));
+		TLBMISS_HANDLER_SETUP_PGD(current->mm->pgd);
 		kvm_mips_resume_mm(cpu);
 		ehb();
 	}
@@ -1090,14 +1106,14 @@ static void kvm_trap_emul_check_requests(struct kvm_vcpu *vcpu, int cpu,
 		kvm_mips_flush_gva_pt(kern_mm->pgd, KMF_GPA | KMF_KERN);
 		kvm_mips_flush_gva_pt(user_mm->pgd, KMF_GPA | KMF_USER);
 		for_each_possible_cpu(i) {
-			set_cpu_context(i, kern_mm, 0);
-			set_cpu_context(i, user_mm, 0);
+			cpu_context(i, kern_mm) = 0;
+			cpu_context(i, user_mm) = 0;
 		}
 
 		/* Generate new ASID for current mode */
 		if (reload_asid) {
 			mm = KVM_GUEST_KERNEL_MODE(vcpu) ? kern_mm : user_mm;
-			get_new_mmu_context(mm);
+			get_new_mmu_context(mm, cpu);
 			htw_stop();
 			write_c0_entryhi(cpu_asid(cpu, mm));
 			TLBMISS_HANDLER_SETUP_PGD(mm->pgd);
@@ -1171,7 +1187,8 @@ void kvm_trap_emul_gva_lockless_end(struct kvm_vcpu *vcpu)
 	local_irq_enable();
 }
 
-static void kvm_trap_emul_vcpu_reenter(struct kvm_vcpu *vcpu)
+static void kvm_trap_emul_vcpu_reenter(struct kvm_run *run,
+				       struct kvm_vcpu *vcpu)
 {
 	struct mm_struct *kern_mm = &vcpu->arch.guest_kernel_mm;
 	struct mm_struct *user_mm = &vcpu->arch.guest_user_mm;
@@ -1202,7 +1219,7 @@ static void kvm_trap_emul_vcpu_reenter(struct kvm_vcpu *vcpu)
 		if (gasid != vcpu->arch.last_user_gasid) {
 			kvm_mips_flush_gva_pt(user_mm->pgd, KMF_USER);
 			for_each_possible_cpu(i)
-				set_cpu_context(i, user_mm, 0);
+				cpu_context(i, user_mm) = 0;
 			vcpu->arch.last_user_gasid = gasid;
 		}
 	}
@@ -1211,10 +1228,12 @@ static void kvm_trap_emul_vcpu_reenter(struct kvm_vcpu *vcpu)
 	 * Check if ASID is stale. This may happen due to a TLB flush request or
 	 * a lazy user MM invalidation.
 	 */
-	check_mmu_context(mm);
+	if ((cpu_context(cpu, mm) ^ asid_cache(cpu)) &
+	    asid_version_mask(cpu))
+		get_new_mmu_context(mm, cpu);
 }
 
-static int kvm_trap_emul_vcpu_run(struct kvm_vcpu *vcpu)
+static int kvm_trap_emul_vcpu_run(struct kvm_run *run, struct kvm_vcpu *vcpu)
 {
 	int cpu = smp_processor_id();
 	int r;
@@ -1223,7 +1242,7 @@ static int kvm_trap_emul_vcpu_run(struct kvm_vcpu *vcpu)
 	kvm_mips_deliver_interrupts(vcpu,
 				    kvm_read_c0_guest_cause(vcpu->arch.cop0));
 
-	kvm_trap_emul_vcpu_reenter(vcpu);
+	kvm_trap_emul_vcpu_reenter(run, vcpu);
 
 	/*
 	 * We use user accessors to access guest memory, but we don't want to
@@ -1241,13 +1260,17 @@ static int kvm_trap_emul_vcpu_run(struct kvm_vcpu *vcpu)
 	 */
 	kvm_mips_suspend_mm(cpu);
 
-	r = vcpu->arch.vcpu_run(vcpu);
+	r = vcpu->arch.vcpu_run(run, vcpu);
 
 	/* We may have migrated while handling guest exits */
 	cpu = smp_processor_id();
 
 	/* Restore normal Linux process memory map */
-	check_switch_mmu_context(current->mm);
+	if (((cpu_context(cpu, current->mm) ^ asid_cache(cpu)) &
+	     asid_version_mask(cpu)))
+		get_new_mmu_context(current->mm, cpu);
+	write_c0_entryhi(cpu_asid(cpu, current->mm));
+	TLBMISS_HANDLER_SETUP_PGD(current->mm->pgd);
 	kvm_mips_resume_mm(cpu);
 
 	htw_start();

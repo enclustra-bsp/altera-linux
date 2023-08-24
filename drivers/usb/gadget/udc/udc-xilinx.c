@@ -1399,6 +1399,7 @@ err:
 /**
  * xudc_stop - stops the device.
  * @gadget: pointer to the usb gadget structure
+ * @driver: pointer to usb gadget driver structure
  *
  * Return: zero always
  */
@@ -1732,7 +1733,6 @@ static void xudc_set_clear_feature(struct xusb_udc *udc)
  * Process setup packet and delegate to gadget layer.
  */
 static void xudc_handle_setup(struct xusb_udc *udc)
-	__must_hold(&udc->lock)
 {
 	struct xusb_ep *ep0 = &udc->ep[0];
 	struct usb_ctrlrequest setup;
@@ -2074,8 +2074,10 @@ static int xudc_probe(struct platform_device *pdev)
 		return PTR_ERR(udc->addr);
 
 	irq = platform_get_irq(pdev, 0);
-	if (irq < 0)
+	if (irq < 0) {
+		dev_err(&pdev->dev, "unable to get irq\n");
 		return irq;
+	}
 	ret = devm_request_irq(&pdev->dev, irq, xudc_irq, 0,
 			       dev_name(&pdev->dev), udc);
 	if (ret < 0) {
@@ -2097,9 +2099,9 @@ static int xudc_probe(struct platform_device *pdev)
 	/* Check for IP endianness */
 	udc->write_fn = xudc_write32_be;
 	udc->read_fn = xudc_read32_be;
-	udc->write_fn(udc->addr, XUSB_TESTMODE_OFFSET, USB_TEST_J);
+	udc->write_fn(udc->addr, XUSB_TESTMODE_OFFSET, TEST_J);
 	if ((udc->read_fn(udc->addr + XUSB_TESTMODE_OFFSET))
-			!= USB_TEST_J) {
+			!= TEST_J) {
 		udc->write_fn = xudc_write32;
 		udc->read_fn = xudc_read32;
 	}

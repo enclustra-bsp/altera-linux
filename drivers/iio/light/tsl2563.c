@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * drivers/iio/light/tsl2563.c
  *
@@ -9,6 +8,20 @@
  *
  * Converted to IIO driver
  * Amit Kucheria <amit.kucheria@verdurent.com>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA
  */
 
 #include <linux/module.h>
@@ -69,7 +82,7 @@
 #define TSL2563_TIMING_GAIN16	0x10
 #define TSL2563_TIMING_GAIN1	0x00
 
-#define TSL2563_INT_DISABLED	0x00
+#define TSL2563_INT_DISBLED	0x00
 #define TSL2563_INT_LEVEL	0x10
 #define TSL2563_INT_PERSIST(n)	((n) & 0x0F)
 
@@ -713,7 +726,7 @@ static int tsl2563_probe(struct i2c_client *client,
 
 	chip = iio_priv(indio_dev);
 
-	i2c_set_clientdata(client, indio_dev);
+	i2c_set_clientdata(client, chip);
 	chip->client = client;
 
 	err = tsl2563_detect(chip);
@@ -750,6 +763,7 @@ static int tsl2563_probe(struct i2c_client *client,
 	indio_dev->name = client->name;
 	indio_dev->channels = tsl2563_channels;
 	indio_dev->num_channels = ARRAY_SIZE(tsl2563_channels);
+	indio_dev->dev.parent = &client->dev;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
 	if (client->irq)
@@ -796,8 +810,8 @@ fail:
 
 static int tsl2563_remove(struct i2c_client *client)
 {
-	struct iio_dev *indio_dev = i2c_get_clientdata(client);
-	struct tsl2563_chip *chip = iio_priv(indio_dev);
+	struct tsl2563_chip *chip = i2c_get_clientdata(client);
+	struct iio_dev *indio_dev = iio_priv_to_dev(chip);
 
 	iio_device_unregister(indio_dev);
 	if (!chip->int_enabled)
@@ -815,8 +829,7 @@ static int tsl2563_remove(struct i2c_client *client)
 #ifdef CONFIG_PM_SLEEP
 static int tsl2563_suspend(struct device *dev)
 {
-	struct iio_dev *indio_dev = i2c_get_clientdata(to_i2c_client(dev));
-	struct tsl2563_chip *chip = iio_priv(indio_dev);
+	struct tsl2563_chip *chip = i2c_get_clientdata(to_i2c_client(dev));
 	int ret;
 
 	mutex_lock(&chip->lock);
@@ -834,8 +847,7 @@ out:
 
 static int tsl2563_resume(struct device *dev)
 {
-	struct iio_dev *indio_dev = i2c_get_clientdata(to_i2c_client(dev));
-	struct tsl2563_chip *chip = iio_priv(indio_dev);
+	struct tsl2563_chip *chip = i2c_get_clientdata(to_i2c_client(dev));
 	int ret;
 
 	mutex_lock(&chip->lock);

@@ -114,13 +114,10 @@ int vmw_getparam_ioctl(struct drm_device *dev, void *data,
 			(dev_priv->active_display_unit == vmw_du_screen_target);
 		break;
 	case DRM_VMW_PARAM_DX:
-		param->value = has_sm4_context(dev_priv);
+		param->value = dev_priv->has_dx;
 		break;
 	case DRM_VMW_PARAM_SM4_1:
-		param->value = has_sm4_1_context(dev_priv);
-		break;
-	case DRM_VMW_PARAM_SM5:
-		param->value = has_sm5_context(dev_priv);
+		param->value = dev_priv->has_sm4_1;
 		break;
 	default:
 		return -EINVAL;
@@ -129,17 +126,14 @@ int vmw_getparam_ioctl(struct drm_device *dev, void *data,
 	return 0;
 }
 
-static u32 vmw_mask_legacy_multisample(unsigned int cap, u32 fmt_value)
+static u32 vmw_mask_multisample(unsigned int cap, u32 fmt_value)
 {
 	/*
 	 * A version of user-space exists which use MULTISAMPLE_MASKABLESAMPLES
 	 * to check the sample count supported by virtual device. Since there
 	 * never was support for multisample count for backing MOB return 0.
-	 *
-	 * MULTISAMPLE_MASKABLESAMPLES devcap is marked as deprecated by virtual
-	 * device.
 	 */
-	if (cap == SVGA3D_DEVCAP_DEAD5)
+	if (cap == SVGA3D_DEVCAP_MULTISAMPLE_MASKABLESAMPLES)
 		return 0;
 
 	return fmt_value;
@@ -170,7 +164,7 @@ static int vmw_fill_compat_cap(struct vmw_private *dev_priv, void *bounce,
 	for (i = 0; i < max_size; ++i) {
 		vmw_write(dev_priv, SVGA_REG_DEV_CAP, i);
 		compat_cap->pairs[i][0] = i;
-		compat_cap->pairs[i][1] = vmw_mask_legacy_multisample
+		compat_cap->pairs[i][1] = vmw_mask_multisample
 			(i, vmw_read(dev_priv, SVGA_REG_DEV_CAP));
 	}
 	spin_unlock(&dev_priv->cap_lock);
@@ -194,7 +188,7 @@ int vmw_get_cap_3d_ioctl(struct drm_device *dev, void *data,
 	struct vmw_fpriv *vmw_fp = vmw_fpriv(file_priv);
 
 	if (unlikely(arg->pad64 != 0 || arg->max_size == 0)) {
-		VMW_DEBUG_USER("Illegal GET_3D_CAP argument.\n");
+		DRM_ERROR("Illegal GET_3D_CAP argument.\n");
 		return -EINVAL;
 	}
 
@@ -226,7 +220,7 @@ int vmw_get_cap_3d_ioctl(struct drm_device *dev, void *data,
 		spin_lock(&dev_priv->cap_lock);
 		for (i = 0; i < num; ++i) {
 			vmw_write(dev_priv, SVGA_REG_DEV_CAP, i);
-			*bounce32++ = vmw_mask_legacy_multisample
+			*bounce32++ = vmw_mask_multisample
 				(i, vmw_read(dev_priv, SVGA_REG_DEV_CAP));
 		}
 		spin_unlock(&dev_priv->cap_lock);
@@ -274,7 +268,7 @@ int vmw_present_ioctl(struct drm_device *dev, void *data,
 		return 0;
 
 	if (clips_ptr == NULL) {
-		VMW_DEBUG_USER("Variable clips_ptr must be specified.\n");
+		DRM_ERROR("Variable clips_ptr must be specified.\n");
 		ret = -EINVAL;
 		goto out_clips;
 	}
@@ -297,7 +291,7 @@ int vmw_present_ioctl(struct drm_device *dev, void *data,
 
 	fb = drm_framebuffer_lookup(dev, file_priv, arg->fb_id);
 	if (!fb) {
-		VMW_DEBUG_USER("Invalid framebuffer id.\n");
+		DRM_ERROR("Invalid framebuffer id.\n");
 		ret = -ENOENT;
 		goto out_no_fb;
 	}
@@ -357,7 +351,7 @@ int vmw_present_readback_ioctl(struct drm_device *dev, void *data,
 		return 0;
 
 	if (clips_ptr == NULL) {
-		VMW_DEBUG_USER("Argument clips_ptr must be specified.\n");
+		DRM_ERROR("Argument clips_ptr must be specified.\n");
 		ret = -EINVAL;
 		goto out_clips;
 	}
@@ -380,14 +374,14 @@ int vmw_present_readback_ioctl(struct drm_device *dev, void *data,
 
 	fb = drm_framebuffer_lookup(dev, file_priv, arg->fb_id);
 	if (!fb) {
-		VMW_DEBUG_USER("Invalid framebuffer id.\n");
+		DRM_ERROR("Invalid framebuffer id.\n");
 		ret = -ENOENT;
 		goto out_no_fb;
 	}
 
 	vfb = vmw_framebuffer_to_vfb(fb);
 	if (!vfb->bo) {
-		VMW_DEBUG_USER("Framebuffer not buffer backed.\n");
+		DRM_ERROR("Framebuffer not buffer backed.\n");
 		ret = -EINVAL;
 		goto out_no_ttm_lock;
 	}

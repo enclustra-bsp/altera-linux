@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * x86_64/AVX2 assembler optimized version of Serpent
  *
@@ -7,6 +6,12 @@
  * Based on AVX assembler implementation of Serpent by:
  *  Copyright © 2012 Johannes Goetzfried
  *      <Johannes.Goetzfried@informatik.stud.uni-erlangen.de>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
  */
 
 #include <linux/linkage.h>
@@ -561,7 +566,7 @@
 	transpose_4x4(x0, x1, x2, x3, t0, t1, t2)
 
 .align 8
-SYM_FUNC_START_LOCAL(__serpent_enc_blk16)
+__serpent_enc_blk16:
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	RA1, RB1, RC1, RD1, RA2, RB2, RC2, RD2: plaintext
@@ -612,10 +617,10 @@ SYM_FUNC_START_LOCAL(__serpent_enc_blk16)
 	write_blocks(RA2, RB2, RC2, RD2, RK0, RK1, RK2);
 
 	ret;
-SYM_FUNC_END(__serpent_enc_blk16)
+ENDPROC(__serpent_enc_blk16)
 
 .align 8
-SYM_FUNC_START_LOCAL(__serpent_dec_blk16)
+__serpent_dec_blk16:
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	RA1, RB1, RC1, RD1, RA2, RB2, RC2, RD2: ciphertext
@@ -666,9 +671,9 @@ SYM_FUNC_START_LOCAL(__serpent_dec_blk16)
 	write_blocks(RC2, RD2, RB2, RE2, RK0, RK1, RK2);
 
 	ret;
-SYM_FUNC_END(__serpent_dec_blk16)
+ENDPROC(__serpent_dec_blk16)
 
-SYM_FUNC_START(serpent_ecb_enc_16way)
+ENTRY(serpent_ecb_enc_16way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -688,9 +693,9 @@ SYM_FUNC_START(serpent_ecb_enc_16way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(serpent_ecb_enc_16way)
+ENDPROC(serpent_ecb_enc_16way)
 
-SYM_FUNC_START(serpent_ecb_dec_16way)
+ENTRY(serpent_ecb_dec_16way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -710,9 +715,9 @@ SYM_FUNC_START(serpent_ecb_dec_16way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(serpent_ecb_dec_16way)
+ENDPROC(serpent_ecb_dec_16way)
 
-SYM_FUNC_START(serpent_cbc_dec_16way)
+ENTRY(serpent_cbc_dec_16way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst
@@ -733,9 +738,9 @@ SYM_FUNC_START(serpent_cbc_dec_16way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(serpent_cbc_dec_16way)
+ENDPROC(serpent_cbc_dec_16way)
 
-SYM_FUNC_START(serpent_ctr_16way)
+ENTRY(serpent_ctr_16way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst (16 blocks)
@@ -758,9 +763,9 @@ SYM_FUNC_START(serpent_ctr_16way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(serpent_ctr_16way)
+ENDPROC(serpent_ctr_16way)
 
-SYM_FUNC_START(serpent_xts_enc_16way)
+ENTRY(serpent_xts_enc_16way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst (16 blocks)
@@ -784,9 +789,9 @@ SYM_FUNC_START(serpent_xts_enc_16way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(serpent_xts_enc_16way)
+ENDPROC(serpent_xts_enc_16way)
 
-SYM_FUNC_START(serpent_xts_dec_16way)
+ENTRY(serpent_xts_dec_16way)
 	/* input:
 	 *	%rdi: ctx, CTX
 	 *	%rsi: dst (16 blocks)
@@ -810,4 +815,4 @@ SYM_FUNC_START(serpent_xts_dec_16way)
 
 	FRAME_END
 	ret;
-SYM_FUNC_END(serpent_xts_dec_16way)
+ENDPROC(serpent_xts_dec_16way)

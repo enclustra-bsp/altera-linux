@@ -147,10 +147,7 @@ static int rpi_exp_gpio_get_direction(struct gpio_chip *gc, unsigned int off)
 			get.gpio);
 		return ret ? ret : -EIO;
 	}
-	if (get.direction)
-		return GPIO_LINE_DIRECTION_OUT;
-
-	return GPIO_LINE_DIRECTION_IN;
+	return !get.direction;
 }
 
 static int rpi_exp_gpio_get(struct gpio_chip *gc, unsigned int off)
@@ -209,7 +206,6 @@ static int rpi_exp_gpio_probe(struct platform_device *pdev)
 	}
 
 	fw = rpi_firmware_get(fw_node);
-	of_node_put(fw_node);
 	if (!fw)
 		return -EPROBE_DEFER;
 

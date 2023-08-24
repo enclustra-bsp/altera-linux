@@ -19,10 +19,7 @@
 
 #include "fwserial.h"
 
-inline u64 be32_to_u64(__be32 hi, __be32 lo)
-{
-	return ((u64)be32_to_cpu(hi) << 32 | be32_to_cpu(lo));
-}
+#define be32_to_u64(hi, lo)  ((u64)be32_to_cpu(hi) << 32 | be32_to_cpu(lo))
 
 #define LINUX_VENDOR_ID   0xd00d1eU  /* same id used in card root directory   */
 #define FWSERIAL_VERSION  0x00e81cU  /* must be unique within LINUX_VENDOR_ID */
@@ -466,7 +463,7 @@ static void fwtty_throttle_port(struct fwtty_port *port)
  * fwtty_do_hangup - wait for ldisc to deliver all pending rx; only then hangup
  *
  * When the remote has finished tx, and all in-flight rx has been received and
- * pushed to the flip buffer, the remote may close its device. This will
+ * and pushed to the flip buffer, the remote may close its device. This will
  * drop DTR on the remote which will drop carrier here. Typically, the tty is
  * hung up when carrier is dropped or lost.
  *
@@ -1216,14 +1213,14 @@ static int get_serial_info(struct tty_struct *tty,
 			   struct serial_struct *ss)
 {
 	struct fwtty_port *port = tty->driver_data;
-
 	mutex_lock(&port->port.mutex);
-	ss->line = port->index;
+	ss->type =  PORT_UNKNOWN;
+	ss->line =  port->port.tty->index;
+	ss->flags = port->port.flags;
+	ss->xmit_fifo_size = FWTTY_PORT_TXFIFO_LEN;
 	ss->baud_base = 400000000;
-	ss->close_delay = jiffies_to_msecs(port->port.close_delay) / 10;
-	ss->closing_wait = 3000;
+	ss->close_delay = port->port.close_delay;
 	mutex_unlock(&port->port.mutex);
-
 	return 0;
 }
 
@@ -1231,20 +1228,20 @@ static int set_serial_info(struct tty_struct *tty,
 			   struct serial_struct *ss)
 {
 	struct fwtty_port *port = tty->driver_data;
-	unsigned int cdelay;
 
-	cdelay = msecs_to_jiffies(ss->close_delay * 10);
+	if (ss->irq != 0 || ss->port != 0 || ss->custom_divisor != 0 ||
+	    ss->baud_base != 400000000)
+		return -EPERM;
 
 	mutex_lock(&port->port.mutex);
 	if (!capable(CAP_SYS_ADMIN)) {
-		if (cdelay != port->port.close_delay ||
-		    ((ss->flags & ~ASYNC_USR_MASK) !=
+		if (((ss->flags & ~ASYNC_USR_MASK) !=
 		     (port->port.flags & ~ASYNC_USR_MASK))) {
 			mutex_unlock(&port->port.mutex);
 			return -EPERM;
 		}
 	}
-	port->port.close_delay = cdelay;
+	port->port.close_delay = ss->close_delay * HZ / 100;
 	mutex_unlock(&port->port.mutex);
 
 	return 0;
@@ -1461,7 +1458,7 @@ static int fwtty_proc_show(struct seq_file *m, void *v)
 	return 0;
 }
 
-static int fwtty_stats_show(struct seq_file *m, void *v)
+static int fwtty_debugfs_stats_show(struct seq_file *m, void *v)
 {
 	struct fw_serial *serial = m->private;
 	struct fwtty_port *port;
@@ -1479,9 +1476,8 @@ static int fwtty_stats_show(struct seq_file *m, void *v)
 	}
 	return 0;
 }
-DEFINE_SHOW_ATTRIBUTE(fwtty_stats);
 
-static int fwtty_peers_show(struct seq_file *m, void *v)
+static int fwtty_debugfs_peers_show(struct seq_file *m, void *v)
 {
 	struct fw_serial *serial = m->private;
 	struct fwtty_peer *peer;
@@ -1495,7 +1491,32 @@ static int fwtty_peers_show(struct seq_file *m, void *v)
 	rcu_read_unlock();
 	return 0;
 }
-DEFINE_SHOW_ATTRIBUTE(fwtty_peers);
+
+static int fwtty_stats_open(struct inode *inode, struct file *fp)
+{
+	return single_open(fp, fwtty_debugfs_stats_show, inode->i_private);
+}
+
+static int fwtty_peers_open(struct inode *inode, struct file *fp)
+{
+	return single_open(fp, fwtty_debugfs_peers_show, inode->i_private);
+}
+
+static const struct file_operations fwtty_stats_fops = {
+	.owner =	THIS_MODULE,
+	.open =		fwtty_stats_open,
+	.read =		seq_read,
+	.llseek =	seq_lseek,
+	.release =	single_release,
+};
+
+static const struct file_operations fwtty_peers_fops = {
+	.owner =	THIS_MODULE,
+	.open =		fwtty_peers_open,
+	.read =		seq_read,
+	.llseek =	seq_lseek,
+	.release =	single_release,
+};
 
 static const struct tty_port_operations fwtty_port_ops = {
 	.dtr_rts =		fwtty_port_dtr_rts,
@@ -2188,7 +2209,6 @@ static int fwserial_create(struct fw_unit *unit)
 		err = fw_core_add_address_handler(&port->rx_handler,
 						  &fw_high_memory_region);
 		if (err) {
-			tty_port_destroy(&port->port);
 			kfree(port);
 			goto free_ports;
 		}
@@ -2271,7 +2291,6 @@ unregister_ttys:
 
 free_ports:
 	for (--i; i >= 0; --i) {
-		fw_core_remove_address_handler(&serial->ports[i]->rx_handler);
 		tty_port_destroy(&serial->ports[i]->port);
 		kfree(serial->ports[i]);
 	}

@@ -23,13 +23,9 @@
  * Authors: Dave Airlie
  *          Alex Deucher
  */
-
-#include <linux/pci.h>
-
+#include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
-#include <drm/drm_device.h>
 #include <drm/radeon_drm.h>
-
 #include "radeon.h"
 #include "atom.h"
 

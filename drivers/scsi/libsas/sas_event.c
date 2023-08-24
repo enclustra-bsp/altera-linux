@@ -1,14 +1,31 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * Serial Attached SCSI (SAS) Event processing
  *
  * Copyright (C) 2005 Adaptec, Inc.  All rights reserved.
  * Copyright (C) 2005 Luben Tuikov <luben_tuikov@adaptec.com>
+ *
+ * This file is licensed under GPLv2.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ *
  */
 
 #include <linux/export.h>
 #include <scsi/scsi_host.h>
 #include "sas_internal.h"
+#include "sas_dump.h"
 
 int sas_queue_work(struct sas_ha_struct *ha, struct sas_work *sw)
 {
@@ -109,7 +126,7 @@ void sas_enable_revalidation(struct sas_ha_struct *ha)
 
 		sas_phy = container_of(port->phy_list.next, struct asd_sas_phy,
 				port_phy_el);
-		sas_notify_port_event(sas_phy, PORTE_BROADCAST_RCVD);
+		ha->notify_port_event(sas_phy, PORTE_BROADCAST_RCVD);
 	}
 	mutex_unlock(&ha->disco_mutex);
 }
@@ -131,14 +148,17 @@ static void sas_phy_event_worker(struct work_struct *work)
 	sas_free_event(ev);
 }
 
-static int __sas_notify_port_event(struct asd_sas_phy *phy,
-				   enum port_event event,
-				   struct asd_sas_event *ev)
+static int sas_notify_port_event(struct asd_sas_phy *phy, enum port_event event)
 {
+	struct asd_sas_event *ev;
 	struct sas_ha_struct *ha = phy->ha;
 	int ret;
 
 	BUG_ON(event >= PORT_NUM_EVENTS);
+
+	ev = sas_alloc_event(phy);
+	if (!ev)
+		return -ENOMEM;
 
 	INIT_SAS_EVENT(ev, sas_port_event_worker, phy, event);
 
@@ -149,39 +169,17 @@ static int __sas_notify_port_event(struct asd_sas_phy *phy,
 	return ret;
 }
 
-int sas_notify_port_event_gfp(struct asd_sas_phy *phy, enum port_event event,
-			      gfp_t gfp_flags)
+int sas_notify_phy_event(struct asd_sas_phy *phy, enum phy_event event)
 {
 	struct asd_sas_event *ev;
-
-	ev = sas_alloc_event_gfp(phy, gfp_flags);
-	if (!ev)
-		return -ENOMEM;
-
-	return __sas_notify_port_event(phy, event, ev);
-}
-EXPORT_SYMBOL_GPL(sas_notify_port_event_gfp);
-
-int sas_notify_port_event(struct asd_sas_phy *phy, enum port_event event)
-{
-	struct asd_sas_event *ev;
-
-	ev = sas_alloc_event(phy);
-	if (!ev)
-		return -ENOMEM;
-
-	return __sas_notify_port_event(phy, event, ev);
-}
-EXPORT_SYMBOL_GPL(sas_notify_port_event);
-
-static inline int __sas_notify_phy_event(struct asd_sas_phy *phy,
-					 enum phy_event event,
-					 struct asd_sas_event *ev)
-{
 	struct sas_ha_struct *ha = phy->ha;
 	int ret;
 
 	BUG_ON(event >= PHY_NUM_EVENTS);
+
+	ev = sas_alloc_event(phy);
+	if (!ev)
+		return -ENOMEM;
 
 	INIT_SAS_EVENT(ev, sas_phy_event_worker, phy, event);
 
@@ -192,27 +190,10 @@ static inline int __sas_notify_phy_event(struct asd_sas_phy *phy,
 	return ret;
 }
 
-int sas_notify_phy_event_gfp(struct asd_sas_phy *phy, enum phy_event event,
-			     gfp_t gfp_flags)
+int sas_init_events(struct sas_ha_struct *sas_ha)
 {
-	struct asd_sas_event *ev;
+	sas_ha->notify_port_event = sas_notify_port_event;
+	sas_ha->notify_phy_event = sas_notify_phy_event;
 
-	ev = sas_alloc_event_gfp(phy, gfp_flags);
-	if (!ev)
-		return -ENOMEM;
-
-	return __sas_notify_phy_event(phy, event, ev);
+	return 0;
 }
-EXPORT_SYMBOL_GPL(sas_notify_phy_event_gfp);
-
-int sas_notify_phy_event(struct asd_sas_phy *phy, enum phy_event event)
-{
-	struct asd_sas_event *ev;
-
-	ev = sas_alloc_event(phy);
-	if (!ev)
-		return -ENOMEM;
-
-	return __sas_notify_phy_event(phy, event, ev);
-}
-EXPORT_SYMBOL_GPL(sas_notify_phy_event);

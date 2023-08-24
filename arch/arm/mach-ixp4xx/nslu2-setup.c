@@ -32,8 +32,6 @@
 #include <asm/mach/flash.h>
 #include <asm/mach/time.h>
 
-#include "irqs.h"
-
 #define NSLU2_SDA_PIN		7
 #define NSLU2_SCL_PIN		6
 
@@ -127,18 +125,10 @@ static struct platform_device nslu2_i2c_gpio = {
 	},
 };
 
-static struct resource nslu2_beeper_resources[] = {
-	{
-		.start	= IRQ_IXP4XX_TIMER2,
-		.flags	= IORESOURCE_IRQ,
-	},
-};
-
 static struct platform_device nslu2_beeper = {
 	.name			= "ixp4xx-beeper",
 	.id			= NSLU2_GPIO_BUZZ,
-	.resource		= nslu2_beeper_resources,
-	.num_resources		= ARRAY_SIZE(nslu2_beeper_resources),
+	.num_resources		= 0,
 };
 
 static struct resource nslu2_uart_resources[] = {
@@ -185,14 +175,6 @@ static struct platform_device nslu2_uart = {
 };
 
 /* Built-in 10/100 Ethernet MAC interfaces */
-static struct resource nslu2_eth_resources[] = {
-	{
-		.start		= IXP4XX_EthB_BASE_PHYS,
-		.end		= IXP4XX_EthB_BASE_PHYS + 0x0fff,
-		.flags		= IORESOURCE_MEM,
-	},
-};
-
 static struct eth_plat_info nslu2_plat_eth[] = {
 	{
 		.phy		= 1,
@@ -206,8 +188,6 @@ static struct platform_device nslu2_eth[] = {
 		.name			= "ixp4xx_eth",
 		.id			= IXP4XX_ETH_NPEB,
 		.dev.platform_data	= nslu2_plat_eth,
-		.num_resources		= ARRAY_SIZE(nslu2_eth_resources),
-		.resource		= nslu2_eth_resources,
 	}
 };
 

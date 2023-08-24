@@ -1,8 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0+
 /*
  *	intel TCO vendor specific watchdog driver support
  *
  *	(c) Copyright 2006-2009 Wim Van Sebroeck <wim@iguana.be>.
+ *
+ *	This program is free software; you can redistribute it and/or
+ *	modify it under the terms of the GNU General Public License
+ *	as published by the Free Software Foundation; either version
+ *	2 of the License, or (at your option) any later version.
  *
  *	Neither Wim Van Sebroeck nor Iguana vzw. admit liability nor
  *	provide warranty for any of this software. This material is
@@ -39,10 +43,8 @@
 /* Broken BIOS */
 #define BROKEN_BIOS		911
 
-int iTCO_vendorsupport;
-EXPORT_SYMBOL(iTCO_vendorsupport);
-
-module_param_named(vendorsupport, iTCO_vendorsupport, int, 0);
+static int vendorsupport;
+module_param(vendorsupport, int, 0);
 MODULE_PARM_DESC(vendorsupport, "iTCO vendor specific support mode, default="
 			"0 (none), 1=SuperMicro Pent3, 911=Broken SMI BIOS");
 
@@ -154,7 +156,7 @@ static void broken_bios_stop(struct resource *smires)
 void iTCO_vendor_pre_start(struct resource *smires,
 			   unsigned int heartbeat)
 {
-	switch (iTCO_vendorsupport) {
+	switch (vendorsupport) {
 	case SUPERMICRO_OLD_BOARD:
 		supermicro_old_pre_start(smires);
 		break;
@@ -167,7 +169,7 @@ EXPORT_SYMBOL(iTCO_vendor_pre_start);
 
 void iTCO_vendor_pre_stop(struct resource *smires)
 {
-	switch (iTCO_vendorsupport) {
+	switch (vendorsupport) {
 	case SUPERMICRO_OLD_BOARD:
 		supermicro_old_pre_stop(smires);
 		break;
@@ -180,7 +182,7 @@ EXPORT_SYMBOL(iTCO_vendor_pre_stop);
 
 int iTCO_vendor_check_noreboot_on(void)
 {
-	switch (iTCO_vendorsupport) {
+	switch (vendorsupport) {
 	case SUPERMICRO_OLD_BOARD:
 		return 0;
 	default:
@@ -191,13 +193,13 @@ EXPORT_SYMBOL(iTCO_vendor_check_noreboot_on);
 
 static int __init iTCO_vendor_init_module(void)
 {
-	if (iTCO_vendorsupport == SUPERMICRO_NEW_BOARD) {
+	if (vendorsupport == SUPERMICRO_NEW_BOARD) {
 		pr_warn("Option vendorsupport=%d is no longer supported, "
 			"please use the w83627hf_wdt driver instead\n",
 			SUPERMICRO_NEW_BOARD);
 		return -EINVAL;
 	}
-	pr_info("vendor-support=%d\n", iTCO_vendorsupport);
+	pr_info("vendor-support=%d\n", vendorsupport);
 	return 0;
 }
 
@@ -214,3 +216,4 @@ MODULE_AUTHOR("Wim Van Sebroeck <wim@iguana.be>, "
 MODULE_DESCRIPTION("Intel TCO Vendor Specific WatchDog Timer Driver Support");
 MODULE_VERSION(DRV_VERSION);
 MODULE_LICENSE("GPL");
+

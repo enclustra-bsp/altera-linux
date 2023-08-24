@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * fireworks.c - a part of driver for Fireworks based devices
  *
  * Copyright (c) 2009-2010 Clemens Ladisch
  * Copyright (c) 2013-2014 Takashi Sakamoto
+ *
+ * Licensed under the terms of the GNU General Public License, version 2.
  */
 
 /*
@@ -362,7 +363,7 @@ MODULE_DEVICE_TABLE(ieee1394, efw_id_table);
 static struct fw_driver efw_driver = {
 	.driver = {
 		.owner = THIS_MODULE,
-		.name = KBUILD_MODNAME,
+		.name = "snd-fireworks",
 		.bus = &fw_bus_type,
 	},
 	.probe    = efw_probe,

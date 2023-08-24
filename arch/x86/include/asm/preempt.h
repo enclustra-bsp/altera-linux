@@ -8,9 +8,6 @@
 
 DECLARE_PER_CPU(int, __preempt_count);
 
-/* We use the MSB mostly because its available */
-#define PREEMPT_NEED_RESCHED	0x80000000
-
 /*
  * We use the PREEMPT_NEED_RESCHED bit as an inverted NEED_RESCHED such
  * that a decrement hitting 0 means we can and should reschedule.
@@ -43,7 +40,7 @@ static __always_inline void preempt_count_set(int pc)
 #define init_task_preempt_count(p) do { } while (0)
 
 #define init_idle_preempt_count(p, cpu) do { \
-	per_cpu(__preempt_count, (cpu)) = PREEMPT_DISABLED; \
+	per_cpu(__preempt_count, (cpu)) = PREEMPT_ENABLED; \
 } while (0)
 
 /*
@@ -102,15 +99,15 @@ static __always_inline bool should_resched(int preempt_offset)
 	return unlikely(raw_cpu_read_4(__preempt_count) == preempt_offset);
 }
 
-#ifdef CONFIG_PREEMPTION
-  extern asmlinkage void preempt_schedule_thunk(void);
+#ifdef CONFIG_PREEMPT
+  extern asmlinkage void ___preempt_schedule(void);
 # define __preempt_schedule() \
-	asm volatile ("call preempt_schedule_thunk" : ASM_CALL_CONSTRAINT)
+	asm volatile ("call ___preempt_schedule" : ASM_CALL_CONSTRAINT)
 
   extern asmlinkage void preempt_schedule(void);
-  extern asmlinkage void preempt_schedule_notrace_thunk(void);
+  extern asmlinkage void ___preempt_schedule_notrace(void);
 # define __preempt_schedule_notrace() \
-	asm volatile ("call preempt_schedule_notrace_thunk" : ASM_CALL_CONSTRAINT)
+	asm volatile ("call ___preempt_schedule_notrace" : ASM_CALL_CONSTRAINT)
 
   extern asmlinkage void preempt_schedule_notrace(void);
 #endif

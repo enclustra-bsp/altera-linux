@@ -117,6 +117,13 @@ static irqreturn_t mxs_timer_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static struct irqaction mxs_timer_irq = {
+	.name		= "MXS Timer Tick",
+	.dev_id		= &mxs_clockevent_device,
+	.flags		= IRQF_TIMER | IRQF_IRQPOLL,
+	.handler	= mxs_timer_interrupt,
+};
+
 static void mxs_irq_clear(char *state)
 {
 	/* Disable interrupt in timer module */
@@ -131,7 +138,10 @@ static void mxs_irq_clear(char *state)
 
 	/* Clear pending interrupt */
 	timrot_irq_acknowledge();
-	pr_debug("%s: changing mode to %s\n", __func__, state);
+
+#ifdef DEBUG
+	pr_info("%s: changing mode to %s\n", __func__, state)
+#endif /* DEBUG */
 }
 
 static int mxs_shutdown(struct clock_event_device *evt)
@@ -267,7 +277,6 @@ static int __init mxs_timer_init(struct device_node *np)
 	if (irq <= 0)
 		return -EINVAL;
 
-	return request_irq(irq, mxs_timer_interrupt, IRQF_TIMER | IRQF_IRQPOLL,
-			   "MXS Timer Tick", &mxs_clockevent_device);
+	return setup_irq(irq, &mxs_timer_irq);
 }
 TIMER_OF_DECLARE(mxs, "fsl,timrot", mxs_timer_init);

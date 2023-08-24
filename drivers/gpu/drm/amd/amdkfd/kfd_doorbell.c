@@ -31,6 +31,9 @@
  * kernel queues using the first doorbell page reserved for the kernel.
  */
 
+static DEFINE_IDA(doorbell_ida);
+static unsigned int max_doorbell_slices;
+
 /*
  * Each device exposes a doorbell aperture, a PCI MMIO aperture that
  * receives 32-bit writes that are passed to queues as wptr values.
@@ -81,14 +84,14 @@ int kfd_doorbell_init(struct kfd_dev *kfd)
 	else
 		return -ENOSPC;
 
-	if (!kfd->max_doorbell_slices ||
-	    doorbell_process_limit < kfd->max_doorbell_slices)
-		kfd->max_doorbell_slices = doorbell_process_limit;
+	if (!max_doorbell_slices ||
+	    doorbell_process_limit < max_doorbell_slices)
+		max_doorbell_slices = doorbell_process_limit;
 
 	kfd->doorbell_base = kfd->shared_resources.doorbell_physical_address +
 				doorbell_start_offset;
 
-	kfd->doorbell_base_dw_offset = doorbell_start_offset / sizeof(u32);
+	kfd->doorbell_id_offset = doorbell_start_offset / sizeof(u32);
 
 	kfd->doorbell_kernel_ptr = ioremap(kfd->doorbell_base,
 					   kfd_doorbell_process_slice(kfd));
@@ -100,8 +103,8 @@ int kfd_doorbell_init(struct kfd_dev *kfd)
 	pr_debug("doorbell base           == 0x%08lX\n",
 			(uintptr_t)kfd->doorbell_base);
 
-	pr_debug("doorbell_base_dw_offset      == 0x%08lX\n",
-			kfd->doorbell_base_dw_offset);
+	pr_debug("doorbell_id_offset      == 0x%08lX\n",
+			kfd->doorbell_id_offset);
 
 	pr_debug("doorbell_process_limit  == 0x%08lX\n",
 			doorbell_process_limit);
@@ -127,7 +130,6 @@ int kfd_doorbell_mmap(struct kfd_dev *dev, struct kfd_process *process,
 		      struct vm_area_struct *vma)
 {
 	phys_addr_t address;
-	struct kfd_process_device *pdd;
 
 	/*
 	 * For simplicitly we only allow mapping of the entire doorbell
@@ -136,12 +138,9 @@ int kfd_doorbell_mmap(struct kfd_dev *dev, struct kfd_process *process,
 	if (vma->vm_end - vma->vm_start != kfd_doorbell_process_slice(dev))
 		return -EINVAL;
 
-	pdd = kfd_get_process_device_data(dev, process);
-	if (!pdd)
-		return -EINVAL;
-
 	/* Calculate physical address of doorbell */
-	address = kfd_get_process_doorbells(pdd);
+	address = kfd_get_process_doorbells(dev, process);
+
 	vma->vm_flags |= VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_NORESERVE |
 				VM_DONTDUMP | VM_PFNMAP;
 
@@ -186,7 +185,7 @@ void __iomem *kfd_get_kernel_doorbell(struct kfd_dev *kfd,
 	 * Calculating the kernel doorbell offset using the first
 	 * doorbell page.
 	 */
-	*doorbell_off = kfd->doorbell_base_dw_offset + inx;
+	*doorbell_off = kfd->doorbell_id_offset + inx;
 
 	pr_debug("Get kernel queue doorbell\n"
 			"     doorbell offset   == 0x%08X\n"
@@ -226,18 +225,18 @@ void write_kernel_doorbell64(void __iomem *db, u64 value)
 	}
 }
 
-unsigned int kfd_get_doorbell_dw_offset_in_bar(struct kfd_dev *kfd,
-					struct kfd_process_device *pdd,
+unsigned int kfd_doorbell_id_to_offset(struct kfd_dev *kfd,
+					struct kfd_process *process,
 					unsigned int doorbell_id)
 {
 	/*
-	 * doorbell_base_dw_offset accounts for doorbells taken by KGD.
+	 * doorbell_id_offset accounts for doorbells taken by KGD.
 	 * index * kfd_doorbell_process_slice/sizeof(u32) adjusts to
 	 * the process's doorbells. The offset returned is in dword
 	 * units regardless of the ASIC-dependent doorbell size.
 	 */
-	return kfd->doorbell_base_dw_offset +
-		pdd->doorbell_index
+	return kfd->doorbell_id_offset +
+		process->doorbell_index
 		* kfd_doorbell_process_slice(kfd) / sizeof(u32) +
 		doorbell_id * kfd->device_info->doorbell_size / sizeof(u32);
 }
@@ -252,24 +251,25 @@ uint64_t kfd_get_number_elems(struct kfd_dev *kfd)
 
 }
 
-phys_addr_t kfd_get_process_doorbells(struct kfd_process_device *pdd)
+phys_addr_t kfd_get_process_doorbells(struct kfd_dev *dev,
+					struct kfd_process *process)
 {
-	return pdd->dev->doorbell_base +
-		pdd->doorbell_index * kfd_doorbell_process_slice(pdd->dev);
+	return dev->doorbell_base +
+		process->doorbell_index * kfd_doorbell_process_slice(dev);
 }
 
-int kfd_alloc_process_doorbells(struct kfd_dev *kfd, unsigned int *doorbell_index)
+int kfd_alloc_process_doorbells(struct kfd_process *process)
 {
-	int r = ida_simple_get(&kfd->doorbell_ida, 1, kfd->max_doorbell_slices,
+	int r = ida_simple_get(&doorbell_ida, 1, max_doorbell_slices,
 				GFP_KERNEL);
 	if (r > 0)
-		*doorbell_index = r;
+		process->doorbell_index = r;
 
 	return r;
 }
 
-void kfd_free_process_doorbells(struct kfd_dev *kfd, unsigned int doorbell_index)
+void kfd_free_process_doorbells(struct kfd_process *process)
 {
-	if (doorbell_index)
-		ida_simple_remove(&kfd->doorbell_ida, doorbell_index);
+	if (process->doorbell_index)
+		ida_simple_remove(&doorbell_ida, process->doorbell_index);
 }

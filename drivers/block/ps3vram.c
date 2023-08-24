@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ps3vram - Use extra PS3 video ram as block device.
  *
@@ -89,6 +88,12 @@ struct ps3vram_priv {
 
 
 static int ps3vram_major;
+
+
+static const struct block_device_operations ps3vram_fops = {
+	.owner		= THIS_MODULE,
+};
+
 
 #define DMA_NOTIFIER_HANDLE_BASE 0x66604200 /* first DMA notifier handle */
 #define DMA_NOTIFIER_OFFSET_BASE 0x1000     /* first DMA notifier offset */
@@ -579,15 +584,15 @@ out:
 	return next;
 }
 
-static blk_qc_t ps3vram_submit_bio(struct bio *bio)
+static blk_qc_t ps3vram_make_request(struct request_queue *q, struct bio *bio)
 {
-	struct ps3_system_bus_device *dev = bio->bi_disk->private_data;
+	struct ps3_system_bus_device *dev = q->queuedata;
 	struct ps3vram_priv *priv = ps3_system_bus_get_drvdata(dev);
 	int busy;
 
 	dev_dbg(&dev->core, "%s\n", __func__);
 
-	blk_queue_split(&bio);
+	blk_queue_split(q, &bio);
 
 	spin_lock_irq(&priv->lock);
 	busy = !bio_list_empty(&priv->list);
@@ -603,11 +608,6 @@ static blk_qc_t ps3vram_submit_bio(struct bio *bio)
 
 	return BLK_QC_T_NONE;
 }
-
-static const struct block_device_operations ps3vram_fops = {
-	.owner		= THIS_MODULE,
-	.submit_bio	= ps3vram_submit_bio,
-};
 
 static int ps3vram_probe(struct ps3_system_bus_device *dev)
 {
@@ -736,7 +736,7 @@ static int ps3vram_probe(struct ps3_system_bus_device *dev)
 
 	ps3vram_proc_init(dev);
 
-	queue = blk_alloc_queue(NUMA_NO_NODE);
+	queue = blk_alloc_queue(GFP_KERNEL);
 	if (!queue) {
 		dev_err(&dev->core, "blk_alloc_queue failed\n");
 		error = -ENOMEM;
@@ -744,6 +744,8 @@ static int ps3vram_probe(struct ps3_system_bus_device *dev)
 	}
 
 	priv->queue = queue;
+	queue->queuedata = dev;
+	blk_queue_make_request(queue, ps3vram_make_request);
 	blk_queue_max_segments(queue, BLK_MAX_SEGMENTS);
 	blk_queue_max_segment_size(queue, BLK_MAX_SEGMENT_SIZE);
 	blk_queue_max_hw_sectors(queue, BLK_SAFE_MAX_SECTORS);
@@ -764,7 +766,7 @@ static int ps3vram_probe(struct ps3_system_bus_device *dev)
 	strlcpy(gendisk->disk_name, DEVICE_NAME, sizeof(gendisk->disk_name));
 	set_capacity(gendisk, priv->size >> 9);
 
-	dev_info(&dev->core, "%s: Using %llu MiB of GPU memory\n",
+	dev_info(&dev->core, "%s: Using %lu MiB of GPU memory\n",
 		 gendisk->disk_name, get_capacity(gendisk) >> 11);
 
 	device_add_disk(&dev->core, gendisk, NULL);

@@ -299,6 +299,7 @@ static int board_added(struct slot *p_slot)
 	if (p_slot->status == 0xFF) {
 		/* power fault occurred, but it was benign */
 		ctrl_dbg(ctrl, "%s: Power fault\n", __func__);
+		rc = POWER_FAILURE;
 		p_slot->status = 0;
 		goto err_exit;
 	}
@@ -340,7 +341,8 @@ static int remove_board(struct slot *p_slot)
 	u8 hp_slot;
 	int rc;
 
-	shpchp_unconfigure_device(p_slot);
+	if (shpchp_unconfigure_device(p_slot))
+		return(1);
 
 	hp_slot = p_slot->device - ctrl->slot_device_offset;
 	p_slot = shpchp_find_slot(ctrl, hp_slot + ctrl->slot_device_offset);
@@ -641,7 +643,7 @@ int shpchp_sysfs_enable_slot(struct slot *p_slot)
 	switch (p_slot->state) {
 	case BLINKINGON_STATE:
 		cancel_delayed_work(&p_slot->work);
-		fallthrough;
+		/* fall through */
 	case STATIC_STATE:
 		p_slot->state = POWERON_STATE;
 		mutex_unlock(&p_slot->lock);
@@ -677,7 +679,7 @@ int shpchp_sysfs_disable_slot(struct slot *p_slot)
 	switch (p_slot->state) {
 	case BLINKINGOFF_STATE:
 		cancel_delayed_work(&p_slot->work);
-		fallthrough;
+		/* fall through */
 	case STATIC_STATE:
 		p_slot->state = POWEROFF_STATE;
 		mutex_unlock(&p_slot->lock);

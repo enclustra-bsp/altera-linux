@@ -5,7 +5,6 @@
 #include <linux/rtnetlink.h>
 #include <linux/net_tstamp.h>
 #include <linux/wireless.h>
-#include <net/dsa.h>
 #include <net/wext.h>
 
 /*
@@ -123,6 +122,17 @@ static int dev_ifsioc_locked(struct net *net, struct ifreq *ifr, unsigned int cm
 		ifr->ifr_mtu = dev->mtu;
 		return 0;
 
+	case SIOCGIFHWADDR:
+		if (!dev->addr_len)
+			memset(ifr->ifr_hwaddr.sa_data, 0,
+			       sizeof(ifr->ifr_hwaddr.sa_data));
+		else
+			memcpy(ifr->ifr_hwaddr.sa_data, dev->dev_addr,
+			       min(sizeof(ifr->ifr_hwaddr.sa_data),
+				   (size_t)dev->addr_len));
+		ifr->ifr_hwaddr.sa_family = dev->type;
+		return 0;
+
 	case SIOCGIFSLAVE:
 		err = -EINVAL;
 		break;
@@ -177,11 +187,7 @@ static int net_hwtstamp_validate(struct ifreq *ifr)
 	case HWTSTAMP_TX_OFF:
 	case HWTSTAMP_TX_ON:
 	case HWTSTAMP_TX_ONESTEP_SYNC:
-	case HWTSTAMP_TX_ONESTEP_P2P:
 		tx_type_valid = 1;
-		break;
-	case __HWTSTAMP_TX_CNT:
-		/* not a real value */
 		break;
 	}
 
@@ -204,35 +210,12 @@ static int net_hwtstamp_validate(struct ifreq *ifr)
 	case HWTSTAMP_FILTER_NTP_ALL:
 		rx_filter_valid = 1;
 		break;
-	case __HWTSTAMP_FILTER_CNT:
-		/* not a real value */
-		break;
 	}
 
 	if (!tx_type_valid || !rx_filter_valid)
 		return -ERANGE;
 
 	return 0;
-}
-
-static int dev_do_ioctl(struct net_device *dev,
-			struct ifreq *ifr, unsigned int cmd)
-{
-	const struct net_device_ops *ops = dev->netdev_ops;
-	int err = -EOPNOTSUPP;
-
-	err = dsa_ndo_do_ioctl(dev, ifr, cmd);
-	if (err == 0 || err != -EOPNOTSUPP)
-		return err;
-
-	if (ops->ndo_do_ioctl) {
-		if (netif_device_present(dev))
-			err = ops->ndo_do_ioctl(dev, ifr, cmd);
-		else
-			err = -ENODEV;
-	}
-
-	return err;
 }
 
 /*
@@ -251,7 +234,7 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 
 	switch (cmd) {
 	case SIOCSIFFLAGS:	/* Set interface flags */
-		return dev_change_flags(dev, ifr->ifr_flags, NULL);
+		return dev_change_flags(dev, ifr->ifr_flags);
 
 	case SIOCSIFMETRIC:	/* Set the metric on the interface
 				   (currently unused) */
@@ -263,7 +246,7 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 	case SIOCSIFHWADDR:
 		if (dev->addr_len > sizeof(struct sockaddr))
 			return -EINVAL;
-		return dev_set_mac_address_user(dev, &ifr->ifr_hwaddr, NULL);
+		return dev_set_mac_address(dev, &ifr->ifr_hwaddr);
 
 	case SIOCSIFHWBROADCAST:
 		if (ifr->ifr_hwaddr.sa_family != dev->type)
@@ -311,7 +294,7 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 		err = net_hwtstamp_validate(ifr);
 		if (err)
 			return err;
-		fallthrough;
+		/* fall through */
 
 	/*
 	 *	Unknown or private ioctl
@@ -333,7 +316,13 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 		    cmd == SIOCSHWTSTAMP ||
 		    cmd == SIOCGHWTSTAMP ||
 		    cmd == SIOCWANDEV) {
-			err = dev_do_ioctl(dev, ifr, cmd);
+			err = -EOPNOTSUPP;
+			if (ops->ndo_do_ioctl) {
+				if (netif_device_present(dev))
+					err = ops->ndo_do_ioctl(dev, ifr, cmd);
+				else
+					err = -ENODEV;
+			}
 		} else
 			err = -EINVAL;
 
@@ -377,8 +366,7 @@ EXPORT_SYMBOL(dev_load);
  *	dev_ioctl	-	network device ioctl
  *	@net: the applicable net namespace
  *	@cmd: command to issue
- *	@ifr: pointer to a struct ifreq in user space
- *	@need_copyout: whether or not copy_to_user() should be called
+ *	@arg: pointer to a struct ifreq in user space
  *
  *	Issue ioctl functions to devices. This is normally called by the
  *	user space syscall interfaces but can sometimes be useful for
@@ -407,12 +395,6 @@ int dev_ioctl(struct net *net, unsigned int cmd, struct ifreq *ifr, bool *need_c
 	 */
 
 	switch (cmd) {
-	case SIOCGIFHWADDR:
-		dev_load(net, ifr->ifr_name);
-		ret = dev_get_mac_address(&ifr->ifr_hwaddr, net, ifr->ifr_name);
-		if (colon)
-			*colon = ':';
-		return ret;
 	/*
 	 *	These ioctl calls:
 	 *	- can be done by all.
@@ -422,6 +404,7 @@ int dev_ioctl(struct net *net, unsigned int cmd, struct ifreq *ifr, bool *need_c
 	case SIOCGIFFLAGS:
 	case SIOCGIFMETRIC:
 	case SIOCGIFMTU:
+	case SIOCGIFHWADDR:
 	case SIOCGIFSLAVE:
 	case SIOCGIFMAP:
 	case SIOCGIFINDEX:
@@ -472,7 +455,7 @@ int dev_ioctl(struct net *net, unsigned int cmd, struct ifreq *ifr, bool *need_c
 	case SIOCSIFTXQLEN:
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
-		fallthrough;
+		/* fall through */
 	/*
 	 *	These ioctl calls:
 	 *	- require local superuser power.
@@ -497,7 +480,7 @@ int dev_ioctl(struct net *net, unsigned int cmd, struct ifreq *ifr, bool *need_c
 	case SIOCSHWTSTAMP:
 		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
 			return -EPERM;
-		fallthrough;
+		/* fall through */
 	case SIOCBONDSLAVEINFOQUERY:
 	case SIOCBONDINFOQUERY:
 		dev_load(net, ifr->ifr_name);

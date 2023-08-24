@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * pata_cmd64x.c 	- CMD64x PATA for new ATA layer
  *			  (C) 2005 Red Hat Inc
@@ -461,7 +460,7 @@ static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		case 1:
 			ppi[0] = &cmd_info[4];
 			ppi[1] = &cmd_info[4];
-			fallthrough;
+			/* FALL THRU */
 		/* Early revs have no CNTRL_CH0 */
 		case 2:
 		case 0:

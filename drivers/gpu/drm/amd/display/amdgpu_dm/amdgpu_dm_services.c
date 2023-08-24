@@ -26,7 +26,8 @@
 #include <linux/string.h>
 #include <linux/acpi.h>
 
-#include <drm/drm_probe_helper.h>
+#include <drm/drmP.h>
+#include <drm/drm_crtc_helper.h>
 #include <drm/amdgpu_drm.h>
 #include "dm_services.h"
 #include "amdgpu.h"
@@ -47,4 +48,29 @@ void dm_perf_trace_timestamp(const char *func_name, unsigned int line)
 {
 }
 
+bool dm_write_persistent_data(struct dc_context *ctx,
+		const struct dc_sink *sink,
+		const char *module_name,
+		const char *key_name,
+		void *params,
+		unsigned int size,
+		struct persistent_data_flag *flag)
+{
+	/*TODO implement*/
+	return false;
+}
+
+bool dm_read_persistent_data(struct dc_context *ctx,
+				const struct dc_sink *sink,
+				const char *module_name,
+				const char *key_name,
+				void *params,
+				unsigned int size,
+				struct persistent_data_flag *flag)
+{
+	/*TODO implement*/
+	return false;
+}
+
 /**** power component interfaces ****/
+

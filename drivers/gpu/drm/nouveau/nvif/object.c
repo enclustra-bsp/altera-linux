@@ -242,7 +242,7 @@ nvif_object_map(struct nvif_object *object, void *argv, u32 argc)
 }
 
 void
-nvif_object_dtor(struct nvif_object *object)
+nvif_object_fini(struct nvif_object *object)
 {
 	struct {
 		struct nvif_ioctl_v0 ioctl;
@@ -260,8 +260,8 @@ nvif_object_dtor(struct nvif_object *object)
 }
 
 int
-nvif_object_ctor(struct nvif_object *parent, const char *name, u32 handle,
-		 s32 oclass, void *data, u32 size, struct nvif_object *object)
+nvif_object_init(struct nvif_object *parent, u32 handle, s32 oclass,
+		 void *data, u32 size, struct nvif_object *object)
 {
 	struct {
 		struct nvif_ioctl_v0 ioctl;
@@ -270,7 +270,6 @@ nvif_object_ctor(struct nvif_object *parent, const char *name, u32 handle,
 	int ret = 0;
 
 	object->client = NULL;
-	object->name = name ? name : "nvifObject";
 	object->handle = handle;
 	object->oclass = oclass;
 	object->map.ptr = NULL;
@@ -278,11 +277,9 @@ nvif_object_ctor(struct nvif_object *parent, const char *name, u32 handle,
 
 	if (parent) {
 		if (!(args = kmalloc(sizeof(*args) + size, GFP_KERNEL))) {
-			nvif_object_dtor(object);
+			nvif_object_fini(object);
 			return -ENOMEM;
 		}
-
-		object->parent = parent->parent;
 
 		args->ioctl.version = 0;
 		args->ioctl.type = NVIF_IOCTL_V0_NEW;
@@ -303,6 +300,6 @@ nvif_object_ctor(struct nvif_object *parent, const char *name, u32 handle,
 	}
 
 	if (ret)
-		nvif_object_dtor(object);
+		nvif_object_fini(object);
 	return ret;
 }

@@ -1,10 +1,17 @@
-/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * devfreq_cooling: Thermal cooling device implementation for devices using
  *                  devfreq
  *
  * Copyright (C) 2014-2015 ARM Limited
  *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed "as is" WITHOUT ANY WARRANTY of any
+ * kind, whether express or implied; without even the implied warranty
+ * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  */
 
 #ifndef __DEVFREQ_COOLING_H__
@@ -68,7 +75,7 @@ void devfreq_cooling_unregister(struct thermal_cooling_device *dfc);
 
 #else /* !CONFIG_DEVFREQ_THERMAL */
 
-static inline struct thermal_cooling_device *
+struct thermal_cooling_device *
 of_devfreq_cooling_register_power(struct device_node *np, struct devfreq *df,
 				  struct devfreq_cooling_power *dfc_power)
 {

@@ -25,10 +25,7 @@
  *          Alex Deucher
  *          Jerome Glisse
  */
-
-#include <linux/pci.h>
-#include <linux/vmalloc.h>
-
+#include <drm/drmP.h>
 #include <drm/amdgpu_drm.h>
 #ifdef CONFIG_X86
 #include <asm/set_memory.h>
@@ -71,7 +68,7 @@
  */
 static int amdgpu_gart_dummy_page_init(struct amdgpu_device *adev)
 {
-	struct page *dummy_page = ttm_bo_glob.dummy_read_page;
+	struct page *dummy_page = adev->mman.bdev.glob->dummy_read_page;
 
 	if (adev->dummy_page_addr)
 		return 0;
@@ -251,9 +248,7 @@ int amdgpu_gart_unbind(struct amdgpu_device *adev, uint64_t offset,
 	}
 	mb();
 	amdgpu_asic_flush_hdp(adev, NULL);
-	for (i = 0; i < adev->num_vmhubs; i++)
-		amdgpu_gmc_flush_gpu_tlb(adev, 0, i, 0);
-
+	amdgpu_gmc_flush_gpu_tlb(adev, 0);
 	return 0;
 }
 
@@ -264,8 +259,6 @@ int amdgpu_gart_unbind(struct amdgpu_device *adev, uint64_t offset,
  * @offset: offset into the GPU's gart aperture
  * @pages: number of pages to bind
  * @dma_addr: DMA addresses of pages
- * @flags: page table entry flags
- * @dst: CPU address of the gart table
  *
  * Map the dma_addresses into GART entries (all asics).
  * Returns 0 for success, -EINVAL for failure.
@@ -302,7 +295,6 @@ int amdgpu_gart_map(struct amdgpu_device *adev, uint64_t offset,
  * @pages: number of pages to bind
  * @pagelist: pages to bind
  * @dma_addr: DMA addresses of pages
- * @flags: page table entry flags
  *
  * Binds the requested pages to the gart page table
  * (all asics).
@@ -313,9 +305,9 @@ int amdgpu_gart_bind(struct amdgpu_device *adev, uint64_t offset,
 		     uint64_t flags)
 {
 #ifdef CONFIG_DRM_AMDGPU_GART_DEBUGFS
-	unsigned t,p;
+	unsigned i,t,p;
 #endif
-	int r, i;
+	int r;
 
 	if (!adev->gart.ready) {
 		WARN(1, "trying to bind memory to uninitialized GART !\n");
@@ -339,8 +331,7 @@ int amdgpu_gart_bind(struct amdgpu_device *adev, uint64_t offset,
 
 	mb();
 	amdgpu_asic_flush_hdp(adev, NULL);
-	for (i = 0; i < adev->num_vmhubs; i++)
-		amdgpu_gmc_flush_gpu_tlb(adev, 0, i, 0);
+	amdgpu_gmc_flush_gpu_tlb(adev, 0);
 	return 0;
 }
 

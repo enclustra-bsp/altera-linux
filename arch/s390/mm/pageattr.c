@@ -7,6 +7,7 @@
 #include <linux/mm.h>
 #include <asm/cacheflush.h>
 #include <asm/facility.h>
+#include <asm/pgtable.h>
 #include <asm/pgalloc.h>
 #include <asm/page.h>
 #include <asm/set_memory.h>
@@ -85,7 +86,7 @@ static int walk_pte_level(pmd_t *pmdp, unsigned long addr, unsigned long end,
 {
 	pte_t *ptep, new;
 
-	ptep = pte_offset_kernel(pmdp, addr);
+	ptep = pte_offset(pmdp, addr);
 	do {
 		new = *ptep;
 		if (pte_none(new))
@@ -278,7 +279,7 @@ static int walk_p4d_level(pgd_t *pgd, unsigned long addr, unsigned long end,
 	return rc;
 }
 
-DEFINE_MUTEX(cpa_mutex);
+static DEFINE_MUTEX(cpa_mutex);
 
 static int change_page_attr(unsigned long addr, unsigned long end,
 			    unsigned long flags)
@@ -337,11 +338,19 @@ void __kernel_map_pages(struct page *page, int numpages, int enable)
 {
 	unsigned long address;
 	int nr, i, j;
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pud_t *pud;
+	pmd_t *pmd;
 	pte_t *pte;
 
 	for (i = 0; i < numpages;) {
 		address = page_to_phys(page + i);
-		pte = virt_to_kpte(address);
+		pgd = pgd_offset_k(address);
+		p4d = p4d_offset(pgd, address);
+		pud = pud_offset(p4d, address);
+		pmd = pmd_offset(pud, address);
+		pte = pte_offset_kernel(pmd, address);
 		nr = (unsigned long)pte >> ilog2(sizeof(long));
 		nr = PTRS_PER_PTE - (nr & (PTRS_PER_PTE - 1));
 		nr = min(numpages - i, nr);
@@ -357,5 +366,21 @@ void __kernel_map_pages(struct page *page, int numpages, int enable)
 		i += nr;
 	}
 }
+
+#ifdef CONFIG_HIBERNATION
+bool kernel_page_present(struct page *page)
+{
+	unsigned long addr;
+	int cc;
+
+	addr = page_to_phys(page);
+	asm volatile(
+		"	lra	%1,0(%1)\n"
+		"	ipm	%0\n"
+		"	srl	%0,28"
+		: "=d" (cc), "+a" (addr) : : "cc");
+	return cc == 0;
+}
+#endif /* CONFIG_HIBERNATION */
 
 #endif /* CONFIG_DEBUG_PAGEALLOC */

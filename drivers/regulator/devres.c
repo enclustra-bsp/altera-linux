@@ -1,8 +1,13 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * devres.c  --  Voltage/Current Regulator framework devres implementation.
  *
  * Copyright 2013 Linaro Ltd
+ *
+ *  This program is free software; you can redistribute  it and/or modify it
+ *  under  the terms of  the GNU General  Public License as published by the
+ *  Free Software Foundation;  either version 2 of the  License, or (at your
+ *  option) any later version.
+ *
  */
 
 #include <linux/kernel.h>
@@ -41,8 +46,8 @@ static struct regulator *_devm_regulator_get(struct device *dev, const char *id,
 
 /**
  * devm_regulator_get - Resource managed regulator_get()
- * @dev: device to supply
- * @id:  supply name or regulator ID.
+ * @dev: device for regulator "consumer"
+ * @id: Supply name or regulator ID.
  *
  * Managed regulator_get(). Regulators returned from this function are
  * automatically regulator_put() on driver detach. See regulator_get() for more
@@ -56,8 +61,8 @@ EXPORT_SYMBOL_GPL(devm_regulator_get);
 
 /**
  * devm_regulator_get_exclusive - Resource managed regulator_get_exclusive()
- * @dev: device to supply
- * @id:  supply name or regulator ID.
+ * @dev: device for regulator "consumer"
+ * @id: Supply name or regulator ID.
  *
  * Managed regulator_get_exclusive(). Regulators returned from this function
  * are automatically regulator_put() on driver detach. See regulator_get() for
@@ -72,8 +77,8 @@ EXPORT_SYMBOL_GPL(devm_regulator_get_exclusive);
 
 /**
  * devm_regulator_get_optional - Resource managed regulator_get_optional()
- * @dev: device to supply
- * @id:  supply name or regulator ID.
+ * @dev: device for regulator "consumer"
+ * @id: Supply name or regulator ID.
  *
  * Managed regulator_get_optional(). Regulators returned from this
  * function are automatically regulator_put() on driver detach. See
@@ -130,9 +135,9 @@ static void devm_regulator_bulk_release(struct device *dev, void *res)
 /**
  * devm_regulator_bulk_get - managed get multiple regulator consumers
  *
- * @dev:           device to supply
- * @num_consumers: number of consumers to register
- * @consumers:     configuration of consumers; clients are stored here.
+ * @dev:           Device to supply
+ * @num_consumers: Number of consumers to register
+ * @consumers:     Configuration of consumers; clients are stored here.
  *
  * @return 0 on success, an errno on failure.
  *
@@ -173,9 +178,8 @@ static void devm_rdev_release(struct device *dev, void *res)
 
 /**
  * devm_regulator_register - Resource managed regulator_register()
- * @dev:            device to supply
  * @regulator_desc: regulator to register
- * @config:         runtime configuration for regulator
+ * @config: runtime configuration for regulator
  *
  * Called by regulator drivers to register a regulator.  Returns a
  * valid pointer to struct regulator_dev on success or an ERR_PTR() on
@@ -217,8 +221,7 @@ static int devm_rdev_match(struct device *dev, void *res, void *data)
 
 /**
  * devm_regulator_unregister - Resource managed regulator_unregister()
- * @dev:  device to supply
- * @rdev: regulator to free
+ * @regulator: regulator to free
  *
  * Unregister a regulator registered with devm_regulator_register().
  * Normally this function will not need to be called and the resource
@@ -259,10 +262,10 @@ static void devm_regulator_destroy_supply_alias(struct device *dev, void *res)
  * devm_regulator_register_supply_alias - Resource managed
  * regulator_register_supply_alias()
  *
- * @dev:       device to supply
- * @id:        supply name or regulator ID
+ * @dev: device that will be given as the regulator "consumer"
+ * @id: Supply name or regulator ID
  * @alias_dev: device that should be used to lookup the supply
- * @alias_id:  supply name or regulator ID that should be used to lookup the
+ * @alias_id: Supply name or regulator ID that should be used to lookup the
  * supply
  *
  * The supply alias will automatically be unregistered when the source
@@ -300,8 +303,8 @@ EXPORT_SYMBOL_GPL(devm_regulator_register_supply_alias);
  * devm_regulator_unregister_supply_alias - Resource managed
  * regulator_unregister_supply_alias()
  *
- * @dev: device to supply
- * @id:  supply name or regulator ID
+ * @dev: device that will be given as the regulator "consumer"
+ * @id: Supply name or regulator ID
  *
  * Unregister an alias registered with
  * devm_regulator_register_supply_alias(). Normally this function
@@ -327,12 +330,12 @@ EXPORT_SYMBOL_GPL(devm_regulator_unregister_supply_alias);
  * devm_regulator_bulk_register_supply_alias - Managed register
  * multiple aliases
  *
- * @dev:       device to supply
- * @id:        list of supply names or regulator IDs
+ * @dev: device that will be given as the regulator "consumer"
+ * @id: List of supply names or regulator IDs
  * @alias_dev: device that should be used to lookup the supply
- * @alias_id:  list of supply names or regulator IDs that should be used to
- *             lookup the supply
- * @num_id:    number of aliases to register
+ * @alias_id: List of supply names or regulator IDs that should be used to
+ * lookup the supply
+ * @num_id: Number of aliases to register
  *
  * @return 0 on success, an errno on failure.
  *
@@ -377,9 +380,9 @@ EXPORT_SYMBOL_GPL(devm_regulator_bulk_register_supply_alias);
  * devm_regulator_bulk_unregister_supply_alias - Managed unregister
  * multiple aliases
  *
- * @dev:    device to supply
- * @id:     list of supply names or regulator IDs
- * @num_id: number of aliases to unregister
+ * @dev: device that will be given as the regulator "consumer"
+ * @id: List of supply names or regulator IDs
+ * @num_id: Number of aliases to unregister
  *
  * Unregister aliases registered with
  * devm_regulator_bulk_register_supply_alias(). Normally this function
@@ -423,7 +426,7 @@ static void devm_regulator_destroy_notifier(struct device *dev, void *res)
  * regulator_register_notifier
  *
  * @regulator: regulator source
- * @nb:        notifier block
+ * @nb: notifier block
  *
  * The notifier will be registers under the consumer device and be
  * automatically be unregistered when the source device is unbound.
@@ -460,7 +463,7 @@ EXPORT_SYMBOL_GPL(devm_regulator_register_notifier);
  * regulator_unregister_notifier()
  *
  * @regulator: regulator source
- * @nb:        notifier block
+ * @nb: notifier block
  *
  * Unregister a notifier registered with devm_regulator_register_notifier().
  * Normally this function will not need to be called and the resource

@@ -421,9 +421,10 @@ static void xgbe_pci_remove(struct pci_dev *pdev)
 	xgbe_free_pdata(pdata);
 }
 
-static int __maybe_unused xgbe_pci_suspend(struct device *dev)
+#ifdef CONFIG_PM
+static int xgbe_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 {
-	struct xgbe_prv_data *pdata = dev_get_drvdata(dev);
+	struct xgbe_prv_data *pdata = pci_get_drvdata(pdev);
 	struct net_device *netdev = pdata->netdev;
 	int ret = 0;
 
@@ -437,9 +438,9 @@ static int __maybe_unused xgbe_pci_suspend(struct device *dev)
 	return ret;
 }
 
-static int __maybe_unused xgbe_pci_resume(struct device *dev)
+static int xgbe_pci_resume(struct pci_dev *pdev)
 {
-	struct xgbe_prv_data *pdata = dev_get_drvdata(dev);
+	struct xgbe_prv_data *pdata = pci_get_drvdata(pdev);
 	struct net_device *netdev = pdata->netdev;
 	int ret = 0;
 
@@ -459,6 +460,7 @@ static int __maybe_unused xgbe_pci_resume(struct device *dev)
 
 	return ret;
 }
+#endif /* CONFIG_PM */
 
 static const struct xgbe_version_data xgbe_v2a = {
 	.init_function_ptrs_phy_impl	= xgbe_init_function_ptrs_phy_v2,
@@ -500,16 +502,15 @@ static const struct pci_device_id xgbe_pci_table[] = {
 };
 MODULE_DEVICE_TABLE(pci, xgbe_pci_table);
 
-static SIMPLE_DEV_PM_OPS(xgbe_pci_pm_ops, xgbe_pci_suspend, xgbe_pci_resume);
-
 static struct pci_driver xgbe_driver = {
 	.name = XGBE_DRV_NAME,
 	.id_table = xgbe_pci_table,
 	.probe = xgbe_pci_probe,
 	.remove = xgbe_pci_remove,
-	.driver = {
-		.pm = &xgbe_pci_pm_ops,
-	}
+#ifdef CONFIG_PM
+	.suspend = xgbe_pci_suspend,
+	.resume = xgbe_pci_resume,
+#endif
 };
 
 int xgbe_pci_init(void)

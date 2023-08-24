@@ -1,9 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ms5637.c - Support for Measurement-Specialties MS5637, MS5805
  *            MS5837 and MS8607 pressure & temperature sensor
  *
  * Copyright (c) 2015 Measurement-Specialties
+ *
+ * Licensed under the GPL-2.
  *
  * (7-bit I2C slave address 0x76)
  *
@@ -22,7 +23,6 @@
 #include <linux/kernel.h>
 #include <linux/stat.h>
 #include <linux/module.h>
-#include <linux/mod_devicetable.h>
 #include <linux/i2c.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
@@ -153,6 +153,7 @@ static int ms5637_probe(struct i2c_client *client,
 
 	indio_dev->info = &ms5637_info;
 	indio_dev->name = id->name;
+	indio_dev->dev.parent = &client->dev;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = ms5637_channels;
 	indio_dev->num_channels = ARRAY_SIZE(ms5637_channels);
@@ -193,7 +194,7 @@ static struct i2c_driver ms5637_driver = {
 	.id_table = ms5637_id,
 	.driver = {
 		   .name = "ms5637",
-		   .of_match_table = ms5637_of_match,
+		   .of_match_table = of_match_ptr(ms5637_of_match),
 		   },
 };
 

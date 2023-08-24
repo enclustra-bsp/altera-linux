@@ -184,25 +184,6 @@ static inline void setindex(int index)
 	vga_io_w(VGA_GFX_I, index);
 }
 
-/* Check if the video mode is supported by the driver */
-static inline int check_mode_supported(void)
-{
-	/* non-x86 architectures treat orig_video_isVGA as a boolean flag */
-#if defined(CONFIG_X86)
-	/* only EGA and VGA in 16 color graphic mode are supported */
-	if (screen_info.orig_video_isVGA != VIDEO_TYPE_EGAC &&
-	    screen_info.orig_video_isVGA != VIDEO_TYPE_VGAC)
-		return -ENODEV;
-
-	if (screen_info.orig_video_mode != 0x0D &&	/* 320x200/4 (EGA) */
-	    screen_info.orig_video_mode != 0x0E &&	/* 640x200/4 (EGA) */
-	    screen_info.orig_video_mode != 0x10 &&	/* 640x350/4 (EGA) */
-	    screen_info.orig_video_mode != 0x12)	/* 640x480/4 (VGA) */
-		return -ENODEV;
-#endif
-	return 0;
-}
-
 static void vga16fb_pan_var(struct fb_info *info, 
 			    struct fb_var_screeninfo *var)
 {
@@ -262,7 +243,7 @@ static void vga16fb_update_fix(struct fb_info *info)
 }
 
 static void vga16fb_clock_chip(struct vga16fb_par *par,
-			       unsigned int *pixclock,
+			       unsigned int pixclock,
 			       const struct fb_info *info,
 			       int mul, int div)
 {
@@ -278,14 +259,14 @@ static void vga16fb_clock_chip(struct vga16fb_par *par,
 		{     0 /* bad */,    0x00, 0x00}};
 	int err;
 
-	*pixclock = (*pixclock * mul) / div;
+	pixclock = (pixclock * mul) / div;
 	best = vgaclocks;
-	err = *pixclock - best->pixclock;
+	err = pixclock - best->pixclock;
 	if (err < 0) err = -err;
 	for (ptr = vgaclocks + 1; ptr->pixclock; ptr++) {
 		int tmp;
 
-		tmp = *pixclock - ptr->pixclock;
+		tmp = pixclock - ptr->pixclock;
 		if (tmp < 0) tmp = -tmp;
 		if (tmp < err) {
 			err = tmp;
@@ -294,7 +275,7 @@ static void vga16fb_clock_chip(struct vga16fb_par *par,
 	}
 	par->misc |= best->misc;
 	par->clkdiv = best->seq_clock_mode;
-	*pixclock = (best->pixclock * div) / mul;
+	pixclock = (best->pixclock * div) / mul;		
 }
 			       
 #define FAIL(X) return -EINVAL
@@ -516,10 +497,10 @@ static int vga16fb_check_var(struct fb_var_screeninfo *var,
 
 	if (mode & MODE_8BPP)
 		/* pixel clock == vga clock / 2 */
-		vga16fb_clock_chip(par, &var->pixclock, info, 1, 2);
+		vga16fb_clock_chip(par, var->pixclock, info, 1, 2);
 	else
 		/* pixel clock == vga clock */
-		vga16fb_clock_chip(par, &var->pixclock, info, 1, 1);
+		vga16fb_clock_chip(par, var->pixclock, info, 1, 1);
 	
 	var->red.offset = var->green.offset = var->blue.offset = 
 	var->transp.offset = 0;
@@ -1140,7 +1121,7 @@ static void vga_8planes_imageblit(struct fb_info *info, const struct fb_image *i
         char oldop = setop(0);
         char oldsr = setsr(0);
         char oldmask = selectmask();
-	const unsigned char *cdat = image->data;
+        const char *cdat = image->data;
 	u32 dx = image->dx;
         char __iomem *where;
         int y;
@@ -1289,7 +1270,7 @@ static void vga16fb_destroy(struct fb_info *info)
 	framebuffer_release(info);
 }
 
-static const struct fb_ops vga16fb_ops = {
+static struct fb_ops vga16fb_ops = {
 	.owner		= THIS_MODULE,
 	.fb_open        = vga16fb_open,
 	.fb_release     = vga16fb_release,
@@ -1441,11 +1422,6 @@ static int __init vga16fb_init(void)
 
 	vga16fb_setup(option);
 #endif
-
-	ret = check_mode_supported();
-	if (ret)
-		return ret;
-
 	ret = platform_driver_register(&vga16fb_driver);
 
 	if (!ret) {

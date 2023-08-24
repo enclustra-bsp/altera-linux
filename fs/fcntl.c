@@ -261,7 +261,7 @@ static int f_getowner_uids(struct file *filp, unsigned long arg)
 static bool rw_hint_valid(enum rw_hint hint)
 {
 	switch (hint) {
-	case RWH_WRITE_LIFE_NOT_SET:
+	case RWF_WRITE_LIFE_NOT_SET:
 	case RWH_WRITE_LIFE_NONE:
 	case RWH_WRITE_LIFE_SHORT:
 	case RWH_WRITE_LIFE_MEDIUM:
@@ -277,7 +277,7 @@ static long fcntl_rw_hint(struct file *file, unsigned int cmd,
 			  unsigned long arg)
 {
 	struct inode *inode = file_inode(file);
-	u64 __user *argp = (u64 __user *)arg;
+	u64 *argp = (u64 __user *)arg;
 	enum rw_hint hint;
 	u64 h;
 
@@ -362,7 +362,7 @@ static long do_fcntl(int fd, unsigned int cmd, unsigned long arg,
 	case F_OFD_SETLK:
 	case F_OFD_SETLKW:
 #endif
-		fallthrough;
+		/* Fallthrough */
 	case F_SETLK:
 	case F_SETLKW:
 		if (copy_from_user(&flock, argp, sizeof(flock)))
@@ -735,9 +735,8 @@ static void send_sigio_to_task(struct task_struct *p,
 		return;
 
 	switch (signum) {
-		default: {
-			kernel_siginfo_t si;
-
+		kernel_siginfo_t si;
+		default:
 			/* Queue a rt signal with the appropriate fd as its
 			   value.  We use SI_SIGIO as the source, not 
 			   SI_KERNEL, since kernel signals always get 
@@ -770,8 +769,7 @@ static void send_sigio_to_task(struct task_struct *p,
 			si.si_fd    = fd;
 			if (!do_send_sig_info(signum, &si, p, type))
 				break;
-		}
-			fallthrough;	/* fall back on the old plain SIGIO signal */
+		/* fall-through: fall back on the old plain SIGIO signal */
 		case 0:
 			do_send_sig_info(SIGIO, SEND_SIG_PRIV, p, type);
 	}
@@ -781,10 +779,9 @@ void send_sigio(struct fown_struct *fown, int fd, int band)
 {
 	struct task_struct *p;
 	enum pid_type type;
-	unsigned long flags;
 	struct pid *pid;
 	
-	read_lock_irqsave(&fown->lock, flags);
+	read_lock(&fown->lock);
 
 	type = fown->pid_type;
 	pid = fown->pid;
@@ -805,7 +802,7 @@ void send_sigio(struct fown_struct *fown, int fd, int band)
 		read_unlock(&tasklist_lock);
 	}
  out_unlock_fown:
-	read_unlock_irqrestore(&fown->lock, flags);
+	read_unlock(&fown->lock);
 }
 
 static void send_sigurg_to_task(struct task_struct *p,
@@ -820,10 +817,9 @@ int send_sigurg(struct fown_struct *fown)
 	struct task_struct *p;
 	enum pid_type type;
 	struct pid *pid;
-	unsigned long flags;
 	int ret = 0;
 	
-	read_lock_irqsave(&fown->lock, flags);
+	read_lock(&fown->lock);
 
 	type = fown->pid_type;
 	pid = fown->pid;
@@ -846,7 +842,7 @@ int send_sigurg(struct fown_struct *fown)
 		read_unlock(&tasklist_lock);
 	}
  out_unlock_fown:
-	read_unlock_irqrestore(&fown->lock, flags);
+	read_unlock(&fown->lock);
 	return ret;
 }
 
@@ -995,14 +991,13 @@ static void kill_fasync_rcu(struct fasync_struct *fa, int sig, int band)
 {
 	while (fa) {
 		struct fown_struct *fown;
-		unsigned long flags;
 
 		if (fa->magic != FASYNC_MAGIC) {
 			printk(KERN_ERR "kill_fasync: bad magic number in "
 			       "fasync_struct!\n");
 			return;
 		}
-		read_lock_irqsave(&fa->fa_lock, flags);
+		read_lock(&fa->fa_lock);
 		if (fa->fa_file) {
 			fown = &fa->fa_file->f_owner;
 			/* Don't send SIGURG to processes which have not set a
@@ -1011,7 +1006,7 @@ static void kill_fasync_rcu(struct fasync_struct *fa, int sig, int band)
 			if (!(sig == SIGURG && fown->signum == 0))
 				send_sigio(fown, fa->fa_fd, band);
 		}
-		read_unlock_irqrestore(&fa->fa_lock, flags);
+		read_unlock(&fa->fa_lock);
 		fa = rcu_dereference(fa->fa_next);
 	}
 }

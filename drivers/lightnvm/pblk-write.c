@@ -105,20 +105,14 @@ retry:
 }
 
 /* Map remaining sectors in chunk, starting from ppa */
-static void pblk_map_remaining(struct pblk *pblk, struct ppa_addr *ppa,
-		int rqd_ppas)
+static void pblk_map_remaining(struct pblk *pblk, struct ppa_addr *ppa)
 {
 	struct pblk_line *line;
 	struct ppa_addr map_ppa = *ppa;
-	__le64 addr_empty = cpu_to_le64(ADDR_EMPTY);
-	__le64 *lba_list;
 	u64 paddr;
 	int done = 0;
-	int n = 0;
 
 	line = pblk_ppa_to_line(pblk, *ppa);
-	lba_list = emeta_to_lbas(pblk, line->emeta->buf);
-
 	spin_lock(&line->lock);
 
 	while (!done)  {
@@ -127,17 +121,10 @@ static void pblk_map_remaining(struct pblk *pblk, struct ppa_addr *ppa,
 		if (!test_and_set_bit(paddr, line->map_bitmap))
 			line->left_msecs--;
 
-		if (n < rqd_ppas && lba_list[paddr] != addr_empty)
-			line->nr_valid_lbas--;
-
-		lba_list[paddr] = addr_empty;
-
 		if (!test_and_set_bit(paddr, line->invalid_bitmap))
 			le32_add_cpu(line->vsc, -1);
 
 		done = nvm_next_ppa_in_chk(pblk->dev, &map_ppa);
-
-		n++;
 	}
 
 	line->w_err_gc->has_write_err = 1;
@@ -161,11 +148,9 @@ static void pblk_prepare_resubmit(struct pblk *pblk, unsigned int sentry,
 		w_ctx = &entry->w_ctx;
 
 		/* Check if the lba has been overwritten */
-		if (w_ctx->lba != ADDR_EMPTY) {
-			ppa_l2p = pblk_trans_map_get(pblk, w_ctx->lba);
-			if (!pblk_ppa_comp(ppa_l2p, entry->cacheline))
-				w_ctx->lba = ADDR_EMPTY;
-		}
+		ppa_l2p = pblk_trans_map_get(pblk, w_ctx->lba);
+		if (!pblk_ppa_comp(ppa_l2p, entry->cacheline))
+			w_ctx->lba = ADDR_EMPTY;
 
 		/* Mark up the entry as submittable again */
 		flags = READ_ONCE(w_ctx->flags);
@@ -177,7 +162,6 @@ static void pblk_prepare_resubmit(struct pblk *pblk, unsigned int sentry,
 		 * re-map these entries
 		 */
 		line = pblk_ppa_to_line(pblk, w_ctx->ppa);
-		atomic_dec(&line->sec_to_update);
 		kref_put(&line->ref, pblk_line_put);
 	}
 	spin_unlock(&pblk->trans_lock);
@@ -216,7 +200,7 @@ static void pblk_submit_rec(struct work_struct *work)
 
 	pblk_log_write_err(pblk, rqd);
 
-	pblk_map_remaining(pblk, ppa_list, rqd->nr_ppas);
+	pblk_map_remaining(pblk, ppa_list);
 	pblk_queue_resubmit(pblk, c_ctx);
 
 	pblk_up_rq(pblk, c_ctx->lun_bitmap);
@@ -228,7 +212,6 @@ static void pblk_submit_rec(struct work_struct *work)
 	mempool_free(recovery, &pblk->rec_pool);
 
 	atomic_dec(&pblk->inflight_io);
-	pblk_write_kick(pblk);
 }
 
 
@@ -336,13 +319,12 @@ static int pblk_setup_w_rq(struct pblk *pblk, struct nvm_rq *rqd,
 	}
 
 	if (likely(!e_line || !atomic_read(&e_line->left_eblks)))
-		ret = pblk_map_rq(pblk, rqd, c_ctx->sentry, lun_bitmap,
-							valid, 0);
+		pblk_map_rq(pblk, rqd, c_ctx->sentry, lun_bitmap, valid, 0);
 	else
-		ret = pblk_map_erase_rq(pblk, rqd, c_ctx->sentry, lun_bitmap,
+		pblk_map_erase_rq(pblk, rqd, c_ctx->sentry, lun_bitmap,
 							valid, erase_ppa);
 
-	return ret;
+	return 0;
 }
 
 static int pblk_calc_secs_to_sync(struct pblk *pblk, unsigned int secs_avail,
@@ -350,7 +332,7 @@ static int pblk_calc_secs_to_sync(struct pblk *pblk, unsigned int secs_avail,
 {
 	int secs_to_sync;
 
-	secs_to_sync = pblk_calc_secs(pblk, secs_avail, secs_to_flush, true);
+	secs_to_sync = pblk_calc_secs(pblk, secs_avail, secs_to_flush);
 
 #ifdef CONFIG_NVM_PBLK_DEBUG
 	if ((!secs_to_sync && secs_to_flush)
@@ -373,6 +355,7 @@ int pblk_submit_meta_io(struct pblk *pblk, struct pblk_line *meta_line)
 	struct pblk_emeta *emeta = meta_line->emeta;
 	struct ppa_addr *ppa_list;
 	struct pblk_g_ctx *m_ctx;
+	struct bio *bio;
 	struct nvm_rq *rqd;
 	void *data;
 	u64 paddr;
@@ -390,9 +373,20 @@ int pblk_submit_meta_io(struct pblk *pblk, struct pblk_line *meta_line)
 	rq_len = rq_ppas * geo->csecs;
 	data = ((void *)emeta->buf) + emeta->mem;
 
+	bio = pblk_bio_map_addr(pblk, data, rq_ppas, rq_len,
+					l_mg->emeta_alloc_type, GFP_KERNEL);
+	if (IS_ERR(bio)) {
+		pblk_err(pblk, "failed to map emeta io");
+		ret = PTR_ERR(bio);
+		goto fail_free_rqd;
+	}
+	bio->bi_iter.bi_sector = 0; /* internal bio */
+	bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
+	rqd->bio = bio;
+
 	ret = pblk_alloc_w_rq(pblk, rqd, rq_ppas, pblk_end_io_write_meta);
 	if (ret)
-		goto fail_free_rqd;
+		goto fail_free_bio;
 
 	ppa_list = nvm_rq_to_ppa_list(rqd);
 	for (i = 0; i < rqd->nr_ppas; ) {
@@ -411,7 +405,7 @@ int pblk_submit_meta_io(struct pblk *pblk, struct pblk_line *meta_line)
 
 	pblk_down_chunk(pblk, ppa_list[0]);
 
-	ret = pblk_submit_io(pblk, rqd, data);
+	ret = pblk_submit_io(pblk, rqd);
 	if (ret) {
 		pblk_err(pblk, "emeta I/O submission failed: %d\n", ret);
 		goto fail_rollback;
@@ -425,6 +419,8 @@ fail_rollback:
 	pblk_dealloc_page(pblk, meta_line, rq_ppas);
 	list_add(&meta_line->list, &meta_line->list);
 	spin_unlock(&l_mg->close_lock);
+fail_free_bio:
+	bio_put(bio);
 fail_free_rqd:
 	pblk_free_rqd(pblk, rqd, PBLK_WRITE_INT);
 	return ret;
@@ -509,7 +505,7 @@ static int pblk_submit_io_set(struct pblk *pblk, struct nvm_rq *rqd)
 	meta_line = pblk_should_submit_meta_io(pblk, rqd);
 
 	/* Submit data write for current data line */
-	err = pblk_submit_io(pblk, rqd, NULL);
+	err = pblk_submit_io(pblk, rqd);
 	if (err) {
 		pblk_err(pblk, "data I/O submission failed: %d\n", err);
 		return NVM_IO_ERR;
@@ -552,16 +548,14 @@ static void pblk_free_write_rqd(struct pblk *pblk, struct nvm_rq *rqd)
 							c_ctx->nr_padded);
 }
 
-static int pblk_submit_write(struct pblk *pblk, int *secs_left)
+static int pblk_submit_write(struct pblk *pblk)
 {
 	struct bio *bio;
 	struct nvm_rq *rqd;
 	unsigned int secs_avail, secs_to_sync, secs_to_com;
-	unsigned int secs_to_flush, packed_meta_pgs;
+	unsigned int secs_to_flush;
 	unsigned long pos;
 	unsigned int resubmit;
-
-	*secs_left = 0;
 
 	spin_lock(&pblk->resubmit_lock);
 	resubmit = !list_empty(&pblk->resubmit_list);
@@ -592,17 +586,17 @@ static int pblk_submit_write(struct pblk *pblk, int *secs_left)
 		 */
 		secs_avail = pblk_rb_read_count(&pblk->rwb);
 		if (!secs_avail)
-			return 0;
+			return 1;
 
 		secs_to_flush = pblk_rb_flush_point_count(&pblk->rwb);
-		if (!secs_to_flush && secs_avail < pblk->min_write_pgs_data)
-			return 0;
+		if (!secs_to_flush && secs_avail < pblk->min_write_pgs)
+			return 1;
 
 		secs_to_sync = pblk_calc_secs_to_sync(pblk, secs_avail,
 					secs_to_flush);
 		if (secs_to_sync > pblk->max_write_pgs) {
 			pblk_err(pblk, "bad buffer sync calculation\n");
-			return 0;
+			return 1;
 		}
 
 		secs_to_com = (secs_to_sync > secs_avail) ?
@@ -610,8 +604,7 @@ static int pblk_submit_write(struct pblk *pblk, int *secs_left)
 		pos = pblk_rb_read_commit(&pblk->rwb, secs_to_com);
 	}
 
-	packed_meta_pgs = (pblk->min_write_pgs - pblk->min_write_pgs_data);
-	bio = bio_alloc(GFP_KERNEL, secs_to_sync + packed_meta_pgs);
+	bio = bio_alloc(GFP_KERNEL, secs_to_sync);
 
 	bio->bi_iter.bi_sector = 0; /* internal bio */
 	bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
@@ -632,7 +625,6 @@ static int pblk_submit_write(struct pblk *pblk, int *secs_left)
 	atomic_long_add(secs_to_sync, &pblk->sub_writes);
 #endif
 
-	*secs_left = 1;
 	return 0;
 
 fail_free_bio:
@@ -641,22 +633,16 @@ fail_put_bio:
 	bio_put(bio);
 	pblk_free_rqd(pblk, rqd, PBLK_WRITE);
 
-	return -EINTR;
+	return 1;
 }
 
 int pblk_write_ts(void *data)
 {
 	struct pblk *pblk = data;
-	int secs_left;
-	int write_failure = 0;
 
 	while (!kthread_should_stop()) {
-		if (!write_failure) {
-			write_failure = pblk_submit_write(pblk, &secs_left);
-
-			if (secs_left)
-				continue;
-		}
+		if (!pblk_submit_write(pblk))
+			continue;
 		set_current_state(TASK_INTERRUPTIBLE);
 		io_schedule();
 	}

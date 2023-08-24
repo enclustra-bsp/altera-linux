@@ -20,7 +20,6 @@
 
 enum reg_type {
 	REG_TYPE_RM = 0,
-	REG_TYPE_REG,
 	REG_TYPE_INDEX,
 	REG_TYPE_BASE,
 };
@@ -54,29 +53,6 @@ static bool is_string_insn(struct insn *insn)
 }
 
 /**
- * insn_has_rep_prefix() - Determine if instruction has a REP prefix
- * @insn:	Instruction containing the prefix to inspect
- *
- * Returns:
- *
- * true if the instruction has a REP prefix, false if not.
- */
-bool insn_has_rep_prefix(struct insn *insn)
-{
-	insn_byte_t p;
-	int i;
-
-	insn_get_prefixes(insn);
-
-	for_each_insn_prefix(insn, i, p) {
-		if (p == 0xf2 || p == 0xf3)
-			return true;
-	}
-
-	return false;
-}
-
-/**
  * get_seg_reg_override_idx() - obtain segment register override index
  * @insn:	Valid instruction with segment override prefixes
  *
@@ -94,15 +70,14 @@ static int get_seg_reg_override_idx(struct insn *insn)
 {
 	int idx = INAT_SEG_REG_DEFAULT;
 	int num_overrides = 0, i;
-	insn_byte_t p;
 
 	insn_get_prefixes(insn);
 
 	/* Look for any segment override prefixes. */
-	for_each_insn_prefix(insn, i, p) {
+	for (i = 0; i < insn->prefixes.nbytes; i++) {
 		insn_attr_t attr;
 
-		attr = inat_get_opcode_attribute(p);
+		attr = inat_get_opcode_attribute(insn->prefixes.bytes[i]);
 		switch (attr) {
 		case INAT_MAKE_PREFIX(INAT_PFX_CS):
 			idx = INAT_SEG_REG_CS;
@@ -180,7 +155,7 @@ static bool check_seg_overrides(struct insn *insn, int regoff)
  */
 static int resolve_default_seg(struct insn *insn, struct pt_regs *regs, int off)
 {
-	if (any_64bit_mode(regs))
+	if (user_64bit_mode(regs))
 		return INAT_SEG_REG_IGNORE;
 	/*
 	 * Resolve the default segment register as described in Section 3.7.4
@@ -203,8 +178,6 @@ static int resolve_default_seg(struct insn *insn, struct pt_regs *regs, int off)
 		/* Need insn to verify address size. */
 		if (insn->addr_bytes == 2)
 			return -EINVAL;
-
-		fallthrough;
 
 	case -EDOM:
 	case offsetof(struct pt_regs, bx):
@@ -291,7 +264,7 @@ static int resolve_seg_reg(struct insn *insn, struct pt_regs *regs, int regoff)
 	 * which may be invalid at this point.
 	 */
 	if (regoff == offsetof(struct pt_regs, ip)) {
-		if (any_64bit_mode(regs))
+		if (user_64bit_mode(regs))
 			return INAT_SEG_REG_IGNORE;
 		else
 			return INAT_SEG_REG_CS;
@@ -314,7 +287,7 @@ static int resolve_seg_reg(struct insn *insn, struct pt_regs *regs, int regoff)
 	 * In long mode, segment override prefixes are ignored, except for
 	 * overrides for FS and GS.
 	 */
-	if (any_64bit_mode(regs)) {
+	if (user_64bit_mode(regs)) {
 		if (idx != INAT_SEG_REG_FS &&
 		    idx != INAT_SEG_REG_GS)
 			idx = INAT_SEG_REG_IGNORE;
@@ -387,6 +360,7 @@ static short get_segment_selector(struct pt_regs *regs, int seg_reg_idx)
 		case INAT_SEG_REG_GS:
 			return vm86regs->gs;
 		case INAT_SEG_REG_IGNORE:
+			/* fall through */
 		default:
 			return -EINVAL;
 		}
@@ -410,6 +384,7 @@ static short get_segment_selector(struct pt_regs *regs, int seg_reg_idx)
 		 */
 		return get_user_gs(regs);
 	case INAT_SEG_REG_IGNORE:
+		/* fall through */
 	default:
 		return -EINVAL;
 	}
@@ -461,13 +436,6 @@ static int get_reg_offset(struct insn *insn, struct pt_regs *regs,
 			return -EDOM;
 
 		if (X86_REX_B(insn->rex_prefix.value))
-			regno += 8;
-		break;
-
-	case REG_TYPE_REG:
-		regno = X86_MODRM_REG(insn->modrm.value);
-
-		if (X86_REX_R(insn->rex_prefix.value))
 			regno += 8;
 		break;
 
@@ -587,8 +555,7 @@ static int get_reg_offset_16(struct insn *insn, struct pt_regs *regs,
 }
 
 /**
- * get_desc() - Obtain contents of a segment descriptor
- * @out:	Segment descriptor contents on success
+ * get_desc() - Obtain pointer to a segment descriptor
  * @sel:	Segment selector
  *
  * Given a segment selector, obtain a pointer to the segment descriptor.
@@ -596,18 +563,18 @@ static int get_reg_offset_16(struct insn *insn, struct pt_regs *regs,
  *
  * Returns:
  *
- * True on success, false on failure.
+ * Pointer to segment descriptor on success.
  *
  * NULL on error.
  */
-static bool get_desc(struct desc_struct *out, unsigned short sel)
+static struct desc_struct *get_desc(unsigned short sel)
 {
 	struct desc_ptr gdt_desc = {0, 0};
 	unsigned long desc_base;
 
 #ifdef CONFIG_MODIFY_LDT_SYSCALL
 	if ((sel & SEGMENT_TI_MASK) == SEGMENT_LDT) {
-		bool success = false;
+		struct desc_struct *desc = NULL;
 		struct ldt_struct *ldt;
 
 		/* Bits [15:3] contain the index of the desired entry. */
@@ -615,14 +582,12 @@ static bool get_desc(struct desc_struct *out, unsigned short sel)
 
 		mutex_lock(&current->active_mm->context.lock);
 		ldt = current->active_mm->context.ldt;
-		if (ldt && sel < ldt->nr_entries) {
-			*out = ldt->entries[sel];
-			success = true;
-		}
+		if (ldt && sel < ldt->nr_entries)
+			desc = &ldt->entries[sel];
 
 		mutex_unlock(&current->active_mm->context.lock);
 
-		return success;
+		return desc;
 	}
 #endif
 	native_store_gdt(&gdt_desc);
@@ -637,10 +602,9 @@ static bool get_desc(struct desc_struct *out, unsigned short sel)
 	desc_base = sel & ~(SEGMENT_RPL_MASK | SEGMENT_TI_MASK);
 
 	if (desc_base > gdt_desc.size)
-		return false;
+		return NULL;
 
-	*out = *(struct desc_struct *)(gdt_desc.address + desc_base);
-	return true;
+	return (struct desc_struct *)(gdt_desc.address + desc_base);
 }
 
 /**
@@ -662,7 +626,7 @@ static bool get_desc(struct desc_struct *out, unsigned short sel)
  */
 unsigned long insn_get_seg_base(struct pt_regs *regs, int seg_reg_idx)
 {
-	struct desc_struct desc;
+	struct desc_struct *desc;
 	short sel;
 
 	sel = get_segment_selector(regs, seg_reg_idx);
@@ -676,27 +640,23 @@ unsigned long insn_get_seg_base(struct pt_regs *regs, int seg_reg_idx)
 		 */
 		return (unsigned long)(sel << 4);
 
-	if (any_64bit_mode(regs)) {
+	if (user_64bit_mode(regs)) {
 		/*
 		 * Only FS or GS will have a base address, the rest of
 		 * the segments' bases are forced to 0.
 		 */
 		unsigned long base;
 
-		if (seg_reg_idx == INAT_SEG_REG_FS) {
+		if (seg_reg_idx == INAT_SEG_REG_FS)
 			rdmsrl(MSR_FS_BASE, base);
-		} else if (seg_reg_idx == INAT_SEG_REG_GS) {
+		else if (seg_reg_idx == INAT_SEG_REG_GS)
 			/*
 			 * swapgs was called at the kernel entry point. Thus,
 			 * MSR_KERNEL_GS_BASE will have the user-space GS base.
 			 */
-			if (user_mode(regs))
-				rdmsrl(MSR_KERNEL_GS_BASE, base);
-			else
-				rdmsrl(MSR_GS_BASE, base);
-		} else {
+			rdmsrl(MSR_KERNEL_GS_BASE, base);
+		else
 			base = 0;
-		}
 		return base;
 	}
 
@@ -704,10 +664,11 @@ unsigned long insn_get_seg_base(struct pt_regs *regs, int seg_reg_idx)
 	if (!sel)
 		return -1L;
 
-	if (!get_desc(&desc, sel))
+	desc = get_desc(sel);
+	if (!desc)
 		return -1L;
 
-	return get_desc_base(&desc);
+	return get_desc_base(desc);
 }
 
 /**
@@ -729,7 +690,7 @@ unsigned long insn_get_seg_base(struct pt_regs *regs, int seg_reg_idx)
  */
 static unsigned long get_seg_limit(struct pt_regs *regs, int seg_reg_idx)
 {
-	struct desc_struct desc;
+	struct desc_struct *desc;
 	unsigned long limit;
 	short sel;
 
@@ -737,13 +698,14 @@ static unsigned long get_seg_limit(struct pt_regs *regs, int seg_reg_idx)
 	if (sel < 0)
 		return 0;
 
-	if (any_64bit_mode(regs) || v8086_mode(regs))
+	if (user_64bit_mode(regs) || v8086_mode(regs))
 		return -1L;
 
 	if (!sel)
 		return 0;
 
-	if (!get_desc(&desc, sel))
+	desc = get_desc(sel);
+	if (!desc)
 		return 0;
 
 	/*
@@ -752,8 +714,8 @@ static unsigned long get_seg_limit(struct pt_regs *regs, int seg_reg_idx)
 	 * not tested when checking the segment limits. In practice,
 	 * this means that the segment ends in (limit << 12) + 0xfff.
 	 */
-	limit = get_desc_limit(&desc);
-	if (desc.g)
+	limit = get_desc_limit(desc);
+	if (desc->g)
 		limit = (limit << 12) + 0xfff;
 
 	return limit;
@@ -777,7 +739,7 @@ static unsigned long get_seg_limit(struct pt_regs *regs, int seg_reg_idx)
  */
 int insn_get_code_seg_params(struct pt_regs *regs)
 {
-	struct desc_struct desc;
+	struct desc_struct *desc;
 	short sel;
 
 	if (v8086_mode(regs))
@@ -788,7 +750,8 @@ int insn_get_code_seg_params(struct pt_regs *regs)
 	if (sel < 0)
 		return sel;
 
-	if (!get_desc(&desc, sel))
+	desc = get_desc(sel);
+	if (!desc)
 		return -EINVAL;
 
 	/*
@@ -796,10 +759,10 @@ int insn_get_code_seg_params(struct pt_regs *regs)
 	 * determines whether a segment contains data or code. If this is a data
 	 * segment, return error.
 	 */
-	if (!(desc.type & BIT(3)))
+	if (!(desc->type & BIT(3)))
 		return -EINVAL;
 
-	switch ((desc.l << 1) | desc.d) {
+	switch ((desc->l << 1) | desc->d) {
 	case 0: /*
 		 * Legacy mode. CS.L=0, CS.D=0. Address and operand size are
 		 * both 16-bit.
@@ -816,7 +779,7 @@ int insn_get_code_seg_params(struct pt_regs *regs)
 		 */
 		return INSN_CODE_SEG_PARAMS(4, 8);
 	case 3: /* Invalid setting. CS.L=1, CS.D=1 */
-		fallthrough;
+		/* fall through */
 	default:
 		return -EINVAL;
 	}
@@ -837,21 +800,6 @@ int insn_get_code_seg_params(struct pt_regs *regs)
 int insn_get_modrm_rm_off(struct insn *insn, struct pt_regs *regs)
 {
 	return get_reg_offset(insn, regs, REG_TYPE_RM);
-}
-
-/**
- * insn_get_modrm_reg_off() - Obtain register in reg part of the ModRM byte
- * @insn:	Instruction containing the ModRM byte
- * @regs:	Register values as seen when entering kernel mode
- *
- * Returns:
- *
- * The register indicated by the reg part of the ModRM byte. The
- * register is obtained as an offset from the base of pt_regs.
- */
-int insn_get_modrm_reg_off(struct insn *insn, struct pt_regs *regs)
-{
-	return get_reg_offset(insn, regs, REG_TYPE_REG);
 }
 
 /**
@@ -997,7 +945,7 @@ static int get_eff_addr_modrm(struct insn *insn, struct pt_regs *regs,
 	 * following instruction.
 	 */
 	if (*regoff == -EDOM) {
-		if (any_64bit_mode(regs))
+		if (user_64bit_mode(regs))
 			tmp = regs->ip + insn->length;
 		else
 			tmp = 0;
@@ -1299,7 +1247,7 @@ static void __user *get_addr_ref_32(struct insn *insn, struct pt_regs *regs)
 	 * After computed, the effective address is treated as an unsigned
 	 * quantity.
 	 */
-	if (!any_64bit_mode(regs) && ((unsigned int)eff_addr > seg_limit))
+	if (!user_64bit_mode(regs) && ((unsigned int)eff_addr > seg_limit))
 		goto out;
 
 	/*
@@ -1413,125 +1361,4 @@ void __user *insn_get_addr_ref(struct insn *insn, struct pt_regs *regs)
 	default:
 		return (void __user *)-1L;
 	}
-}
-
-unsigned long insn_get_effective_ip(struct pt_regs *regs)
-{
-	unsigned long seg_base = 0;
-
-	/*
-	 * If not in user-space long mode, a custom code segment could be in
-	 * use. This is true in protected mode (if the process defined a local
-	 * descriptor table), or virtual-8086 mode. In most of the cases
-	 * seg_base will be zero as in USER_CS.
-	 */
-	if (!user_64bit_mode(regs)) {
-		seg_base = insn_get_seg_base(regs, INAT_SEG_REG_CS);
-		if (seg_base == -1L)
-			return 0;
-	}
-
-	return seg_base + regs->ip;
-}
-
-/**
- * insn_fetch_from_user() - Copy instruction bytes from user-space memory
- * @regs:	Structure with register values as seen when entering kernel mode
- * @buf:	Array to store the fetched instruction
- *
- * Gets the linear address of the instruction and copies the instruction bytes
- * to the buf.
- *
- * Returns:
- *
- * Number of instruction bytes copied.
- *
- * 0 if nothing was copied.
- */
-int insn_fetch_from_user(struct pt_regs *regs, unsigned char buf[MAX_INSN_SIZE])
-{
-	unsigned long ip;
-	int not_copied;
-
-	ip = insn_get_effective_ip(regs);
-	if (!ip)
-		return 0;
-
-	not_copied = copy_from_user(buf, (void __user *)ip, MAX_INSN_SIZE);
-
-	return MAX_INSN_SIZE - not_copied;
-}
-
-/**
- * insn_fetch_from_user_inatomic() - Copy instruction bytes from user-space memory
- *                                   while in atomic code
- * @regs:	Structure with register values as seen when entering kernel mode
- * @buf:	Array to store the fetched instruction
- *
- * Gets the linear address of the instruction and copies the instruction bytes
- * to the buf. This function must be used in atomic context.
- *
- * Returns:
- *
- * Number of instruction bytes copied.
- *
- * 0 if nothing was copied.
- */
-int insn_fetch_from_user_inatomic(struct pt_regs *regs, unsigned char buf[MAX_INSN_SIZE])
-{
-	unsigned long ip;
-	int not_copied;
-
-	ip = insn_get_effective_ip(regs);
-	if (!ip)
-		return 0;
-
-	not_copied = __copy_from_user_inatomic(buf, (void __user *)ip, MAX_INSN_SIZE);
-
-	return MAX_INSN_SIZE - not_copied;
-}
-
-/**
- * insn_decode() - Decode an instruction
- * @insn:	Structure to store decoded instruction
- * @regs:	Structure with register values as seen when entering kernel mode
- * @buf:	Buffer containing the instruction bytes
- * @buf_size:   Number of instruction bytes available in buf
- *
- * Decodes the instruction provided in buf and stores the decoding results in
- * insn. Also determines the correct address and operand sizes.
- *
- * Returns:
- *
- * True if instruction was decoded, False otherwise.
- */
-bool insn_decode(struct insn *insn, struct pt_regs *regs,
-		 unsigned char buf[MAX_INSN_SIZE], int buf_size)
-{
-	int seg_defs;
-
-	insn_init(insn, buf, buf_size, user_64bit_mode(regs));
-
-	/*
-	 * Override the default operand and address sizes with what is specified
-	 * in the code segment descriptor. The instruction decoder only sets
-	 * the address size it to either 4 or 8 address bytes and does nothing
-	 * for the operand bytes. This OK for most of the cases, but we could
-	 * have special cases where, for instance, a 16-bit code segment
-	 * descriptor is used.
-	 * If there is an address override prefix, the instruction decoder
-	 * correctly updates these values, even for 16-bit defaults.
-	 */
-	seg_defs = insn_get_code_seg_params(regs);
-	if (seg_defs == -EINVAL)
-		return false;
-
-	insn->addr_bytes = INSN_CODE_SEG_ADDR_SZ(seg_defs);
-	insn->opnd_bytes = INSN_CODE_SEG_OPND_SZ(seg_defs);
-
-	insn_get_length(insn);
-	if (buf_size < insn->length)
-		return false;
-
-	return true;
 }

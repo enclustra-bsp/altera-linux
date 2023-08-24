@@ -7,11 +7,10 @@
     |         arch |status|
     -----------------------
     |       alpha: | TODO |
-    |         arc: |  ok  |
+    |         arc: | TODO |
     |         arm: |  ok  |
     |       arm64: |  ok  |
     |         c6x: | TODO |
-    |        csky: | TODO |
     |       h8300: | TODO |
     |     hexagon: | TODO |
     |        ia64: | TODO |
@@ -21,13 +20,14 @@
     |       nds32: | TODO |
     |       nios2: | TODO |
     |    openrisc: | TODO |
-    |      parisc: |  ok  |
+    |      parisc: | TODO |
     |     powerpc: |  ok  |
-    |       riscv: |  ok  |
+    |       riscv: | TODO |
     |        s390: |  ok  |
     |          sh: | TODO |
     |       sparc: |  ok  |
     |          um: | TODO |
+    |   unicore32: | TODO |
     |         x86: |  ok  |
-    |      xtensa: |  ok  |
+    |      xtensa: | TODO |
     -----------------------

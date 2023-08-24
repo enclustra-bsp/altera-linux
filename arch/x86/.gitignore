@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 boot/compressed/vmlinux
 tools/test_get_len
 tools/insn_sanity

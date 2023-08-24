@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * AD7766/AD7767 SPI ADC driver
  *
  * Copyright 2016 Analog Devices Inc.
+ *
+ * Licensed under the GPL-2 or later.
  */
 
 #include <linux/clk.h>
@@ -178,6 +179,8 @@ static const struct ad7766_chip_info ad7766_chip_info[] = {
 
 static const struct iio_buffer_setup_ops ad7766_buffer_setup_ops = {
 	.preenable = &ad7766_preenable,
+	.postenable = &iio_triggered_buffer_postenable,
+	.predisable = &iio_triggered_buffer_predisable,
 	.postdisable = &ad7766_postdisable,
 };
 
@@ -240,6 +243,7 @@ static int ad7766_probe(struct spi_device *spi)
 	if (IS_ERR(ad7766->pd_gpio))
 		return PTR_ERR(ad7766->pd_gpio);
 
+	indio_dev->dev.parent = &spi->dev;
 	indio_dev->name = spi_get_device_id(spi)->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = ad7766_channels;

@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 config STM
 	tristate "System Trace Module devices"
 	select CONFIGFS_FS
@@ -71,7 +70,7 @@ config STM_SOURCE_HEARTBEAT
 
 config STM_SOURCE_FTRACE
 	tristate "Copy the output from kernel Ftrace to STM engine"
-	depends on TRACING
+	depends on FUNCTION_TRACER
 	help
 	  This option can be used to copy the output from kernel Ftrace
 	  to STM engine. Enabling this option will introduce a slight

@@ -1,12 +1,26 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * PMac Tumbler/Snapper lowlevel functions
  *
  * Copyright (c) by Takashi Iwai <tiwai@suse.de>
  *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
+ *
  *   Rene Rebe <rene.rebe@gmx.net>:
  *     * update from shadow registers on wakeup and headphone plug
  *     * automatically toggle DRC on headphone plug
+ *	
  */
 
 
@@ -106,7 +120,7 @@ struct pmac_tumbler {
 /*
  */
 
-static int send_init_client(struct pmac_keywest *i2c, const unsigned int *regs)
+static int send_init_client(struct pmac_keywest *i2c, unsigned int *regs)
 {
 	while (*regs > 0) {
 		int err, count = 10;
@@ -128,7 +142,7 @@ static int send_init_client(struct pmac_keywest *i2c, const unsigned int *regs)
 
 static int tumbler_init_client(struct pmac_keywest *i2c)
 {
-	static const unsigned int regs[] = {
+	static unsigned int regs[] = {
 		/* normal operation, SCLK=64fps, i2s output, i2s input, 16bit width */
 		TAS_REG_MCS, (1<<6)|(2<<4)|(2<<2)|0,
 		0, /* terminator */
@@ -139,7 +153,7 @@ static int tumbler_init_client(struct pmac_keywest *i2c)
 
 static int snapper_init_client(struct pmac_keywest *i2c)
 {
-	static const unsigned int regs[] = {
+	static unsigned int regs[] = {
 		/* normal operation, SCLK=64fps, i2s output, 16bit width */
 		TAS_REG_MCS, (1<<6)|(2<<4)|0,
 		/* normal operation, all-pass mode */
@@ -478,11 +492,11 @@ struct tumbler_mono_vol {
 	int reg;
 	int bytes;
 	unsigned int max;
-	const unsigned int *table;
+	unsigned int *table;
 };
 
 static int tumbler_set_mono_volume(struct pmac_tumbler *mix,
-				   const struct tumbler_mono_vol *info)
+				   struct tumbler_mono_vol *info)
 {
 	unsigned char block[4];
 	unsigned int vol;
@@ -553,7 +567,7 @@ static int tumbler_put_mono(struct snd_kcontrol *kcontrol,
 }
 
 /* TAS3001c mono volumes */
-static const struct tumbler_mono_vol tumbler_pcm_vol_info = {
+static struct tumbler_mono_vol tumbler_pcm_vol_info = {
 	.index = VOL_IDX_PCM_MONO,
 	.reg = TAS_REG_PCM,
 	.bytes = 3,
@@ -561,7 +575,7 @@ static const struct tumbler_mono_vol tumbler_pcm_vol_info = {
 	.table = mixer_volume_table,
 };
 
-static const struct tumbler_mono_vol tumbler_bass_vol_info = {
+static struct tumbler_mono_vol tumbler_bass_vol_info = {
 	.index = VOL_IDX_BASS,
 	.reg = TAS_REG_BASS,
 	.bytes = 1,
@@ -569,7 +583,7 @@ static const struct tumbler_mono_vol tumbler_bass_vol_info = {
 	.table = bass_volume_table,
 };
 
-static const struct tumbler_mono_vol tumbler_treble_vol_info = {
+static struct tumbler_mono_vol tumbler_treble_vol_info = {
 	.index = VOL_IDX_TREBLE,
 	.reg = TAS_REG_TREBLE,
 	.bytes = 1,
@@ -578,7 +592,7 @@ static const struct tumbler_mono_vol tumbler_treble_vol_info = {
 };
 
 /* TAS3004 mono volumes */
-static const struct tumbler_mono_vol snapper_bass_vol_info = {
+static struct tumbler_mono_vol snapper_bass_vol_info = {
 	.index = VOL_IDX_BASS,
 	.reg = TAS_REG_BASS,
 	.bytes = 1,
@@ -586,7 +600,7 @@ static const struct tumbler_mono_vol snapper_bass_vol_info = {
 	.table = snapper_bass_volume_table,
 };
 
-static const struct tumbler_mono_vol snapper_treble_vol_info = {
+static struct tumbler_mono_vol snapper_treble_vol_info = {
 	.index = VOL_IDX_TREBLE,
 	.reg = TAS_REG_TREBLE,
 	.bytes = 1,
@@ -826,7 +840,7 @@ static int snapper_put_capture_source(struct snd_kcontrol *kcontrol,
 
 /*
  */
-static const struct snd_kcontrol_new tumbler_mixers[] = {
+static struct snd_kcontrol_new tumbler_mixers[] = {
 	{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	  .name = "Master Playback Volume",
 	  .info = tumbler_info_master_volume,
@@ -850,7 +864,7 @@ static const struct snd_kcontrol_new tumbler_mixers[] = {
 	},
 };
 
-static const struct snd_kcontrol_new snapper_mixers[] = {
+static struct snd_kcontrol_new snapper_mixers[] = {
 	{ .iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	  .name = "Master Playback Volume",
 	  .info = tumbler_info_master_volume,
@@ -1351,13 +1365,12 @@ int snd_pmac_tumbler_init(struct snd_pmac *chip)
 	mix->anded_reset = 0;
 	mix->reset_on_sleep = 1;
 
-	for_each_child_of_node(chip->node, np) {
-		if (of_node_name_eq(np, "sound")) {
+	for (np = chip->node->child; np; np = np->sibling) {
+		if (!strcmp(np->name, "sound")) {
 			if (of_get_property(np, "has-anded-reset", NULL))
 				mix->anded_reset = 1;
 			if (of_get_property(np, "layout-id", NULL))
 				mix->reset_on_sleep = 0;
-			of_node_put(np);
 			break;
 		}
 	}

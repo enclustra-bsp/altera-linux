@@ -549,10 +549,8 @@ static void hisi_thermal_toggle_sensor(struct hisi_thermal_sensor *sensor,
 {
 	struct thermal_zone_device *tzd = sensor->tzd;
 
-	if (on)
-		thermal_zone_device_enable(tzd);
-	else
-		thermal_zone_device_disable(tzd);
+	tzd->ops->set_mode(tzd,
+		on ? THERMAL_DEVICE_ENABLED : THERMAL_DEVICE_DISABLED);
 }
 
 static int hisi_thermal_probe(struct platform_device *pdev)

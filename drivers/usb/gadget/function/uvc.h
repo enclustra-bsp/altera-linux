@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0+ */
+// SPDX-License-Identifier: GPL-2.0+
 /*
  *	uvc_gadget.h  --  USB Video Class Gadget driver
  *
@@ -56,8 +56,6 @@ extern unsigned int uvc_gadget_trace_param;
 	dev_dbg(&(f)->config->cdev->gadget->dev, "%s: " fmt, (f)->name, ##args)
 #define uvcg_info(f, fmt, args...) \
 	dev_info(&(f)->config->cdev->gadget->dev, "%s: " fmt, (f)->name, ##args)
-#define uvcg_warn(f, fmt, args...) \
-	dev_warn(&(f)->config->cdev->gadget->dev, "%s: " fmt, (f)->name, ##args)
 #define uvcg_err(f, fmt, args...) \
 	dev_err(&(f)->config->cdev->gadget->dev, "%s: " fmt, (f)->name, ##args)
 
@@ -76,8 +74,6 @@ extern unsigned int uvc_gadget_trace_param;
 struct uvc_video {
 	struct uvc_device *uvc;
 	struct usb_ep *ep;
-
-	struct work_struct pump;
 
 	/* Frame parameters */
 	u8 bpp;
@@ -117,7 +113,6 @@ struct uvc_device {
 	enum uvc_state state;
 	struct usb_function func;
 	struct uvc_video video;
-	bool func_connected;
 
 	/* Descriptors */
 	struct {
@@ -148,7 +143,6 @@ static inline struct uvc_device *to_uvc(struct usb_function *f)
 struct uvc_file_handle {
 	struct v4l2_fh vfh;
 	struct uvc_video *device;
-	bool is_uvc_app_handle;
 };
 
 #define to_uvc_file_handle(handle) \

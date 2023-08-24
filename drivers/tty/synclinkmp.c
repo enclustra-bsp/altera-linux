@@ -685,7 +685,7 @@ static inline int sanity_check(SLMP_INFO *info,
 	return 0;
 }
 
-/*
+/**
  * line discipline callback wrappers
  *
  * The wrappers maintain line discipline references
@@ -1453,10 +1453,10 @@ static void throttle(struct tty_struct * tty)
 	if (I_IXOFF(tty))
 		send_xchar(tty, STOP_CHAR(tty));
 
-	if (C_CRTSCTS(tty)) {
+ 	if (C_CRTSCTS(tty)) {
 		spin_lock_irqsave(&info->lock,flags);
 		info->serial_signals &= ~SerialSignal_RTS;
-		set_signals(info);
+	 	set_signals(info);
 		spin_unlock_irqrestore(&info->lock,flags);
 	}
 }
@@ -1482,10 +1482,10 @@ static void unthrottle(struct tty_struct * tty)
 			send_xchar(tty, START_CHAR(tty));
 	}
 
-	if (C_CRTSCTS(tty)) {
+ 	if (C_CRTSCTS(tty)) {
 		spin_lock_irqsave(&info->lock,flags);
 		info->serial_signals |= SerialSignal_RTS;
-		set_signals(info);
+	 	set_signals(info);
 		spin_unlock_irqrestore(&info->lock,flags);
 	}
 }
@@ -1520,14 +1520,14 @@ static int set_break(struct tty_struct *tty, int break_state)
 #if SYNCLINK_GENERIC_HDLC
 
 /**
- * hdlcdev_attach - called by generic HDLC layer when protocol selected (PPP, frame relay, etc.)
- * @dev:      pointer to network device structure
- * @encoding: serial encoding setting
- * @parity:   FCS setting
+ * called by generic HDLC layer when protocol selected (PPP, frame relay, etc.)
+ * set encoding and frame check sequence (FCS) options
  *
- * Set encoding and frame check sequence (FCS) options.
+ * dev       pointer to network device structure
+ * encoding  serial encoding setting
+ * parity    FCS setting
  *
- * Return: 0 if success, otherwise error code
+ * returns 0 if success, otherwise error code
  */
 static int hdlcdev_attach(struct net_device *dev, unsigned short encoding,
 			  unsigned short parity)
@@ -1569,9 +1569,10 @@ static int hdlcdev_attach(struct net_device *dev, unsigned short encoding,
 }
 
 /**
- * hdlcdev_xmit - called by generic HDLC layer to send frame
- * @skb: socket buffer containing HDLC frame
- * @dev: pointer to network device structure
+ * called by generic HDLC layer to send frame
+ *
+ * skb  socket buffer containing HDLC frame
+ * dev  pointer to network device structure
  */
 static netdev_tx_t hdlcdev_xmit(struct sk_buff *skb,
 				      struct net_device *dev)
@@ -1609,12 +1610,12 @@ static netdev_tx_t hdlcdev_xmit(struct sk_buff *skb,
 }
 
 /**
- * hdlcdev_open - called by network layer when interface enabled
- * @dev: pointer to network device structure
+ * called by network layer when interface enabled
+ * claim resources and initialize hardware
  *
- * Claim resources and initialize hardware.
+ * dev  pointer to network device structure
  *
- * Return: 0 if success, otherwise error code
+ * returns 0 if success, otherwise error code
  */
 static int hdlcdev_open(struct net_device *dev)
 {
@@ -1668,12 +1669,12 @@ static int hdlcdev_open(struct net_device *dev)
 }
 
 /**
- * hdlcdev_close - called by network layer when interface is disabled
- * @dev: pointer to network device structure
+ * called by network layer when interface is disabled
+ * shutdown hardware and release resources
  *
- * Shutdown hardware and release resources.
+ * dev  pointer to network device structure
  *
- * Return: 0 if success, otherwise error code
+ * returns 0 if success, otherwise error code
  */
 static int hdlcdev_close(struct net_device *dev)
 {
@@ -1698,12 +1699,13 @@ static int hdlcdev_close(struct net_device *dev)
 }
 
 /**
- * hdlcdev_ioctl - called by network layer to process IOCTL call to network device
- * @dev: pointer to network device structure
- * @ifr: pointer to network interface request structure
- * @cmd: IOCTL command code
+ * called by network layer to process IOCTL call to network device
  *
- * Return: 0 if success, otherwise error code
+ * dev  pointer to network device structure
+ * ifr  pointer to network interface request structure
+ * cmd  IOCTL command code
+ *
+ * returns 0 if success, otherwise error code
  */
 static int hdlcdev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
@@ -1801,10 +1803,11 @@ static int hdlcdev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 }
 
 /**
- * hdlcdev_tx_timeout - called by network layer when transmit timeout is detected
- * @dev: pointer to network device structure
+ * called by network layer when transmit timeout is detected
+ *
+ * dev  pointer to network device structure
  */
-static void hdlcdev_tx_timeout(struct net_device *dev, unsigned int txqueue)
+static void hdlcdev_tx_timeout(struct net_device *dev)
 {
 	SLMP_INFO *info = dev_to_port(dev);
 	unsigned long flags;
@@ -1823,10 +1826,10 @@ static void hdlcdev_tx_timeout(struct net_device *dev, unsigned int txqueue)
 }
 
 /**
- * hdlcdev_tx_done - called by device driver when transmit completes
- * @info: pointer to device instance information
+ * called by device driver when transmit completes
+ * reenable network layer transmit if stopped
  *
- * Reenable network layer transmit if stopped.
+ * info  pointer to device instance information
  */
 static void hdlcdev_tx_done(SLMP_INFO *info)
 {
@@ -1835,12 +1838,12 @@ static void hdlcdev_tx_done(SLMP_INFO *info)
 }
 
 /**
- * hdlcdev_rx - called by device driver when frame received
- * @info: pointer to device instance information
- * @buf:  pointer to buffer contianing frame data
- * @size: count of data bytes in buf
+ * called by device driver when frame received
+ * pass frame to network layer
  *
- * Pass frame to network layer.
+ * info  pointer to device instance information
+ * buf   pointer to buffer contianing frame data
+ * size  count of data bytes in buf
  */
 static void hdlcdev_rx(SLMP_INFO *info, char *buf, int size)
 {
@@ -1876,12 +1879,12 @@ static const struct net_device_ops hdlcdev_ops = {
 };
 
 /**
- * hdlcdev_init - called by device driver when adding device instance
- * @info: pointer to device instance information
+ * called by device driver when adding device instance
+ * do generic HDLC initialization
  *
- * Do generic HDLC initialization.
+ * info  pointer to device instance information
  *
- * Return: 0 if success, otherwise error code
+ * returns 0 if success, otherwise error code
  */
 static int hdlcdev_init(SLMP_INFO *info)
 {
@@ -1925,10 +1928,10 @@ static int hdlcdev_init(SLMP_INFO *info)
 }
 
 /**
- * hdlcdev_exit - called by device driver when removing device instance
- * @info: pointer to device instance information
+ * called by device driver when removing device instance
+ * do generic HDLC cleanup
  *
- * Do generic HDLC cleanup.
+ * info  pointer to device instance information
  */
 static void hdlcdev_exit(SLMP_INFO *info)
 {
@@ -2467,7 +2470,7 @@ static void isr_io_pin( SLMP_INFO *info, u16 status )
 					if (status & SerialSignal_CTS) {
 						if ( debug_level >= DEBUG_LEVEL_ISR )
 							printk("CTS tx start...");
-						info->port.tty->hw_stopped = 0;
+			 			info->port.tty->hw_stopped = 0;
 						tx_start(info);
 						info->pending_bh |= BH_TRANSMIT;
 						return;
@@ -2476,7 +2479,7 @@ static void isr_io_pin( SLMP_INFO *info, u16 status )
 					if (!(status & SerialSignal_CTS)) {
 						if ( debug_level >= DEBUG_LEVEL_ISR )
 							printk("CTS tx stop...");
-						info->port.tty->hw_stopped = 1;
+			 			info->port.tty->hw_stopped = 1;
 						tx_stop(info);
 					}
 				}
@@ -2803,8 +2806,8 @@ static void change_params(SLMP_INFO *info)
 	info->read_status_mask2 = OVRN;
 	if (I_INPCK(info->port.tty))
 		info->read_status_mask2 |= PE | FRME;
-	if (I_BRKINT(info->port.tty) || I_PARMRK(info->port.tty))
-		info->read_status_mask1 |= BRKD;
+ 	if (I_BRKINT(info->port.tty) || I_PARMRK(info->port.tty))
+ 		info->read_status_mask1 |= BRKD;
 	if (I_IGNPAR(info->port.tty))
 		info->ignore_status_mask2 |= PE | FRME;
 	if (I_IGNBRK(info->port.tty)) {
@@ -3174,7 +3177,7 @@ static int tiocmget(struct tty_struct *tty)
  	unsigned long flags;
 
 	spin_lock_irqsave(&info->lock,flags);
-	get_signals(info);
+ 	get_signals(info);
 	spin_unlock_irqrestore(&info->lock,flags);
 
 	result = ((info->serial_signals & SerialSignal_RTS) ? TIOCM_RTS : 0) |
@@ -3212,7 +3215,7 @@ static int tiocmset(struct tty_struct *tty,
 		info->serial_signals &= ~SerialSignal_DTR;
 
 	spin_lock_irqsave(&info->lock,flags);
-	set_signals(info);
+ 	set_signals(info);
 	spin_unlock_irqrestore(&info->lock,flags);
 
 	return 0;
@@ -3224,7 +3227,7 @@ static int carrier_raised(struct tty_port *port)
 	unsigned long flags;
 
 	spin_lock_irqsave(&info->lock,flags);
-	get_signals(info);
+ 	get_signals(info);
 	spin_unlock_irqrestore(&info->lock,flags);
 
 	return (info->serial_signals & SerialSignal_DCD) ? 1 : 0;
@@ -3240,7 +3243,7 @@ static void dtr_rts(struct tty_port *port, int on)
 		info->serial_signals |= SerialSignal_RTS | SerialSignal_DTR;
 	else
 		info->serial_signals &= ~(SerialSignal_RTS | SerialSignal_DTR);
-	set_signals(info);
+ 	set_signals(info);
 	spin_unlock_irqrestore(&info->lock,flags);
 }
 
@@ -3556,7 +3559,7 @@ static int claim_resources(SLMP_INFO *info)
 	else
 		info->sca_statctrl_requested = true;
 
-	info->memory_base = ioremap(info->phys_memory_base,
+	info->memory_base = ioremap_nocache(info->phys_memory_base,
 								SCA_MEM_SIZE);
 	if (!info->memory_base) {
 		printk( "%s(%d):%s Can't map shared memory, MemAddr=%08X\n",
@@ -3565,7 +3568,7 @@ static int claim_resources(SLMP_INFO *info)
 		goto errout;
 	}
 
-	info->lcr_base = ioremap(info->phys_lcr_base, PAGE_SIZE);
+	info->lcr_base = ioremap_nocache(info->phys_lcr_base, PAGE_SIZE);
 	if (!info->lcr_base) {
 		printk( "%s(%d):%s Can't map LCR memory, MemAddr=%08X\n",
 			__FILE__,__LINE__,info->device_name, info->phys_lcr_base );
@@ -3574,7 +3577,7 @@ static int claim_resources(SLMP_INFO *info)
 	}
 	info->lcr_base += info->lcr_offset;
 
-	info->sca_base = ioremap(info->phys_sca_base, PAGE_SIZE);
+	info->sca_base = ioremap_nocache(info->phys_sca_base, PAGE_SIZE);
 	if (!info->sca_base) {
 		printk( "%s(%d):%s Can't map SCA memory, MemAddr=%08X\n",
 			__FILE__,__LINE__,info->device_name, info->phys_sca_base );
@@ -3583,7 +3586,7 @@ static int claim_resources(SLMP_INFO *info)
 	}
 	info->sca_base += info->sca_offset;
 
-	info->statctrl_base = ioremap(info->phys_statctrl_base,
+	info->statctrl_base = ioremap_nocache(info->phys_statctrl_base,
 								PAGE_SIZE);
 	if (!info->statctrl_base) {
 		printk( "%s(%d):%s Can't map SCA Status/Control memory, MemAddr=%08X\n",

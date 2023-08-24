@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * PCMCIA 16-bit resource management functions
  *
@@ -8,6 +7,11 @@
  *
  * Copyright (C) 1999	     David A. Hinds
  * Copyright (C) 2004-2010   Dominik Brodowski
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
  */
 
 #include <linux/module.h>

@@ -172,7 +172,6 @@ struct imxfb_info {
 	int			num_modes;
 
 	struct regulator	*lcd_pwr;
-	int			lcd_pwr_enabled;
 };
 
 static const struct platform_device_id imxfb_devtype[] = {
@@ -567,7 +566,7 @@ static int imxfb_blank(int blank, struct fb_info *info)
 	return 0;
 }
 
-static const struct fb_ops imxfb_ops = {
+static struct fb_ops imxfb_ops = {
 	.owner		= THIS_MODULE,
 	.fb_check_var	= imxfb_check_var,
 	.fb_set_par	= imxfb_set_par,
@@ -802,30 +801,16 @@ static int imxfb_lcd_get_power(struct lcd_device *lcddev)
 	return FB_BLANK_UNBLANK;
 }
 
-static int imxfb_regulator_set(struct imxfb_info *fbi, int enable)
-{
-	int ret;
-
-	if (enable == fbi->lcd_pwr_enabled)
-		return 0;
-
-	if (enable)
-		ret = regulator_enable(fbi->lcd_pwr);
-	else
-		ret = regulator_disable(fbi->lcd_pwr);
-
-	if (ret == 0)
-		fbi->lcd_pwr_enabled = enable;
-
-	return ret;
-}
-
 static int imxfb_lcd_set_power(struct lcd_device *lcddev, int power)
 {
 	struct imxfb_info *fbi = dev_get_drvdata(&lcddev->dev);
 
-	if (!IS_ERR(fbi->lcd_pwr))
-		return imxfb_regulator_set(fbi, power == FB_BLANK_UNBLANK);
+	if (!IS_ERR(fbi->lcd_pwr)) {
+		if (power == FB_BLANK_UNBLANK)
+			return regulator_enable(fbi->lcd_pwr);
+		else
+			return regulator_disable(fbi->lcd_pwr);
+	}
 
 	return 0;
 }
@@ -989,10 +974,11 @@ static int imxfb_probe(struct platform_device *pdev)
 	}
 
 	fbi->map_size = PAGE_ALIGN(info->fix.smem_len);
-	info->screen_buffer = dma_alloc_wc(&pdev->dev, fbi->map_size,
-					   &fbi->map_dma, GFP_KERNEL);
-	if (!info->screen_buffer) {
-		dev_err(&pdev->dev, "Failed to allocate video RAM\n");
+	info->screen_base = dma_alloc_wc(&pdev->dev, fbi->map_size,
+					 &fbi->map_dma, GFP_KERNEL);
+
+	if (!info->screen_base) {
+		dev_err(&pdev->dev, "Failed to allocate video RAM: %d\n", ret);
 		ret = -ENOMEM;
 		goto failed_map;
 	}
@@ -1032,7 +1018,7 @@ static int imxfb_probe(struct platform_device *pdev)
 	}
 
 	fbi->lcd_pwr = devm_regulator_get(&pdev->dev, "lcd");
-	if (PTR_ERR(fbi->lcd_pwr) == -EPROBE_DEFER) {
+	if (IS_ERR(fbi->lcd_pwr) && (PTR_ERR(fbi->lcd_pwr) == -EPROBE_DEFER)) {
 		ret = -EPROBE_DEFER;
 		goto failed_lcd;
 	}
@@ -1060,7 +1046,7 @@ failed_cmap:
 	if (pdata && pdata->exit)
 		pdata->exit(fbi->pdev);
 failed_platform_init:
-	dma_free_wc(&pdev->dev, fbi->map_size, info->screen_buffer,
+	dma_free_wc(&pdev->dev, fbi->map_size, info->screen_base,
 		    fbi->map_dma);
 failed_map:
 	iounmap(fbi->regs);
@@ -1091,7 +1077,7 @@ static int imxfb_remove(struct platform_device *pdev)
 	pdata = dev_get_platdata(&pdev->dev);
 	if (pdata && pdata->exit)
 		pdata->exit(fbi->pdev);
-	dma_free_wc(&pdev->dev, fbi->map_size, info->screen_buffer,
+	dma_free_wc(&pdev->dev, fbi->map_size, info->screen_base,
 		    fbi->map_dma);
 	iounmap(fbi->regs);
 	release_mem_region(res->start, resource_size(res));

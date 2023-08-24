@@ -1,11 +1,14 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
- * Samsung Exynos SoC series PCIe PHY driver
+ * Samsung EXYNOS SoC series PCIe PHY driver
  *
  * Phy provider for PCIe controller on Exynos SoC series
  *
  * Copyright (C) 2017 Samsung Electronics Co., Ltd.
  * Jaehoon Chung <jh80.chung@samsung.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/delay.h>
@@ -272,7 +275,6 @@ static struct platform_driver exynos_pcie_phy_driver = {
 	.driver = {
 		.of_match_table	= exynos_pcie_phy_match,
 		.name		= "exynos_pcie_phy",
-		.suppress_bind_attrs = true,
 	}
 };
 

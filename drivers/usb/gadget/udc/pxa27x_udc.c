@@ -207,7 +207,7 @@ static void pxa_init_debugfs(struct pxa_udc *udc)
 {
 	struct dentry *root;
 
-	root = debugfs_create_dir(udc->gadget.name, usb_debug_root);
+	root = debugfs_create_dir(udc->gadget.name, NULL);
 	udc->debugfs_root = root;
 
 	debugfs_create_file("udcstate", 0400, root, udc, &state_dbg_fops);
@@ -386,7 +386,7 @@ static inline void udc_clear_mask_UDCCR(struct pxa_udc *udc, int mask)
 
 /**
  * ep_write_UDCCSR - set bits in UDCCSR
- * @ep: udc endpoint
+ * @udc: udc device
  * @mask: bits to set in UDCCR
  *
  * Sets bits in UDCCSR (UDCCSR0 and UDCCSR*).
@@ -472,7 +472,7 @@ static int epout_has_pkt(struct pxa_ep *ep)
 
 /**
  * set_ep0state - Set ep0 automata state
- * @udc: udc device
+ * @dev: udc device
  * @state: state
  */
 static void set_ep0state(struct pxa_udc *udc, int state)
@@ -498,6 +498,7 @@ static void ep0_idle(struct pxa_udc *dev)
 /**
  * inc_ep_stats_reqs - Update ep stats counts
  * @ep: physical endpoint
+ * @req: usb request
  * @is_in: ep direction (USB_DIR_IN or 0)
  *
  */
@@ -1472,6 +1473,7 @@ static void udc_disable(struct pxa_udc *udc);
  * Context: any
  *
  * The UDC should be enabled if :
+
  *  - the pullup resistor is connected
  *  - and a gadget driver is bound
  *  - and vbus is sensed (or no vbus sense is available)
@@ -1686,7 +1688,7 @@ static void udc_init_data(struct pxa_udc *dev)
 
 /**
  * udc_enable - Enables the udc device
- * @udc: udc device
+ * @dev: udc device
  *
  * Enables the udc device : enables clocks, udc interrupts, control endpoint
  * interrupts, sets usb as UDC client and setups endpoints.
@@ -1730,8 +1732,8 @@ static void udc_enable(struct pxa_udc *udc)
 
 /**
  * pxa27x_start - Register gadget driver
- * @g: gadget
  * @driver: gadget driver
+ * @bind: bind function
  *
  * When a driver is successfully registered, it will receive control requests
  * including set_configuration(), which enables non-control requests.  Then
@@ -1773,6 +1775,7 @@ fail:
 /**
  * stop_activity - Stops udc endpoints
  * @udc: udc device
+ * @driver: gadget driver
  *
  * Disables all udc endpoints (even control endpoint), report disconnect to
  * the gadget user.
@@ -1789,7 +1792,7 @@ static void stop_activity(struct pxa_udc *udc)
 
 /**
  * pxa27x_udc_stop - Unregister the gadget driver
- * @g: gadget
+ * @driver: gadget driver
  *
  * Returns 0 if no error, -ENODEV, -EINVAL otherwise
  */
@@ -2346,13 +2349,14 @@ MODULE_DEVICE_TABLE(of, udc_pxa_dt_ids);
 
 /**
  * pxa_udc_probe - probes the udc device
- * @pdev: platform device
+ * @_dev: platform device
  *
  * Perform basic init : allocates udc clock, creates sysfs files, requests
  * irq.
  */
 static int pxa_udc_probe(struct platform_device *pdev)
 {
+	struct resource *regs;
 	struct pxa_udc *udc = &memory;
 	int retval = 0, gpio;
 	struct pxa2xx_udc_mach_info *mach = dev_get_platdata(&pdev->dev);
@@ -2374,7 +2378,8 @@ static int pxa_udc_probe(struct platform_device *pdev)
 		udc->gpiod = devm_gpiod_get(&pdev->dev, NULL, GPIOD_ASIS);
 	}
 
-	udc->regs = devm_platform_ioremap_resource(pdev, 0);
+	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	udc->regs = devm_ioremap_resource(&pdev->dev, regs);
 	if (IS_ERR(udc->regs))
 		return PTR_ERR(udc->regs);
 	udc->irq = platform_get_irq(pdev, 0);

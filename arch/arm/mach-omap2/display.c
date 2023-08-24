@@ -1,7 +1,7 @@
 /*
  * OMAP2plus display device setup / initialization.
  *
- * Copyright (C) 2010 Texas Instruments Incorporated - https://www.ti.com/
+ * Copyright (C) 2010 Texas Instruments Incorporated - http://www.ti.com/
  *	Senthilvadivu Guruswamy
  *	Sumit Semwal
  *
@@ -83,7 +83,6 @@ static int omap4_dsi_mux_pads(int dsi_id, unsigned lanes)
 	u32 enable_mask, enable_shift;
 	u32 pipd_mask, pipd_shift;
 	u32 reg;
-	int ret;
 
 	if (dsi_id == 0) {
 		enable_mask = OMAP4_DSI1_LANEENABLE_MASK;
@@ -99,11 +98,7 @@ static int omap4_dsi_mux_pads(int dsi_id, unsigned lanes)
 		return -ENODEV;
 	}
 
-	ret = regmap_read(omap4_dsi_mux_syscon,
-					  OMAP4_DSIPHY_SYSCON_OFFSET,
-					  &reg);
-	if (ret)
-		return ret;
+	regmap_read(omap4_dsi_mux_syscon, OMAP4_DSIPHY_SYSCON_OFFSET, &reg);
 
 	reg &= ~enable_mask;
 	reg &= ~pipd_mask;
@@ -250,10 +245,8 @@ static int __init omapdss_init_of(void)
 	if (!node)
 		return 0;
 
-	if (!of_device_is_available(node)) {
-		of_node_put(node);
+	if (!of_device_is_available(node))
 		return 0;
-	}
 
 	pdev = of_find_device_by_node(node);
 
@@ -265,7 +258,6 @@ static int __init omapdss_init_of(void)
 	r = of_platform_populate(node, NULL, NULL, &pdev->dev);
 	if (r) {
 		pr_err("Unable to populate DSS submodule devices\n");
-		put_device(&pdev->dev);
 		return r;
 	}
 

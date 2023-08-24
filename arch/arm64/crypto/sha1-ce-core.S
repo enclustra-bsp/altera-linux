@@ -1,8 +1,11 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * sha1-ce-core.S - SHA-1 secure hash using ARMv8 Crypto Extensions
  *
  * Copyright (C) 2014 Linaro Ltd <ard.biesheuvel@linaro.org>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/linkage.h>
@@ -65,7 +68,7 @@
 	 * void sha1_ce_transform(struct sha1_ce_state *sst, u8 const *src,
 	 *			  int blocks)
 	 */
-SYM_FUNC_START(sha1_ce_transform)
+ENTRY(sha1_ce_transform)
 	frame_push	3
 
 	mov		x19, x0
@@ -160,4 +163,4 @@ CPU_LE(	rev32		v11.16b, v11.16b	)
 	str		dgb, [x19, #16]
 	frame_pop
 	ret
-SYM_FUNC_END(sha1_ce_transform)
+ENDPROC(sha1_ce_transform)

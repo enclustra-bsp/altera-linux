@@ -1,9 +1,21 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
     yuv support
 
     Copyright (C) 2007  Ian Armstrong <ian@iarmst.demon.co.uk>
 
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #include "ivtv-driver.h"
@@ -30,6 +42,7 @@ static int ivtv_yuv_prep_user_dma(struct ivtv *itv, struct ivtv_user_dma *dma,
 	struct yuv_playback_info *yi = &itv->yuv_info;
 	u8 frame = yi->draw_frame;
 	struct yuv_frame_info *f = &yi->new_frame_info[frame];
+	int i;
 	int y_pages, uv_pages;
 	unsigned long y_buffer_offset, uv_buffer_offset;
 	int y_decode_height, uv_decode_height, y_size;
@@ -61,12 +74,12 @@ static int ivtv_yuv_prep_user_dma(struct ivtv *itv, struct ivtv_user_dma *dma,
 	ivtv_udma_get_page_info (&y_dma, (unsigned long)args->y_source, 720 * y_decode_height);
 	ivtv_udma_get_page_info (&uv_dma, (unsigned long)args->uv_source, 360 * uv_decode_height);
 
-	/* Pin user pages for DMA Xfer */
-	y_pages = pin_user_pages_unlocked(y_dma.uaddr,
+	/* Get user pages for DMA Xfer */
+	y_pages = get_user_pages_unlocked(y_dma.uaddr,
 			y_dma.page_count, &dma->map[0], FOLL_FORCE);
 	uv_pages = 0; /* silence gcc. value is set and consumed only if: */
 	if (y_pages == y_dma.page_count) {
-		uv_pages = pin_user_pages_unlocked(uv_dma.uaddr,
+		uv_pages = get_user_pages_unlocked(uv_dma.uaddr,
 				uv_dma.page_count, &dma->map[y_pages],
 				FOLL_FORCE);
 	}
@@ -80,7 +93,8 @@ static int ivtv_yuv_prep_user_dma(struct ivtv *itv, struct ivtv_user_dma *dma,
 				 uv_pages, uv_dma.page_count);
 
 			if (uv_pages >= 0) {
-				unpin_user_pages(&dma->map[y_pages], uv_pages);
+				for (i = 0; i < uv_pages; i++)
+					put_page(dma->map[y_pages + i]);
 				rc = -EFAULT;
 			} else {
 				rc = uv_pages;
@@ -91,11 +105,12 @@ static int ivtv_yuv_prep_user_dma(struct ivtv *itv, struct ivtv_user_dma *dma,
 				 y_pages, y_dma.page_count);
 		}
 		if (y_pages >= 0) {
-			unpin_user_pages(dma->map, y_pages);
+			for (i = 0; i < y_pages; i++)
+				put_page(dma->map[i]);
 			/*
 			 * Inherit the -EFAULT from rc's
 			 * initialization, but allow it to be
-			 * overridden by uv_pages above if it was an
+			 * overriden by uv_pages above if it was an
 			 * actual errno.
 			 */
 		} else {
@@ -109,7 +124,9 @@ static int ivtv_yuv_prep_user_dma(struct ivtv *itv, struct ivtv_user_dma *dma,
 	/* Fill & map SG List */
 	if (ivtv_udma_fill_sg_list (dma, &uv_dma, ivtv_udma_fill_sg_list (dma, &y_dma, 0)) < 0) {
 		IVTV_DEBUG_WARN("could not allocate bounce buffers for highmem userspace buffers\n");
-		unpin_user_pages(dma->map, dma->page_count);
+		for (i = 0; i < dma->page_count; i++) {
+			put_page(dma->map[i]);
+		}
 		dma->page_count = 0;
 		return -ENOMEM;
 	}

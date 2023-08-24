@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #include <linux/compiler.h>
 #include <linux/types.h>
-#include <linux/zalloc.h>
 #include <inttypes.h>
-#include <limits.h>
 #include <unistd.h>
 #include "tests.h"
 #include "debug.h"
@@ -12,10 +10,8 @@
 #include "../util/unwind.h"
 #include "perf_regs.h"
 #include "map.h"
-#include "symbol.h"
 #include "thread.h"
 #include "callchain.h"
-#include "util/synthetic-events.h"
 
 #if defined (__x86_64__) || defined (__i386__) || defined (__powerpc__)
 #include "arch-tests.h"
@@ -37,9 +33,8 @@ static int init_live_machine(struct machine *machine)
 	union perf_event event;
 	pid_t pid = getpid();
 
-	memset(&event, 0, sizeof(event));
 	return perf_event__synthesize_mmap_events(NULL, &event, pid, pid,
-						  mmap_handler, machine, true);
+						  mmap_handler, machine, true, 500);
 }
 
 /*
@@ -60,7 +55,7 @@ int test_dwarf_unwind__krava_1(struct thread *thread);
 static int unwind_entry(struct unwind_entry *entry, void *arg)
 {
 	unsigned long *cnt = (unsigned long *) arg;
-	char *symbol = entry->ms.sym ? entry->ms.sym->name : NULL;
+	char *symbol = entry->sym ? entry->sym->name : NULL;
 	static const char *funcs[MAX_STACK] = {
 		"test__arch_unwind_sample",
 		"test_dwarf_unwind__thread",
@@ -119,8 +114,8 @@ noinline int test_dwarf_unwind__thread(struct thread *thread)
 	}
 
  out:
-	zfree(&sample.user_stack.data);
-	zfree(&sample.user_regs.regs);
+	free(sample.user_stack.data);
+	free(sample.user_regs.regs);
 	return err;
 }
 

@@ -15,7 +15,8 @@ standard BT HCI protocol with additional channels for the other functions.
 TI WiLink devices also have a separate WiFi interface as described in
 wireless/ti,wlcore.txt.
 
-This bindings follows the UART slave device binding in ../serial/serial.yaml.
+This bindings follows the UART slave device binding in
+../serial/slave-device.txt.
 
 Required properties:
  - compatible: should be one of the following:

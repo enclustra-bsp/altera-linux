@@ -8,7 +8,6 @@
  * Copyright (c) 2003-2004 IBM Corp.
  */
 
-#include <linux/device/class.h>
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -118,22 +117,16 @@ static void class_put(struct class *cls)
 		kset_put(&cls->p->subsys);
 }
 
-static struct device *klist_class_to_dev(struct klist_node *n)
-{
-	struct device_private *p = to_device_private_class(n);
-	return p->device;
-}
-
 static void klist_class_dev_get(struct klist_node *n)
 {
-	struct device *dev = klist_class_to_dev(n);
+	struct device *dev = container_of(n, struct device, knode_class);
 
 	get_device(dev);
 }
 
 static void klist_class_dev_put(struct klist_node *n)
 {
-	struct device *dev = klist_class_to_dev(n);
+	struct device *dev = container_of(n, struct device, knode_class);
 
 	put_device(dev);
 }
@@ -284,7 +277,7 @@ void class_dev_iter_init(struct class_dev_iter *iter, struct class *class,
 	struct klist_node *start_knode = NULL;
 
 	if (start)
-		start_knode = &start->p->knode_class;
+		start_knode = &start->knode_class;
 	klist_iter_init_node(&class->p->klist_devices, &iter->ki, start_knode);
 	iter->type = type;
 }
@@ -311,7 +304,7 @@ struct device *class_dev_iter_next(struct class_dev_iter *iter)
 		knode = klist_next(&iter->ki);
 		if (!knode)
 			return NULL;
-		dev = klist_class_to_dev(knode);
+		dev = container_of(knode, struct device, knode_class);
 		if (!iter->type || iter->type == dev->type)
 			return dev;
 	}
@@ -478,7 +471,7 @@ ssize_t show_class_attr_string(struct class *class,
 	struct class_attribute_string *cs;
 
 	cs = container_of(attr, struct class_attribute_string, attr);
-	return sysfs_emit(buf, "%s\n", cs->str);
+	return snprintf(buf, PAGE_SIZE, "%s\n", cs->str);
 }
 
 EXPORT_SYMBOL_GPL(show_class_attr_string);

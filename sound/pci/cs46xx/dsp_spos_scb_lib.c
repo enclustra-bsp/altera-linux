@@ -1,5 +1,19 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
+ *
  */
 
 /*
@@ -240,9 +254,8 @@ void cs46xx_dsp_proc_register_scb_desc (struct snd_cs46xx *chip,
 	if (ins->snd_card != NULL && ins->proc_dsp_dir != NULL &&
 	    scb->proc_info == NULL) {
   
-		entry = snd_info_create_card_entry(ins->snd_card, scb->scb_name,
-						   ins->proc_dsp_dir);
-		if (entry) {
+		if ((entry = snd_info_create_card_entry(ins->snd_card, scb->scb_name, 
+							ins->proc_dsp_dir)) != NULL) {
 			scb_info = kmalloc(sizeof(struct proc_scb_info), GFP_KERNEL);
 			if (!scb_info) {
 				snd_info_free_entry(entry);
@@ -252,8 +265,18 @@ void cs46xx_dsp_proc_register_scb_desc (struct snd_cs46xx *chip,
 
 			scb_info->chip = chip;
 			scb_info->scb_desc = scb;
-			snd_info_set_text_ops(entry, scb_info,
-					      cs46xx_dsp_proc_scb_info_read);
+      
+			entry->content = SNDRV_INFO_CONTENT_TEXT;
+			entry->private_data = scb_info;
+			entry->mode = S_IFREG | 0644;
+      
+			entry->c.text.read = cs46xx_dsp_proc_scb_info_read;
+      
+			if (snd_info_register(entry) < 0) {
+				snd_info_free_entry(entry);
+				kfree (scb_info);
+				entry = NULL;
+			}
 		}
 out:
 		scb->proc_info = entry;
@@ -1145,7 +1168,7 @@ find_next_free_scb (struct snd_cs46xx * chip, struct dsp_scb_descriptor * from)
 	return scb;
 }
 
-static const u32 pcm_reader_buffer_addr[DSP_MAX_PCM_CHANNELS] = {
+static u32 pcm_reader_buffer_addr[DSP_MAX_PCM_CHANNELS] = {
 	0x0600, /* 1 */
 	0x1500, /* 2 */
 	0x1580, /* 3 */
@@ -1180,7 +1203,7 @@ static const u32 pcm_reader_buffer_addr[DSP_MAX_PCM_CHANNELS] = {
 	0x2400, /* 32 */
 };
 
-static const u32 src_output_buffer_addr[DSP_MAX_SRC_NR] = {
+static u32 src_output_buffer_addr[DSP_MAX_SRC_NR] = {
 	0x2B80,
 	0x2BA0,
 	0x2BC0,
@@ -1197,7 +1220,7 @@ static const u32 src_output_buffer_addr[DSP_MAX_SRC_NR] = {
 	0x2E20
 };
 
-static const u32 src_delay_buffer_addr[DSP_MAX_SRC_NR] = {
+static u32 src_delay_buffer_addr[DSP_MAX_SRC_NR] = {
 	0x2480,
 	0x2500,
 	0x2580,
@@ -1293,7 +1316,7 @@ cs46xx_dsp_create_pcm_channel (struct snd_cs46xx * chip,
 	if (src_scb == NULL) {
 		if (ins->nsrc_scb >= DSP_MAX_SRC_NR) {
 			dev_err(chip->card->dev,
-				"dsp_spos: too many SRC instances\n!");
+				"dsp_spos: to many SRC instances\n!");
 			return NULL;
 		}
 
@@ -1716,7 +1739,7 @@ int cs46xx_iec958_pre_open (struct snd_cs46xx *chip)
 	struct dsp_spos_instance * ins = chip->dsp_spos_instance;
 
 	if ( ins->spdif_status_out & DSP_SPDIF_STATUS_OUTPUT_ENABLED ) {
-		/* remove AsynchFGTxSCB and PCMSerialInput_II */
+		/* remove AsynchFGTxSCB and and PCMSerialInput_II */
 		cs46xx_dsp_disable_spdif_out (chip);
 
 		/* save state */

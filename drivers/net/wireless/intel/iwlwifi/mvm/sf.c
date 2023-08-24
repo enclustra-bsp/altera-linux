@@ -7,7 +7,6 @@
  *
  * Copyright(c) 2013 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH
- * Copyright (C) 2018-2019 Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -29,7 +28,6 @@
  *
  * Copyright(c) 2013 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH
- * Copyright (C) 2018-2019 Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -66,7 +64,7 @@ struct iwl_mvm_active_iface_iterator_data {
 	struct ieee80211_vif *ignore_vif;
 	u8 sta_vif_ap_sta_id;
 	enum iwl_sf_state sta_vif_state;
-	u32 num_active_macs;
+	int num_active_macs;
 };
 
 /*
@@ -162,9 +160,7 @@ static void iwl_mvm_fill_sf_command(struct iwl_mvm *mvm,
 	 * capabilities of the AP station, and choose the watermark accordingly.
 	 */
 	if (sta) {
-		if (sta->ht_cap.ht_supported ||
-		    sta->vht_cap.vht_supported ||
-		    sta->he_cap.has_he) {
+		if (sta->ht_cap.ht_supported || sta->vht_cap.vht_supported) {
 			switch (sta->rx_nss) {
 			case 1:
 				watermark = SF_W_MARK_SISO;

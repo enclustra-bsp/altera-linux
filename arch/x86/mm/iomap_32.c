@@ -1,10 +1,23 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright © 2008 Ingo Molnar
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
  */
 
 #include <asm/iomap.h>
-#include <asm/memtype.h>
+#include <asm/pat.h>
 #include <linux/export.h>
 #include <linux/highmem.h>
 
@@ -26,7 +39,7 @@ int iomap_create_wc(resource_size_t base, unsigned long size, pgprot_t *prot)
 	if (!is_io_mapping_possible(base, size))
 		return -EINVAL;
 
-	ret = memtype_reserve_io(base, base + size, &pcm);
+	ret = io_reserve_memtype(base, base + size, &pcm);
 	if (ret)
 		return ret;
 
@@ -40,7 +53,7 @@ EXPORT_SYMBOL_GPL(iomap_create_wc);
 
 void iomap_free(resource_size_t base, unsigned long size)
 {
-	memtype_free_io(base, base + size);
+	io_free_memtype(base, base + size);
 }
 EXPORT_SYMBOL_GPL(iomap_free);
 

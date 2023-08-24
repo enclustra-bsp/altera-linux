@@ -1,7 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 # description: event tracing - enable/disable with subsystem level files
-# requires: set_event events/sched/enable
 # flags: instance
 
 do_reset() {
@@ -13,6 +12,11 @@ fail() { #msg
     echo $1
     exit_fail
 }
+
+if [ ! -f set_event -o ! -d events/sched ]; then
+    echo "event tracing is not supported"
+    exit_unsupported
+fi
 
 echo 'sched:*' > set_event
 

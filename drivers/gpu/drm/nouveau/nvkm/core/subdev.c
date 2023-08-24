@@ -30,7 +30,6 @@ static struct lock_class_key nvkm_subdev_lock_class[NVKM_SUBDEV_NR];
 
 const char *
 nvkm_subdev_name[NVKM_SUBDEV_NR] = {
-	[NVKM_SUBDEV_ACR     ] = "acr",
 	[NVKM_SUBDEV_BAR     ] = "bar",
 	[NVKM_SUBDEV_VBIOS   ] = "bios",
 	[NVKM_SUBDEV_BUS     ] = "bus",
@@ -40,7 +39,6 @@ nvkm_subdev_name[NVKM_SUBDEV_NR] = {
 	[NVKM_SUBDEV_FB      ] = "fb",
 	[NVKM_SUBDEV_FUSE    ] = "fuse",
 	[NVKM_SUBDEV_GPIO    ] = "gpio",
-	[NVKM_SUBDEV_GSP     ] = "gsp",
 	[NVKM_SUBDEV_I2C     ] = "i2c",
 	[NVKM_SUBDEV_IBUS    ] = "priv",
 	[NVKM_SUBDEV_ICCSENSE] = "iccsense",
@@ -51,6 +49,7 @@ nvkm_subdev_name[NVKM_SUBDEV_NR] = {
 	[NVKM_SUBDEV_MXM     ] = "mxm",
 	[NVKM_SUBDEV_PCI     ] = "pci",
 	[NVKM_SUBDEV_PMU     ] = "pmu",
+	[NVKM_SUBDEV_SECBOOT ] = "secboot",
 	[NVKM_SUBDEV_THERM   ] = "therm",
 	[NVKM_SUBDEV_TIMER   ] = "tmr",
 	[NVKM_SUBDEV_TOP     ] = "top",
@@ -80,9 +79,7 @@ nvkm_subdev_name[NVKM_SUBDEV_NR] = {
 	[NVKM_ENGINE_NVENC0  ] = "nvenc0",
 	[NVKM_ENGINE_NVENC1  ] = "nvenc1",
 	[NVKM_ENGINE_NVENC2  ] = "nvenc2",
-	[NVKM_ENGINE_NVDEC0  ] = "nvdec0",
-	[NVKM_ENGINE_NVDEC1  ] = "nvdec1",
-	[NVKM_ENGINE_NVDEC2  ] = "nvdec2",
+	[NVKM_ENGINE_NVDEC   ] = "nvdec",
 	[NVKM_ENGINE_PM      ] = "pm",
 	[NVKM_ENGINE_SEC     ] = "sec",
 	[NVKM_ENGINE_SEC2    ] = "sec2",
@@ -220,15 +217,4 @@ nvkm_subdev_ctor(const struct nvkm_subdev_func *func,
 
 	__mutex_init(&subdev->mutex, name, &nvkm_subdev_lock_class[index]);
 	subdev->debug = nvkm_dbgopt(device->dbgopt, name);
-}
-
-int
-nvkm_subdev_new_(const struct nvkm_subdev_func *func,
-		 struct nvkm_device *device, int index,
-		 struct nvkm_subdev **psubdev)
-{
-	if (!(*psubdev = kzalloc(sizeof(**psubdev), GFP_KERNEL)))
-		return -ENOMEM;
-	nvkm_subdev_ctor(func, device, index, *psubdev);
-	return 0;
 }

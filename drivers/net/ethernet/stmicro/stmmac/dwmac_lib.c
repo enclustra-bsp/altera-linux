@@ -1,7 +1,17 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*******************************************************************************
   Copyright (C) 2007-2009  STMicroelectronics Ltd
 
+  This program is free software; you can redistribute it and/or modify it
+  under the terms and conditions of the GNU General Public License,
+  version 2, as published by the Free Software Foundation.
+
+  This program is distributed in the hope it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+  more details.
+
+  The full GNU General Public License is included in this distribution in
+  the file called "COPYING".
 
   Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
 *******************************************************************************/
@@ -16,14 +26,19 @@
 int dwmac_dma_reset(void __iomem *ioaddr)
 {
 	u32 value = readl(ioaddr + DMA_BUS_MODE);
+	int err;
 
 	/* DMA SW reset */
 	value |= DMA_BUS_MODE_SFT_RESET;
 	writel(value, ioaddr + DMA_BUS_MODE);
 
-	return readl_poll_timeout(ioaddr + DMA_BUS_MODE, value,
+	err = readl_poll_timeout(ioaddr + DMA_BUS_MODE, value,
 				 !(value & DMA_BUS_MODE_SFT_RESET),
-				 10000, 200000);
+				 10000, 100000);
+	if (err)
+		return -EBUSY;
+
+	return 0;
 }
 
 /* CSR1 enables the transmit DMA to check for new descriptor */
@@ -32,28 +47,14 @@ void dwmac_enable_dma_transmission(void __iomem *ioaddr)
 	writel(1, ioaddr + DMA_XMT_POLL_DEMAND);
 }
 
-void dwmac_enable_dma_irq(void __iomem *ioaddr, u32 chan, bool rx, bool tx)
+void dwmac_enable_dma_irq(void __iomem *ioaddr, u32 chan)
 {
-	u32 value = readl(ioaddr + DMA_INTR_ENA);
-
-	if (rx)
-		value |= DMA_INTR_DEFAULT_RX;
-	if (tx)
-		value |= DMA_INTR_DEFAULT_TX;
-
-	writel(value, ioaddr + DMA_INTR_ENA);
+	writel(DMA_INTR_DEFAULT_MASK, ioaddr + DMA_INTR_ENA);
 }
 
-void dwmac_disable_dma_irq(void __iomem *ioaddr, u32 chan, bool rx, bool tx)
+void dwmac_disable_dma_irq(void __iomem *ioaddr, u32 chan)
 {
-	u32 value = readl(ioaddr + DMA_INTR_ENA);
-
-	if (rx)
-		value &= ~DMA_INTR_DEFAULT_RX;
-	if (tx)
-		value &= ~DMA_INTR_DEFAULT_TX;
-
-	writel(value, ioaddr + DMA_INTR_ENA);
+	writel(0, ioaddr + DMA_INTR_ENA);
 }
 
 void dwmac_dma_start_tx(void __iomem *ioaddr, u32 chan)

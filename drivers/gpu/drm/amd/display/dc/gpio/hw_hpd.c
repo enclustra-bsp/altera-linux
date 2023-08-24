@@ -23,11 +23,8 @@
  *
  */
 
-#include <linux/slab.h>
-
 #include "dm_services.h"
 
-#include "include/gpio_interface.h"
 #include "include/gpio_types.h"
 #include "hw_gpio.h"
 #include "hw_hpd.h"
@@ -44,7 +41,14 @@
 #define REG(reg)\
 	(hpd->regs->reg)
 
-struct gpio;
+static void dal_hw_hpd_construct(
+	struct hw_hpd *pin,
+	enum gpio_id id,
+	uint32_t en,
+	struct dc_context *ctx)
+{
+	dal_hw_gpio_construct(&pin->base, id, en, ctx);
+}
 
 static void dal_hw_hpd_destruct(
 	struct hw_hpd *pin)
@@ -52,12 +56,19 @@ static void dal_hw_hpd_destruct(
 	dal_hw_gpio_destruct(&pin->base);
 }
 
-static void dal_hw_hpd_destroy(
+
+static void destruct(
+	struct hw_hpd *hpd)
+{
+	dal_hw_hpd_destruct(hpd);
+}
+
+static void destroy(
 	struct hw_gpio_pin **ptr)
 {
 	struct hw_hpd *hpd = HW_HPD_FROM_BASE(*ptr);
 
-	dal_hw_hpd_destruct(hpd);
+	destruct(hpd);
 
 	kfree(hpd);
 
@@ -104,7 +115,7 @@ static enum gpio_result set_config(
 }
 
 static const struct hw_gpio_pin_funcs funcs = {
-	.destroy = dal_hw_hpd_destroy,
+	.destroy = destroy,
 	.open = dal_hw_gpio_open,
 	.get_value = get_value,
 	.set_value = dal_hw_gpio_set_value,
@@ -113,39 +124,39 @@ static const struct hw_gpio_pin_funcs funcs = {
 	.close = dal_hw_gpio_close,
 };
 
-static void dal_hw_hpd_construct(
-	struct hw_hpd *pin,
+static void construct(
+	struct hw_hpd *hpd,
 	enum gpio_id id,
 	uint32_t en,
 	struct dc_context *ctx)
 {
-	dal_hw_gpio_construct(&pin->base, id, en, ctx);
-	pin->base.base.funcs = &funcs;
+	dal_hw_hpd_construct(hpd, id, en, ctx);
+	hpd->base.base.funcs = &funcs;
 }
 
-void dal_hw_hpd_init(
-	struct hw_hpd **hw_hpd,
+struct hw_gpio_pin *dal_hw_hpd_create(
 	struct dc_context *ctx,
 	enum gpio_id id,
 	uint32_t en)
 {
-	if ((en < GPIO_DDC_LINE_MIN) || (en > GPIO_DDC_LINE_MAX)) {
+	struct hw_hpd *hpd;
+
+	if (id != GPIO_ID_HPD) {
 		ASSERT_CRITICAL(false);
-		*hw_hpd = NULL;
+		return NULL;
 	}
 
-	*hw_hpd = kzalloc(sizeof(struct hw_hpd), GFP_KERNEL);
-	if (!*hw_hpd) {
+	if ((en < GPIO_HPD_MIN) || (en > GPIO_HPD_MAX)) {
 		ASSERT_CRITICAL(false);
-		return;
+		return NULL;
 	}
 
-	dal_hw_hpd_construct(*hw_hpd, id, en, ctx);
-}
+	hpd = kzalloc(sizeof(struct hw_hpd), GFP_KERNEL);
+	if (!hpd) {
+		ASSERT_CRITICAL(false);
+		return NULL;
+	}
 
-struct hw_gpio_pin *dal_hw_hpd_get_pin(struct gpio *gpio)
-{
-	struct hw_hpd *hw_hpd = dal_gpio_get_hpd(gpio);
-
-	return &hw_hpd->base.base;
+	construct(hpd, id, en, ctx);
+	return &hpd->base.base;
 }

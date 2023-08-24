@@ -15,7 +15,7 @@
 
 /*  */
 /*  Description: */
-/*	The following mapping is for SDIO host local register space. */
+/* 	The following mapping is for SDIO host local register space. */
 /*  */
 /*  Creadted by Roger, 2011.01.31. */
 /*  */
@@ -61,6 +61,7 @@ static u8 get_deviceid(u32 addr)
 	u8 devide_id;
 	u16 pseudo_id;
 
+
 	pseudo_id = (u16)(addr >> 16);
 	switch (pseudo_id) {
 	case 0x1025:
@@ -70,6 +71,10 @@ static u8 get_deviceid(u32 addr)
 	case 0x1026:
 		devide_id = WLAN_IOREG_DEVICE_ID;
 		break;
+
+/* 		case 0x1027: */
+/* 			devide_id = SDIO_FIRMWARE_FIFO; */
+/* 			break; */
 
 	case 0x1031:
 		devide_id = WLAN_TX_HIQ_DEVICE_ID;
@@ -88,6 +93,7 @@ static u8 get_deviceid(u32 addr)
 		break;
 
 	default:
+/* 			devide_id = (u8)((addr >> 13) & 0xF); */
 		devide_id = WLAN_IOREG_DEVICE_ID;
 		break;
 	}
@@ -104,6 +110,7 @@ static u32 _cvrt2ftaddr(const u32 addr, u8 *pdevice_id, u16 *poffset)
 	u8 device_id;
 	u16 offset;
 	u32 ftaddr;
+
 
 	device_id = get_deviceid(addr);
 	offset = 0;
@@ -207,7 +214,7 @@ static u32 sdio_read32(struct intf_hdl *intfhdl, u32 addr)
 
 		ftaddr &= ~(u16)0x3;
 		sd_read(intfhdl, ftaddr, 8, tmpbuf);
-		memcpy(&le_tmp, tmpbuf + shift, 4);
+		memcpy(&le_tmp, tmpbuf+shift, 4);
 		val = le32_to_cpu(le_tmp);
 
 		kfree(tmpbuf);
@@ -254,7 +261,7 @@ static s32 sdio_readN(struct intf_hdl *intfhdl, u32 addr, u32 cnt, u8 *buf)
 
 		err = sd_read(intfhdl, ftaddr, n, tmpbuf);
 		if (!err)
-			memcpy(buf, tmpbuf + shift, cnt);
+			memcpy(buf, tmpbuf+shift, cnt);
 		kfree(tmpbuf);
 	}
 	return err;
@@ -359,7 +366,7 @@ static s32 sdio_writeN(struct intf_hdl *intfhdl, u32 addr, u32 cnt, u8 *buf)
 			kfree(tmpbuf);
 			return err;
 		}
-		memcpy(tmpbuf + shift, buf, cnt);
+		memcpy(tmpbuf+shift, buf, cnt);
 		err = sd_write(intfhdl, ftaddr, n, tmpbuf);
 		kfree(tmpbuf);
 	}
@@ -418,9 +425,14 @@ static u32 sdio_read_port(
 )
 {
 	struct adapter *adapter;
-	struct sdio_data *psdio;
+	PSDIO_DATA psdio;
 	struct hal_com_data *hal;
+	u32 oldcnt;
+#ifdef SDIO_DYNAMIC_ALLOC_MEM
+	u8 *oldmem;
+#endif
 	s32 err;
+
 
 	adapter = intfhdl->padapter;
 	psdio = &adapter_to_dvobj(adapter)->intf_data;
@@ -428,10 +440,19 @@ static u32 sdio_read_port(
 
 	HalSdioGetCmdAddr8723BSdio(adapter, addr, hal->SdioRxFIFOCnt++, &addr);
 
+	oldcnt = cnt;
 	if (cnt > psdio->block_transfer_len)
 		cnt = _RND(cnt, psdio->block_transfer_len);
+/* 	cnt = sdio_align_size(cnt); */
 
 	err = _sd_read(intfhdl, addr, cnt, mem);
+
+#ifdef SDIO_DYNAMIC_ALLOC_MEM
+	if ((oldcnt != cnt) && (oldmem)) {
+		memcpy(oldmem, mem, oldcnt);
+		kfree(mem);
+	}
+#endif
 
 	if (err)
 		return _FAIL;
@@ -462,7 +483,7 @@ static u32 sdio_write_port(
 )
 {
 	struct adapter *adapter;
-	struct sdio_data *psdio;
+	PSDIO_DATA psdio;
 	s32 err;
 	struct xmit_buf *xmitbuf = (struct xmit_buf *)mem;
 
@@ -474,11 +495,12 @@ static u32 sdio_write_port(
 		return _FAIL;
 	}
 
-	cnt = round_up(cnt, 4);
+	cnt = _RND4(cnt);
 	HalSdioGetCmdAddr8723BSdio(adapter, addr, cnt >> 2, &addr);
 
 	if (cnt > psdio->block_transfer_len)
 		cnt = _RND(cnt, psdio->block_transfer_len);
+/* 	cnt = sdio_align_size(cnt); */
 
 	err = sd_write(intfhdl, addr, cnt, xmitbuf->pdata);
 
@@ -526,6 +548,7 @@ static s32 _sdio_local_read(
 	u8 *tmpbuf;
 	u32 n;
 
+
 	intfhdl = &adapter->iopriv.intf;
 
 	HalSdioGetCmdAddr8723BSdio(adapter, SDIO_LOCAL_DEVICE_ID, addr, &addr);
@@ -534,10 +557,10 @@ static s32 _sdio_local_read(
 	if (!mac_pwr_ctrl_on)
 		return _sd_cmd52_read(intfhdl, addr, cnt, buf);
 
-	n = round_up(cnt, 4);
+	n = RND4(cnt);
 	tmpbuf = rtw_malloc(n);
 	if (!tmpbuf)
-		return -1;
+		return (-1);
 
 	err = _sd_read(intfhdl, addr, n, tmpbuf);
 	if (!err)
@@ -575,10 +598,10 @@ s32 sdio_local_read(
 	)
 		return sd_cmd52_read(intfhdl, addr, cnt, buf);
 
-	n = round_up(cnt, 4);
+	n = RND4(cnt);
 	tmpbuf = rtw_malloc(n);
 	if (!tmpbuf)
-		return -1;
+		return (-1);
 
 	err = sd_read(intfhdl, addr, n, tmpbuf);
 	if (!err)
@@ -623,7 +646,7 @@ s32 sdio_local_write(
 
 	tmpbuf = rtw_malloc(cnt);
 	if (!tmpbuf)
-		return -1;
+		return (-1);
 
 	memcpy(tmpbuf, buf, cnt);
 
@@ -698,6 +721,7 @@ static s32 ReadInterrupt8723BSdio(struct adapter *adapter, u32 *phisr)
 	u32 hisr, himr;
 	u8 val8, hisr_len;
 
+
 	if (!phisr)
 		return false;
 
@@ -713,8 +737,8 @@ static s32 ReadInterrupt8723BSdio(struct adapter *adapter, u32 *phisr)
 	hisr = 0;
 	while (hisr_len != 0) {
 		hisr_len--;
-		val8 = SdioLocalCmd52Read1Byte(adapter, SDIO_REG_HISR + hisr_len);
-		hisr |= (val8 << (8 * hisr_len));
+		val8 = SdioLocalCmd52Read1Byte(adapter, SDIO_REG_HISR+hisr_len);
+		hisr |= (val8 << (8*hisr_len));
 	}
 
 	*phisr = hisr;
@@ -723,48 +747,105 @@ static s32 ReadInterrupt8723BSdio(struct adapter *adapter, u32 *phisr)
 }
 
 /*  */
-/*	Description: */
-/*		Initialize SDIO Host Interrupt Mask configuration variables for future use. */
+/* 	Description: */
+/* 		Initialize SDIO Host Interrupt Mask configuration variables for future use. */
 /*  */
-/*	Assumption: */
-/*		Using SDIO Local register ONLY for configuration. */
+/* 	Assumption: */
+/* 		Using SDIO Local register ONLY for configuration. */
 /*  */
-/*	Created by Roger, 2011.02.11. */
+/* 	Created by Roger, 2011.02.11. */
 /*  */
 void InitInterrupt8723BSdio(struct adapter *adapter)
 {
 	struct hal_com_data *haldata;
 
+
 	haldata = GET_HAL_DATA(adapter);
-	haldata->sdio_himr = (u32)(SDIO_HIMR_RX_REQUEST_MSK	|
-				   SDIO_HIMR_AVAL_MSK		|
-				   0);
+	haldata->sdio_himr = (u32)(		\
+								SDIO_HIMR_RX_REQUEST_MSK			|
+								SDIO_HIMR_AVAL_MSK					|
+/* 								SDIO_HIMR_TXERR_MSK				| */
+/* 								SDIO_HIMR_RXERR_MSK				| */
+/* 								SDIO_HIMR_TXFOVW_MSK				| */
+/* 								SDIO_HIMR_RXFOVW_MSK				| */
+/* 								SDIO_HIMR_TXBCNOK_MSK				| */
+/* 								SDIO_HIMR_TXBCNERR_MSK			| */
+/* 								SDIO_HIMR_BCNERLY_INT_MSK			| */
+/* 								SDIO_HIMR_C2HCMD_MSK				| */
+/* 								SDIO_HIMR_HSISR_IND_MSK			| */
+/* 								SDIO_HIMR_GTINT3_IND_MSK			| */
+/* 								SDIO_HIMR_GTINT4_IND_MSK			| */
+/* 								SDIO_HIMR_PSTIMEOUT_MSK			| */
+/* 								SDIO_HIMR_OCPINT_MSK				| */
+/* 								SDIO_HIMR_ATIMEND_MSK				| */
+/* 								SDIO_HIMR_ATIMEND_E_MSK			| */
+/* 								SDIO_HIMR_CTWEND_MSK				| */
+								0);
 }
 
 /*  */
-/*	Description: */
-/*		Initialize System Host Interrupt Mask configuration variables for future use. */
+/* 	Description: */
+/* 		Initialize System Host Interrupt Mask configuration variables for future use. */
 /*  */
-/*	Created by Roger, 2011.08.03. */
+/* 	Created by Roger, 2011.08.03. */
 /*  */
 void InitSysInterrupt8723BSdio(struct adapter *adapter)
 {
 	struct hal_com_data *haldata;
 
+
 	haldata = GET_HAL_DATA(adapter);
 
-	haldata->SysIntrMask = (0);
+	haldata->SysIntrMask = (		\
+/* 							HSIMR_GPIO12_0_INT_EN			| */
+/* 							HSIMR_SPS_OCP_INT_EN			| */
+/* 							HSIMR_RON_INT_EN				| */
+/* 							HSIMR_PDNINT_EN				| */
+/* 							HSIMR_GPIO9_INT_EN				| */
+							0);
 }
 
+#ifdef CONFIG_WOWLAN
 /*  */
-/*	Description: */
-/*		Enalbe SDIO Host Interrupt Mask configuration on SDIO local domain. */
+/* 	Description: */
+/* 		Clear corresponding SDIO Host ISR interrupt service. */
 /*  */
-/*	Assumption: */
-/*		1. Using SDIO Local register ONLY for configuration. */
-/*		2. PASSIVE LEVEL */
+/* 	Assumption: */
+/* 		Using SDIO Local register ONLY for configuration. */
 /*  */
-/*	Created by Roger, 2011.02.11. */
+/* 	Created by Roger, 2011.02.11. */
+/*  */
+void clearinterrupt8723bsdio(struct adapter *adapter)
+{
+	struct hal_com_data *haldata;
+	u8 *clear;
+
+	if (adapter->bSurpriseRemoved)
+		return;
+
+	haldata = GET_HAL_DATA(adapter);
+	clear = rtw_zmalloc(4);
+
+	/*  Clear corresponding HISR Content if needed */
+	*(__le32 *)clear = cpu_to_le32(haldata->sdio_hisr & MASK_SDIO_HISR_CLEAR);
+	if (*(__le32 *)clear) {
+		/*  Perform write one clear operation */
+		sdio_local_write(padapter, SDIO_REG_HISR, 4, clear);
+	}
+
+	kfree(clear);
+}
+#endif
+
+/*  */
+/* 	Description: */
+/* 		Enalbe SDIO Host Interrupt Mask configuration on SDIO local domain. */
+/*  */
+/* 	Assumption: */
+/* 		1. Using SDIO Local register ONLY for configuration. */
+/* 		2. PASSIVE LEVEL */
+/*  */
+/* 	Created by Roger, 2011.02.11. */
 /*  */
 void EnableInterrupt8723BSdio(struct adapter *adapter)
 {
@@ -810,13 +891,13 @@ void EnableInterrupt8723BSdio(struct adapter *adapter)
 }
 
 /*  */
-/*	Description: */
-/*		Disable SDIO Host IMR configuration to mask unnecessary interrupt service. */
+/* 	Description: */
+/* 		Disable SDIO Host IMR configuration to mask unnecessary interrupt service. */
 /*  */
-/*	Assumption: */
-/*		Using SDIO Local register ONLY for configuration. */
+/* 	Assumption: */
+/* 		Using SDIO Local register ONLY for configuration. */
 /*  */
-/*	Created by Roger, 2011.02.11. */
+/* 	Created by Roger, 2011.02.11. */
 /*  */
 void DisableInterrupt8723BSdio(struct adapter *adapter)
 {
@@ -827,13 +908,13 @@ void DisableInterrupt8723BSdio(struct adapter *adapter)
 }
 
 /*  */
-/*	Description: */
-/*		Using 0x100 to check the power status of FW. */
+/* 	Description: */
+/* 		Using 0x100 to check the power status of FW. */
 /*  */
-/*	Assumption: */
-/*		Using SDIO Local register ONLY for configuration. */
+/* 	Assumption: */
+/* 		Using SDIO Local register ONLY for configuration. */
 /*  */
-/*	Created by Isaac, 2013.09.10. */
+/* 	Created by Isaac, 2013.09.10. */
 /*  */
 u8 CheckIPSStatus(struct adapter *adapter)
 {
@@ -857,9 +938,10 @@ static struct recv_buf *sd_recv_rxfifo(struct adapter *adapter, u32 size)
 	struct recv_priv *recv_priv;
 	struct recv_buf	*recvbuf;
 
+
 	/*  Patch for some SDIO Host 4 bytes issue */
 	/*  ex. RK3188 */
-	readsize = round_up(size, 4);
+	readsize = RND4(size);
 
 	/* 3 1. alloc recvbuf */
 	recv_priv = &adapter->recvpriv;
@@ -880,7 +962,7 @@ static struct recv_buf *sd_recv_rxfifo(struct adapter *adapter, u32 size)
 			recvbuf->pskb->dev = adapter->pnetdev;
 
 			tmpaddr = (SIZE_PTR)recvbuf->pskb->data;
-			alignment = tmpaddr & (RECVBUFF_ALIGN_SZ - 1);
+			alignment = tmpaddr & (RECVBUFF_ALIGN_SZ-1);
 			skb_reserve(recvbuf->pskb, (RECVBUFF_ALIGN_SZ - alignment));
 		}
 
@@ -897,6 +979,7 @@ static struct recv_buf *sd_recv_rxfifo(struct adapter *adapter, u32 size)
 		RT_TRACE(_module_hci_ops_os_c_, _drv_err_, ("%s: read port FAIL!\n", __func__));
 		return NULL;
 	}
+
 
 	/* 3 4. init recvbuf */
 	recvbuf->len = size;
@@ -931,6 +1014,7 @@ void sd_int_dpc(struct adapter *adapter)
 	struct intf_hdl *intfhdl = &adapter->iopriv.intf;
 	struct pwrctrl_priv *pwrctl;
 
+
 	hal = GET_HAL_DATA(adapter);
 	dvobj = adapter_to_dvobj(adapter);
 	pwrctl = dvobj_to_pwrctl(dvobj);
@@ -939,16 +1023,18 @@ void sd_int_dpc(struct adapter *adapter)
 		u8 freepage[4];
 
 		_sdio_local_read(adapter, SDIO_REG_FREE_TXPG, 4, freepage);
-		complete(&(adapter->xmitpriv.xmit_comp));
+		up(&(adapter->xmitpriv.xmit_sema));
 	}
 
 	if (hal->sdio_hisr & SDIO_HISR_CPWM1) {
 		struct reportpwrstate_parm report;
 
-		del_timer_sync(&(pwrctl->pwr_rpwm_timer));
+		u8 bcancelled;
+		_cancel_timer(&(pwrctl->pwr_rpwm_timer), &bcancelled);
 
 		report.state = SdioLocalCmd52Read1Byte(adapter, SDIO_REG_HCPWM1_8723B);
 
+		/* cpwm_int_hdl(adapter, &report); */
 		_set_workitem(&(pwrctl->cpwm_event));
 	}
 
@@ -969,28 +1055,28 @@ void sd_int_dpc(struct adapter *adapter)
 		}
 	}
 
-	if (hal->sdio_hisr & SDIO_HISR_TXBCNOK)
+	if (hal->sdio_hisr & SDIO_HISR_TXBCNOK) {
 		DBG_8192C("%s: SDIO_HISR_TXBCNOK\n", __func__);
+	}
 
-	if (hal->sdio_hisr & SDIO_HISR_TXBCNERR)
+	if (hal->sdio_hisr & SDIO_HISR_TXBCNERR) {
 		DBG_8192C("%s: SDIO_HISR_TXBCNERR\n", __func__);
+	}
 #ifndef CONFIG_C2H_PACKET_EN
 	if (hal->sdio_hisr & SDIO_HISR_C2HCMD) {
 		struct c2h_evt_hdr_88xx *c2h_evt;
 
 		DBG_8192C("%s: C2H Command\n", __func__);
 		c2h_evt = rtw_zmalloc(16);
-		if (c2h_evt) {
-			if (c2h_evt_read_88xx(adapter, (u8 *)c2h_evt) == _SUCCESS) {
+		if (c2h_evt != NULL) {
+			if (rtw_hal_c2h_evt_read(adapter, (u8 *)c2h_evt) == _SUCCESS) {
 				if (c2h_id_filter_ccx_8723b((u8 *)c2h_evt)) {
 					/* Handle CCX report here */
 					rtw_hal_c2h_handler(adapter, (u8 *)c2h_evt);
-					kfree(c2h_evt);
+					kfree((u8 *)c2h_evt);
 				} else {
 					rtw_c2h_wk_cmd(adapter, (u8 *)c2h_evt);
 				}
-			} else {
-				kfree(c2h_evt);
 			}
 		} else {
 			/* Error handling for malloc fail */
@@ -1001,17 +1087,20 @@ void sd_int_dpc(struct adapter *adapter)
 	}
 #endif
 
-	if (hal->sdio_hisr & SDIO_HISR_RXFOVW)
+	if (hal->sdio_hisr & SDIO_HISR_RXFOVW) {
 		DBG_8192C("%s: Rx Overflow\n", __func__);
+	}
 
-	if (hal->sdio_hisr & SDIO_HISR_RXERR)
+	if (hal->sdio_hisr & SDIO_HISR_RXERR) {
 		DBG_8192C("%s: Rx Error\n", __func__);
+	}
 
 	if (hal->sdio_hisr & SDIO_HISR_RX_REQUEST) {
 		struct recv_buf *recvbuf;
 		int alloc_fail_time = 0;
 		u32 hisr;
 
+/* 		DBG_8192C("%s: RX Request, size =%d\n", __func__, hal->SdioRxFIFOSize); */
 		hal->sdio_hisr ^= SDIO_HISR_RX_REQUEST;
 		do {
 			hal->SdioRxFIFOSize = SdioLocalCmd52Read2Byte(adapter, SDIO_REG_RX0_REQ_LEN);
@@ -1046,6 +1135,7 @@ void sd_int_hdl(struct adapter *adapter)
 {
 	struct hal_com_data *hal;
 
+
 	if (
 		(adapter->bDriverStopped) || (adapter->bSurpriseRemoved)
 	)
@@ -1063,8 +1153,9 @@ void sd_int_hdl(struct adapter *adapter)
 
 		/*  clear HISR */
 		v32 = hal->sdio_hisr & MASK_SDIO_HISR_CLEAR;
-		if (v32)
+		if (v32) {
 			SdioLocalCmd52Write4Byte(adapter, SDIO_REG_HISR, v32);
+		}
 
 		sd_int_dpc(adapter);
 	} else {
@@ -1075,24 +1166,27 @@ void sd_int_hdl(struct adapter *adapter)
 }
 
 /*  */
-/*	Description: */
-/*		Query SDIO Local register to query current the number of Free TxPacketBuffer page. */
+/* 	Description: */
+/* 		Query SDIO Local register to query current the number of Free TxPacketBuffer page. */
 /*  */
-/*	Assumption: */
-/*		1. Running at PASSIVE_LEVEL */
-/*		2. RT_TX_SPINLOCK is NOT acquired. */
+/* 	Assumption: */
+/* 		1. Running at PASSIVE_LEVEL */
+/* 		2. RT_TX_SPINLOCK is NOT acquired. */
 /*  */
-/*	Created by Roger, 2011.01.28. */
+/* 	Created by Roger, 2011.01.28. */
 /*  */
 u8 HalQueryTxBufferStatus8723BSdio(struct adapter *adapter)
 {
 	struct hal_com_data *hal;
 	u32 numof_free_page;
+	/* _irql irql; */
+
 
 	hal = GET_HAL_DATA(adapter);
 
 	numof_free_page = SdioLocalCmd53Read4Byte(adapter, SDIO_REG_FREE_TXPG);
 
+	/* spin_lock_bh(&phal->SdioTxFIFOFreePageLock); */
 	memcpy(hal->SdioTxFIFOFreePage, &numof_free_page, 4);
 	RT_TRACE(_module_hci_ops_c_, _drv_notice_,
 			("%s: Free page for HIQ(%#x), MIDQ(%#x), LOWQ(%#x), PUBQ(%#x)\n",
@@ -1101,19 +1195,21 @@ u8 HalQueryTxBufferStatus8723BSdio(struct adapter *adapter)
 			hal->SdioTxFIFOFreePage[MID_QUEUE_IDX],
 			hal->SdioTxFIFOFreePage[LOW_QUEUE_IDX],
 			hal->SdioTxFIFOFreePage[PUBLIC_QUEUE_IDX]));
+	/* spin_unlock_bh(&hal->SdioTxFIFOFreePageLock); */
 
 	return true;
 }
 
 /*  */
-/*	Description: */
-/*		Query SDIO Local register to get the current number of TX OQT Free Space. */
+/* 	Description: */
+/* 		Query SDIO Local register to get the current number of TX OQT Free Space. */
 /*  */
-void HalQueryTxOQTBufferStatus8723BSdio(struct adapter *adapter)
+u8 HalQueryTxOQTBufferStatus8723BSdio(struct adapter *adapter)
 {
 	struct hal_com_data *haldata = GET_HAL_DATA(adapter);
 
 	haldata->SdioTxOQTFreeSpace = SdioLocalCmd52Read1Byte(adapter, SDIO_REG_OQT_FREE_PG);
+	return true;
 }
 
 #if defined(CONFIG_WOWLAN) || defined(CONFIG_AP_WOWLAN)
@@ -1121,6 +1217,7 @@ u8 RecvOnePkt(struct adapter *adapter, u32 size)
 {
 	struct recv_buf *recvbuf;
 	struct dvobj_priv *sddev;
+	PSDIO_DATA psdio_data;
 	struct sdio_func *func;
 
 	u8 res = false;
@@ -1141,6 +1238,7 @@ u8 RecvOnePkt(struct adapter *adapter, u32 size)
 		recvbuf = sd_recv_rxfifo(adapter, size);
 
 		if (recvbuf) {
+			/* printk("Completed Recv One Pkt.\n"); */
 			sd_rxhandler(adapter, recvbuf);
 			res = true;
 		} else {

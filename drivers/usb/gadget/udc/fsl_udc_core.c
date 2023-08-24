@@ -53,6 +53,7 @@
 #define	DMA_ADDR_INVALID	(~(dma_addr_t)0)
 
 static const char driver_name[] = "fsl-usb2-udc";
+static const char driver_desc[] = DRIVER_DESC;
 
 static struct usb_dr_device __iomem *dr_regs;
 
@@ -250,7 +251,7 @@ static int dr_controller_setup(struct fsl_udc *udc)
 		break;
 	case FSL_USB2_PHY_UTMI_WIDE:
 		portctrl |= PORTSCX_PTW_16BIT;
-		fallthrough;
+		/* fall through */
 	case FSL_USB2_PHY_UTMI:
 	case FSL_USB2_PHY_UTMI_DUAL:
 		if (udc->pdata->have_sysif_regs) {
@@ -1051,10 +1052,9 @@ static int fsl_ep_fifo_status(struct usb_ep *_ep)
 	u32 bitmask;
 	struct ep_queue_head *qh;
 
-	if (!_ep || !_ep->desc || !(_ep->desc->bEndpointAddress&0xF))
-		return -ENODEV;
-
 	ep = container_of(_ep, struct fsl_ep, ep);
+	if (!_ep || (!ep->ep.desc && ep_index(ep) != 0))
+		return -ENODEV;
 
 	udc = (struct fsl_udc *)ep->udc;
 
@@ -1208,7 +1208,7 @@ static int fsl_vbus_draw(struct usb_gadget *gadget, unsigned mA)
 }
 
 /* Change Data+ pullup status
- * this func is used by usb_gadget_connect/disconnect
+ * this func is used by usb_gadget_connect/disconnet
  */
 static int fsl_pullup(struct usb_gadget *gadget, int is_on)
 {
@@ -1595,13 +1595,14 @@ static int process_ep_req(struct fsl_udc *udc, int pipe,
 		struct fsl_req *curr_req)
 {
 	struct ep_td_struct *curr_td;
-	int	actual, remaining_length, j, tmp;
+	int	td_complete, actual, remaining_length, j, tmp;
 	int	status = 0;
 	int	errors = 0;
 	struct  ep_queue_head *curr_qh = &udc->ep_qh[pipe];
 	int direction = pipe % 2;
 
 	curr_td = curr_req->head;
+	td_complete = 0;
 	actual = curr_req->req.length;
 
 	for (j = 0; j < curr_req->dtd_count; j++) {
@@ -1646,9 +1647,11 @@ static int process_ep_req(struct fsl_udc *udc, int pipe,
 				status = -EPROTO;
 				break;
 			} else {
+				td_complete++;
 				break;
 			}
 		} else {
+			td_complete++;
 			VDBG("dTD transmitted successful");
 		}
 
@@ -2061,7 +2064,7 @@ static int fsl_proc_read(struct seq_file *m, void *v)
 			"Sleep Enable: %d SOF Received Enable: %d "
 			"Reset Enable: %d\n"
 			"System Error Enable: %d "
-			"Port Change Detected Enable: %d\n"
+			"Port Change Dectected Enable: %d\n"
 			"USB Error Intr Enable: %d USB Intr Enable: %d\n\n",
 			(tmp_reg & USB_INTR_DEVICE_SUSPEND) ? 1 : 0,
 			(tmp_reg & USB_INTR_SOF_EN) ? 1 : 0,
@@ -2439,12 +2442,11 @@ static int fsl_udc_probe(struct platform_device *pdev)
 	/* DEN is bidirectional ep number, max_ep doubles the number */
 	udc_controller->max_ep = (dccparams & DCCPARAMS_DEN_MASK) * 2;
 
-	ret = platform_get_irq(pdev, 0);
-	if (ret <= 0) {
-		ret = ret ? : -ENODEV;
+	udc_controller->irq = platform_get_irq(pdev, 0);
+	if (!udc_controller->irq) {
+		ret = -ENODEV;
 		goto err_iounmap;
 	}
-	udc_controller->irq = ret;
 
 	ret = request_irq(udc_controller->irq, fsl_udc_irq, IRQF_SHARED,
 			driver_name, udc_controller);
@@ -2574,7 +2576,7 @@ static int fsl_udc_remove(struct platform_device *pdev)
 	dma_pool_destroy(udc_controller->td_pool);
 	free_irq(udc_controller->irq, udc_controller);
 	iounmap(dr_regs);
-	if (res && (pdata->operating_mode == FSL_USB2_DR_DEVICE))
+	if (pdata->operating_mode == FSL_USB2_DR_DEVICE)
 		release_mem_region(res->start, resource_size(res));
 
 	/* free udc --wait for the release() finished */

@@ -1,6 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Copyright (c) 2014-2015 Hisilicon Limited.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
  */
 
 #include <linux/module.h>
@@ -57,7 +61,7 @@ void hns_ppe_set_indir_table(struct hns_ppe_cb *ppe_cb,
 	}
 }
 
-static u8 __iomem *
+static void __iomem *
 hns_ppe_common_get_ioaddr(struct ppe_common_cb *ppe_common)
 {
 	return ppe_common->dsaf_dev->ppe_base + PPE_COMMON_REG_OFFSET;
@@ -66,8 +70,8 @@ hns_ppe_common_get_ioaddr(struct ppe_common_cb *ppe_common)
 /**
  * hns_ppe_common_get_cfg - get ppe common config
  * @dsaf_dev: dasf device
- * @comm_index: common index
- * return 0 - success , negative --fail
+ * comm_index: common index
+ * retuen 0 - success , negative --fail
  */
 static int hns_ppe_common_get_cfg(struct dsaf_device *dsaf_dev, int comm_index)
 {
@@ -79,9 +83,8 @@ static int hns_ppe_common_get_cfg(struct dsaf_device *dsaf_dev, int comm_index)
 	else
 		ppe_num = HNS_PPE_DEBUG_NW_ENGINE_NUM;
 
-	ppe_common = devm_kzalloc(dsaf_dev->dev,
-				  struct_size(ppe_common, ppe_cb, ppe_num),
-				  GFP_KERNEL);
+	ppe_common = devm_kzalloc(dsaf_dev->dev, sizeof(*ppe_common) +
+		ppe_num * sizeof(struct hns_ppe_cb), GFP_KERNEL);
 	if (!ppe_common)
 		return -ENOMEM;
 
@@ -107,8 +110,8 @@ hns_ppe_common_free_cfg(struct dsaf_device *dsaf_dev, u32 comm_index)
 	dsaf_dev->ppe_common[comm_index] = NULL;
 }
 
-static u8 __iomem *hns_ppe_get_iobase(struct ppe_common_cb *ppe_common,
-				      int ppe_idx)
+static void __iomem *hns_ppe_get_iobase(struct ppe_common_cb *ppe_common,
+					int ppe_idx)
 {
 	return ppe_common->dsaf_dev->ppe_base + ppe_idx * PPE_REG_OFFSET;
 }
@@ -143,7 +146,7 @@ static void hns_ppe_set_vlan_strip(struct hns_ppe_cb *ppe_cb, int en)
 
 /**
  * hns_ppe_checksum_hw - set ppe checksum caculate
- * @ppe_cb: ppe device
+ * @ppe_device: ppe device
  * @value: value
  */
 static void hns_ppe_checksum_hw(struct hns_ppe_cb *ppe_cb, u32 value)
@@ -179,7 +182,7 @@ static void hns_ppe_set_qid(struct ppe_common_cb *ppe_common, u32 qid)
 
 /**
  * hns_ppe_set_port_mode - set port mode
- * @ppe_cb: ppe device
+ * @ppe_device: ppe device
  * @mode: port mode
  */
 static void hns_ppe_set_port_mode(struct hns_ppe_cb *ppe_cb,
@@ -344,7 +347,7 @@ static void hns_ppe_init_hw(struct hns_ppe_cb *ppe_cb)
 
 /**
  * ppe_uninit_hw - uninit ppe
- * @ppe_cb: ppe device
+ * @ppe_device: ppe device
  */
 static void hns_ppe_uninit_hw(struct hns_ppe_cb *ppe_cb)
 {
@@ -384,8 +387,7 @@ void hns_ppe_uninit(struct dsaf_device *dsaf_dev)
 /**
  * hns_ppe_reset - reinit ppe/rcb hw
  * @dsaf_dev: dasf device
- * @ppe_common_index: the index
- * return void
+ * retuen void
  */
 void hns_ppe_reset_common(struct dsaf_device *dsaf_dev, u8 ppe_common_index)
 {
@@ -456,7 +458,7 @@ int hns_ppe_get_regs_count(void)
 
 /**
  * ppe_get_strings - get ppe srting
- * @ppe_cb: ppe device
+ * @ppe_device: ppe device
  * @stringset: string set type
  * @data: output string
  */
@@ -514,7 +516,7 @@ void hns_ppe_get_stats(struct hns_ppe_cb *ppe_cb, u64 *data)
 /**
  * hns_ppe_init - init ppe device
  * @dsaf_dev: dasf device
- * return 0 - success , negative --fail
+ * retuen 0 - success , negative --fail
  */
 int hns_ppe_init(struct dsaf_device *dsaf_dev)
 {

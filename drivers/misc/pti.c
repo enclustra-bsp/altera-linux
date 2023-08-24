@@ -1,8 +1,16 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  pti.c - PTI driver for cJTAG data extration
  *
  *  Copyright (C) Intel 2010
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  *
@@ -496,8 +504,9 @@ static void pti_tty_cleanup(struct tty_struct *tty)
  * pti_tty_driver_write()-  Write trace debugging data through the char
  * interface to the PTI HW.  Part of the misc device implementation.
  *
- * @tty: tty struct containing pti information.
- * @buf: trace data to be written.
+ * @filp: Contains private data which is used to obtain
+ *        master, channel write ID.
+ * @data: trace data to be written.
  * @len:  # of byte to write.
  *
  * Returns:
@@ -733,8 +742,8 @@ static struct console pti_console = {
  * pti_port_activate()- Used to start/initialize any items upon
  * first opening of tty_port().
  *
- * @port: The tty port number of the PTI device.
- * @tty:  The tty struct associated with this device.
+ * @port- The tty port number of the PTI device.
+ * @tty-  The tty struct associated with this device.
  *
  * Returns:
  *	always returns 0
@@ -754,7 +763,7 @@ static int pti_port_activate(struct tty_port *port, struct tty_struct *tty)
  * pti_port_shutdown()- Used to stop/shutdown any items upon the
  * last tty port close.
  *
- * @port: The tty port number of the PTI device.
+ * @port- The tty port number of the PTI device.
  *
  * Notes: The primary purpose of the PTI tty port 0 is to hook
  * the syslog daemon to it; thus this port will be open for a
@@ -780,8 +789,8 @@ static const struct tty_port_operations tty_port_ops = {
  * pti_pci_probe()- Used to detect pti on the pci bus and set
  *		    things up in the driver.
  *
- * @pdev: pci_dev struct values for pti.
- * @ent:  pci_device_id struct for pti driver.
+ * @pdev- pci_dev struct values for pti.
+ * @ent-  pci_device_id struct for pti driver.
  *
  * Returns:
  *	0 for success
@@ -791,7 +800,7 @@ static int pti_pci_probe(struct pci_dev *pdev,
 		const struct pci_device_id *ent)
 {
 	unsigned int a;
-	int retval;
+	int retval = -EINVAL;
 	int pci_bar = 1;
 
 	dev_dbg(&pdev->dev, "%s %s(%d): PTI PCI ID %04x:%04x\n", __FILE__,
@@ -833,7 +842,7 @@ static int pti_pci_probe(struct pci_dev *pdev,
 	}
 	drv_data->aperture_base = drv_data->pti_addr+APERTURE_14;
 	drv_data->pti_ioaddr =
-		ioremap((u32)drv_data->aperture_base,
+		ioremap_nocache((u32)drv_data->aperture_base,
 		APERTURE_LEN);
 	if (!drv_data->pti_ioaddr) {
 		retval = -ENOMEM;
@@ -898,6 +907,7 @@ static struct pci_driver pti_pci_driver = {
 };
 
 /**
+ *
  * pti_init()- Overall entry/init call to the pti driver.
  *             It starts the registration process with the kernel.
  *
@@ -908,7 +918,7 @@ static struct pci_driver pti_pci_driver = {
  */
 static int __init pti_init(void)
 {
-	int retval;
+	int retval = -EINVAL;
 
 	/* First register module as tty device */
 

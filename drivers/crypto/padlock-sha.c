@@ -1,10 +1,15 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Cryptographic API.
  *
  * Support for VIA PadLock hardware crypto engine.
  *
  * Copyright (c) 2006  Michal Ludvig <michal@logix.cz>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
  */
 
 #include <crypto/internal/hash.h>
@@ -34,6 +39,7 @@ static int padlock_sha_init(struct shash_desc *desc)
 	struct padlock_sha_ctx *ctx = crypto_shash_ctx(desc->tfm);
 
 	dctx->fallback.tfm = ctx->fallback;
+	dctx->fallback.flags = desc->flags & CRYPTO_TFM_REQ_MAY_SLEEP;
 	return crypto_shash_init(&dctx->fallback);
 }
 
@@ -42,6 +48,7 @@ static int padlock_sha_update(struct shash_desc *desc,
 {
 	struct padlock_sha_desc *dctx = shash_desc_ctx(desc);
 
+	dctx->fallback.flags = desc->flags & CRYPTO_TFM_REQ_MAY_SLEEP;
 	return crypto_shash_update(&dctx->fallback, data, length);
 }
 
@@ -58,6 +65,7 @@ static int padlock_sha_import(struct shash_desc *desc, const void *in)
 	struct padlock_sha_ctx *ctx = crypto_shash_ctx(desc->tfm);
 
 	dctx->fallback.tfm = ctx->fallback;
+	dctx->fallback.flags = desc->flags & CRYPTO_TFM_REQ_MAY_SLEEP;
 	return crypto_shash_import(&dctx->fallback, in);
 }
 
@@ -83,6 +91,7 @@ static int padlock_sha1_finup(struct shash_desc *desc, const u8 *in,
 	unsigned int leftover;
 	int err;
 
+	dctx->fallback.flags = desc->flags & CRYPTO_TFM_REQ_MAY_SLEEP;
 	err = crypto_shash_export(&dctx->fallback, &state);
 	if (err)
 		goto out;
@@ -144,6 +153,7 @@ static int padlock_sha256_finup(struct shash_desc *desc, const u8 *in,
 	unsigned int leftover;
 	int err;
 
+	dctx->fallback.flags = desc->flags & CRYPTO_TFM_REQ_MAY_SLEEP;
 	err = crypto_shash_export(&dctx->fallback, &state);
 	if (err)
 		goto out;
@@ -190,11 +200,13 @@ static int padlock_sha256_final(struct shash_desc *desc, u8 *out)
 	return padlock_sha256_finup(desc, buf, 0, out);
 }
 
-static int padlock_init_tfm(struct crypto_shash *hash)
+static int padlock_cra_init(struct crypto_tfm *tfm)
 {
-	const char *fallback_driver_name = crypto_shash_alg_name(hash);
-	struct padlock_sha_ctx *ctx = crypto_shash_ctx(hash);
+	struct crypto_shash *hash = __crypto_shash_cast(tfm);
+	const char *fallback_driver_name = crypto_tfm_alg_name(tfm);
+	struct padlock_sha_ctx *ctx = crypto_tfm_ctx(tfm);
 	struct crypto_shash *fallback_tfm;
+	int err = -ENOMEM;
 
 	/* Allocate a fallback and abort if it failed. */
 	fallback_tfm = crypto_alloc_shash(fallback_driver_name, 0,
@@ -202,17 +214,21 @@ static int padlock_init_tfm(struct crypto_shash *hash)
 	if (IS_ERR(fallback_tfm)) {
 		printk(KERN_WARNING PFX "Fallback driver '%s' could not be loaded!\n",
 		       fallback_driver_name);
-		return PTR_ERR(fallback_tfm);
+		err = PTR_ERR(fallback_tfm);
+		goto out;
 	}
 
 	ctx->fallback = fallback_tfm;
 	hash->descsize += crypto_shash_descsize(fallback_tfm);
 	return 0;
+
+out:
+	return err;
 }
 
-static void padlock_exit_tfm(struct crypto_shash *hash)
+static void padlock_cra_exit(struct crypto_tfm *tfm)
 {
-	struct padlock_sha_ctx *ctx = crypto_shash_ctx(hash);
+	struct padlock_sha_ctx *ctx = crypto_tfm_ctx(tfm);
 
 	crypto_free_shash(ctx->fallback);
 }
@@ -225,8 +241,6 @@ static struct shash_alg sha1_alg = {
 	.final  	=	padlock_sha1_final,
 	.export		=	padlock_sha_export,
 	.import		=	padlock_sha_import,
-	.init_tfm	=	padlock_init_tfm,
-	.exit_tfm	=	padlock_exit_tfm,
 	.descsize	=	sizeof(struct padlock_sha_desc),
 	.statesize	=	sizeof(struct sha1_state),
 	.base		=	{
@@ -237,6 +251,8 @@ static struct shash_alg sha1_alg = {
 		.cra_blocksize		=	SHA1_BLOCK_SIZE,
 		.cra_ctxsize		=	sizeof(struct padlock_sha_ctx),
 		.cra_module		=	THIS_MODULE,
+		.cra_init		=	padlock_cra_init,
+		.cra_exit		=	padlock_cra_exit,
 	}
 };
 
@@ -248,8 +264,6 @@ static struct shash_alg sha256_alg = {
 	.final  	=	padlock_sha256_final,
 	.export		=	padlock_sha_export,
 	.import		=	padlock_sha_import,
-	.init_tfm	=	padlock_init_tfm,
-	.exit_tfm	=	padlock_exit_tfm,
 	.descsize	=	sizeof(struct padlock_sha_desc),
 	.statesize	=	sizeof(struct sha256_state),
 	.base		=	{
@@ -260,6 +274,8 @@ static struct shash_alg sha256_alg = {
 		.cra_blocksize		=	SHA256_BLOCK_SIZE,
 		.cra_ctxsize		=	sizeof(struct padlock_sha_ctx),
 		.cra_module		=	THIS_MODULE,
+		.cra_init		=	padlock_cra_init,
+		.cra_exit		=	padlock_cra_exit,
 	}
 };
 
@@ -490,7 +506,7 @@ static struct shash_alg sha256_alg_nano = {
 };
 
 static const struct x86_cpu_id padlock_sha_ids[] = {
-	X86_MATCH_FEATURE(X86_FEATURE_PHE, NULL),
+	X86_FEATURE_MATCH(X86_FEATURE_PHE),
 	{}
 };
 MODULE_DEVICE_TABLE(x86cpu, padlock_sha_ids);

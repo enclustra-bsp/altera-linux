@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * SCSI low-level driver for the 53c94 SCSI bus adaptor found
  * on Power Macintosh computers, controlling the external SCSI chain.
@@ -20,9 +19,9 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/pci.h>
-#include <linux/pgtable.h>
 #include <asm/dbdma.h>
 #include <asm/io.h>
+#include <asm/pgtable.h>
 #include <asm/prom.h>
 #include <asm/macio.h>
 
@@ -404,7 +403,7 @@ static struct scsi_host_template mac53c94_template = {
 	.can_queue	= 1,
 	.this_id	= 7,
 	.sg_tablesize	= SG_ALL,
-	.max_segment_size = 65535,
+	.use_clustering	= DISABLE_CLUSTERING,
 };
 
 static int mac53c94_probe(struct macio_dev *mdev, const struct of_device_id *match)

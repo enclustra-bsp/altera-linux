@@ -62,7 +62,6 @@
 	};
 
 	memory@10000000 {
-		device_type = "memory";
 		reg = <0x10000000 0>; /* will be filled by U-Boot */
 	};
 
@@ -738,12 +737,14 @@
 &pwm1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm1>;
+	#pwm-cells = <3>;
 	status = "disabled";
 };
 
 &pwm2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm2>;
+	#pwm-cells = <3>;
 	status = "okay";
 };
 

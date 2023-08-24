@@ -24,17 +24,11 @@
  * Authors:
  *    Jerome Glisse <glisse@freedesktop.org>
  */
-
 #include <linux/list_sort.h>
-#include <linux/pci.h>
-#include <linux/uaccess.h>
-
-#include <drm/drm_device.h>
-#include <drm/drm_file.h>
+#include <drm/drmP.h>
 #include <drm/radeon_drm.h>
-
-#include "radeon.h"
 #include "radeon_reg.h"
+#include "radeon.h"
 #include "radeon_trace.h"
 
 #define RADEON_CS_MAX_PRIORITY		32u
@@ -160,7 +154,7 @@ static int radeon_cs_parser_relocs(struct radeon_cs_parser *p)
 			p->relocs[i].allowed_domains = domain;
 		}
 
-		if (radeon_ttm_tt_has_userptr(p->rdev, p->relocs[i].robj->tbo.ttm)) {
+		if (radeon_ttm_tt_has_userptr(p->relocs[i].robj->tbo.ttm)) {
 			uint32_t domain = p->relocs[i].preferred_domains;
 			if (!(domain & RADEON_GEM_DOMAIN_GTT)) {
 				DRM_ERROR("Only RADEON_GEM_DOMAIN_GTT is "
@@ -184,7 +178,7 @@ static int radeon_cs_parser_relocs(struct radeon_cs_parser *p)
 		}
 
 		p->relocs[i].tv.bo = &p->relocs[i].robj->tbo;
-		p->relocs[i].tv.num_shared = !r->write_domain;
+		p->relocs[i].tv.shared = !r->write_domain;
 
 		radeon_cs_buckets_add(&buckets, &p->relocs[i].tv.head,
 				      priority);
@@ -196,12 +190,12 @@ static int radeon_cs_parser_relocs(struct radeon_cs_parser *p)
 		p->vm_bos = radeon_vm_get_bos(p->rdev, p->ib.vm,
 					      &p->validated);
 	if (need_mmap_lock)
-		mmap_read_lock(current->mm);
+		down_read(&current->mm->mmap_sem);
 
 	r = radeon_bo_list_validate(p->rdev, &p->ticket, &p->validated, p->ring);
 
 	if (need_mmap_lock)
-		mmap_read_unlock(current->mm);
+		up_read(&current->mm->mmap_sem);
 
 	return r;
 }
@@ -255,11 +249,11 @@ static int radeon_cs_sync_rings(struct radeon_cs_parser *p)
 	int r;
 
 	list_for_each_entry(reloc, &p->validated, tv.head) {
-		struct dma_resv *resv;
+		struct reservation_object *resv;
 
-		resv = reloc->robj->tbo.base.resv;
+		resv = reloc->robj->tbo.resv;
 		r = radeon_sync_resv(p->rdev, &p->ib.sync, resv,
-				     reloc->tv.num_shared);
+				     reloc->tv.shared);
 		if (r)
 			return r;
 	}
@@ -394,8 +388,8 @@ int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 	return 0;
 }
 
-static int cmp_size_smaller_first(void *priv, const struct list_head *a,
-				  const struct list_head *b)
+static int cmp_size_smaller_first(void *priv, struct list_head *a,
+				  struct list_head *b)
 {
 	struct radeon_bo_list *la = list_entry(a, struct radeon_bo_list, tv.head);
 	struct radeon_bo_list *lb = list_entry(b, struct radeon_bo_list, tv.head);
@@ -443,7 +437,7 @@ static void radeon_cs_parser_fini(struct radeon_cs_parser *parser, int error, bo
 			if (bo == NULL)
 				continue;
 
-			drm_gem_object_put(&bo->tbo.base);
+			drm_gem_object_put_unlocked(&bo->gem_base);
 		}
 	}
 	kfree(parser->track);

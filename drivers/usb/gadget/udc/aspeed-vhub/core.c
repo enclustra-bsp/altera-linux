@@ -36,7 +36,6 @@ void ast_vhub_done(struct ast_vhub_ep *ep, struct ast_vhub_req *req,
 		   int status)
 {
 	bool internal = req->internal;
-	struct ast_vhub *vhub = ep->vhub;
 
 	EPVDBG(ep, "completing request @%p, status %d\n", req, status);
 
@@ -47,7 +46,7 @@ void ast_vhub_done(struct ast_vhub_ep *ep, struct ast_vhub_req *req,
 
 	if (req->req.dma) {
 		if (!WARN_ON(!ep->dev))
-			usb_gadget_unmap_request_by_dev(&vhub->pdev->dev,
+			usb_gadget_unmap_request(&ep->dev->gadget,
 						 &req->req, ep->epn.is_in);
 		req->req.dma = 0;
 	}
@@ -66,16 +65,14 @@ void ast_vhub_done(struct ast_vhub_ep *ep, struct ast_vhub_req *req,
 void ast_vhub_nuke(struct ast_vhub_ep *ep, int status)
 {
 	struct ast_vhub_req *req;
-	int count = 0;
+
+	EPDBG(ep, "Nuking\n");
 
 	/* Beware, lock will be dropped & req-acquired by done() */
 	while (!list_empty(&ep->queue)) {
 		req = list_first_entry(&ep->queue, struct ast_vhub_req, queue);
 		ast_vhub_done(ep, req, status);
-		count++;
 	}
-	if (count)
-		EPDBG(ep, "Nuked %d request(s)\n", count);
 }
 
 struct usb_request *ast_vhub_alloc_request(struct usb_ep *u_ep,
@@ -100,7 +97,7 @@ static irqreturn_t ast_vhub_irq(int irq, void *data)
 {
 	struct ast_vhub *vhub = data;
 	irqreturn_t iret = IRQ_NONE;
-	u32 i, istat;
+	u32 istat;
 
 	/* Stale interrupt while tearing down */
 	if (!vhub->ep0_bufs)
@@ -122,10 +119,10 @@ static irqreturn_t ast_vhub_irq(int irq, void *data)
 
 	/* Handle generic EPs first */
 	if (istat & VHUB_IRQ_EP_POOL_ACK_STALL) {
-		u32 ep_acks = readl(vhub->regs + AST_VHUB_EP_ACK_ISR);
+		u32 i, ep_acks = readl(vhub->regs + AST_VHUB_EP_ACK_ISR);
 		writel(ep_acks, vhub->regs + AST_VHUB_EP_ACK_ISR);
 
-		for (i = 0; ep_acks && i < vhub->max_epns; i++) {
+		for (i = 0; ep_acks && i < AST_VHUB_NUM_GEN_EPs; i++) {
 			u32 mask = VHUB_EP_IRQ(i);
 			if (ep_acks & mask) {
 				ast_vhub_epn_ack_irq(&vhub->epns[i]);
@@ -135,11 +132,21 @@ static irqreturn_t ast_vhub_irq(int irq, void *data)
 	}
 
 	/* Handle device interrupts */
-	if (istat & vhub->port_irq_mask) {
-		for (i = 0; i < vhub->max_ports; i++) {
-			if (istat & VHUB_DEV_IRQ(i))
-				ast_vhub_dev_irq(&vhub->ports[i].dev);
-		}
+	if (istat & (VHUB_IRQ_DEVICE1 |
+		     VHUB_IRQ_DEVICE2 |
+		     VHUB_IRQ_DEVICE3 |
+		     VHUB_IRQ_DEVICE4 |
+		     VHUB_IRQ_DEVICE5)) {
+		if (istat & VHUB_IRQ_DEVICE1)
+			ast_vhub_dev_irq(&vhub->ports[0].dev);
+		if (istat & VHUB_IRQ_DEVICE2)
+			ast_vhub_dev_irq(&vhub->ports[1].dev);
+		if (istat & VHUB_IRQ_DEVICE3)
+			ast_vhub_dev_irq(&vhub->ports[2].dev);
+		if (istat & VHUB_IRQ_DEVICE4)
+			ast_vhub_dev_irq(&vhub->ports[3].dev);
+		if (istat & VHUB_IRQ_DEVICE5)
+			ast_vhub_dev_irq(&vhub->ports[4].dev);
 	}
 
 	/* Handle top-level vHub EP0 interrupts */
@@ -173,7 +180,7 @@ static irqreturn_t ast_vhub_irq(int irq, void *data)
 
 void ast_vhub_init_hw(struct ast_vhub *vhub)
 {
-	u32 ctrl, port_mask, epn_mask;
+	u32 ctrl;
 
 	UDCDBG(vhub,"(Re)Starting HW ...\n");
 
@@ -213,20 +220,15 @@ void ast_vhub_init_hw(struct ast_vhub *vhub)
 	}
 
 	/* Reset all devices */
-	port_mask = GENMASK(vhub->max_ports, 1);
-	writel(VHUB_SW_RESET_ROOT_HUB |
-	       VHUB_SW_RESET_DMA_CONTROLLER |
-	       VHUB_SW_RESET_EP_POOL |
-	       port_mask, vhub->regs + AST_VHUB_SW_RESET);
+	writel(VHUB_SW_RESET_ALL, vhub->regs + AST_VHUB_SW_RESET);
 	udelay(1);
 	writel(0, vhub->regs + AST_VHUB_SW_RESET);
 
 	/* Disable and cleanup EP ACK/NACK interrupts */
-	epn_mask = GENMASK(vhub->max_epns - 1, 0);
 	writel(0, vhub->regs + AST_VHUB_EP_ACK_IER);
 	writel(0, vhub->regs + AST_VHUB_EP_NACK_IER);
-	writel(epn_mask, vhub->regs + AST_VHUB_EP_ACK_ISR);
-	writel(epn_mask, vhub->regs + AST_VHUB_EP_NACK_ISR);
+	writel(VHUB_EP_IRQ_ALL, vhub->regs + AST_VHUB_EP_ACK_ISR);
+	writel(VHUB_EP_IRQ_ALL, vhub->regs + AST_VHUB_EP_NACK_ISR);
 
 	/* Default settings for EP0, enable HW hub EP1 */
 	writel(0, vhub->regs + AST_VHUB_EP0_CTRL);
@@ -269,7 +271,7 @@ static int ast_vhub_remove(struct platform_device *pdev)
 		return 0;
 
 	/* Remove devices */
-	for (i = 0; i < vhub->max_ports; i++)
+	for (i = 0; i < AST_VHUB_NUM_PORTS; i++)
 		ast_vhub_del_dev(&vhub->ports[i].dev);
 
 	spin_lock_irqsave(&vhub->lock, flags);
@@ -291,7 +293,7 @@ static int ast_vhub_remove(struct platform_device *pdev)
 	if (vhub->ep0_bufs)
 		dma_free_coherent(&pdev->dev,
 				  AST_VHUB_EP0_MAX_PACKET *
-				  (vhub->max_ports + 1),
+				  (AST_VHUB_NUM_PORTS + 1),
 				  vhub->ep0_bufs,
 				  vhub->ep0_bufs_dma);
 	vhub->ep0_bufs = NULL;
@@ -305,36 +307,13 @@ static int ast_vhub_probe(struct platform_device *pdev)
 	struct ast_vhub *vhub;
 	struct resource *res;
 	int i, rc = 0;
-	const struct device_node *np = pdev->dev.of_node;
 
 	vhub = devm_kzalloc(&pdev->dev, sizeof(*vhub), GFP_KERNEL);
 	if (!vhub)
 		return -ENOMEM;
 
-	rc = of_property_read_u32(np, "aspeed,vhub-downstream-ports",
-				  &vhub->max_ports);
-	if (rc < 0)
-		vhub->max_ports = AST_VHUB_NUM_PORTS;
-
-	vhub->ports = devm_kcalloc(&pdev->dev, vhub->max_ports,
-				   sizeof(*vhub->ports), GFP_KERNEL);
-	if (!vhub->ports)
-		return -ENOMEM;
-
-	rc = of_property_read_u32(np, "aspeed,vhub-generic-endpoints",
-				  &vhub->max_epns);
-	if (rc < 0)
-		vhub->max_epns = AST_VHUB_NUM_GEN_EPs;
-
-	vhub->epns = devm_kcalloc(&pdev->dev, vhub->max_epns,
-				  sizeof(*vhub->epns), GFP_KERNEL);
-	if (!vhub->epns)
-		return -ENOMEM;
-
 	spin_lock_init(&vhub->lock);
 	vhub->pdev = pdev;
-	vhub->port_irq_mask = GENMASK(VHUB_IRQ_DEV1_BIT + vhub->max_ports - 1,
-				      VHUB_IRQ_DEV1_BIT);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	vhub->regs = devm_ioremap_resource(&pdev->dev, res);
@@ -369,6 +348,7 @@ static int ast_vhub_probe(struct platform_device *pdev)
 	/* Find interrupt and install handler */
 	vhub->irq = platform_get_irq(pdev, 0);
 	if (vhub->irq < 0) {
+		dev_err(&pdev->dev, "Failed to get interrupt\n");
 		rc = vhub->irq;
 		goto err;
 	}
@@ -385,7 +365,7 @@ static int ast_vhub_probe(struct platform_device *pdev)
 	 */
 	vhub->ep0_bufs = dma_alloc_coherent(&pdev->dev,
 					    AST_VHUB_EP0_MAX_PACKET *
-					    (vhub->max_ports + 1),
+					    (AST_VHUB_NUM_PORTS + 1),
 					    &vhub->ep0_bufs_dma, GFP_KERNEL);
 	if (!vhub->ep0_bufs) {
 		dev_err(&pdev->dev, "Failed to allocate EP0 DMA buffers\n");
@@ -399,15 +379,13 @@ static int ast_vhub_probe(struct platform_device *pdev)
 	ast_vhub_init_ep0(vhub, &vhub->ep0, NULL);
 
 	/* Init devices */
-	for (i = 0; i < vhub->max_ports && rc == 0; i++)
+	for (i = 0; i < AST_VHUB_NUM_PORTS && rc == 0; i++)
 		rc = ast_vhub_init_dev(vhub, i);
 	if (rc)
 		goto err;
 
 	/* Init hub emulation */
-	rc = ast_vhub_init_hub(vhub);
-	if (rc)
-		goto err;
+	ast_vhub_init_hub(vhub);
 
 	/* Initialize HW */
 	ast_vhub_init_hw(vhub);
@@ -427,9 +405,6 @@ static const struct of_device_id ast_vhub_dt_ids[] = {
 	},
 	{
 		.compatible = "aspeed,ast2500-usb-vhub",
-	},
-	{
-		.compatible = "aspeed,ast2600-usb-vhub",
 	},
 	{ }
 };

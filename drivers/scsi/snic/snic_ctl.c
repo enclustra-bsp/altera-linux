@@ -151,7 +151,7 @@ error:
 /*
  * snic_io_exch_ver_cmpl_handler
  */
-void
+int
 snic_io_exch_ver_cmpl_handler(struct snic *snic, struct snic_fw_req *fwreq)
 {
 	struct snic_req_info *rqi = NULL;
@@ -160,6 +160,7 @@ snic_io_exch_ver_cmpl_handler(struct snic *snic, struct snic_fw_req *fwreq)
 	u32 cmnd_id, hid, max_sgs;
 	ulong ctx = 0;
 	unsigned long flags;
+	int ret = 0;
 
 	SNIC_HOST_INFO(snic->shost, "Exch Ver Compl Received.\n");
 	snic_io_hdr_dec(&fwreq->hdr, &typ, &hdr_stat, &cmnd_id, &hid, &ctx);
@@ -223,6 +224,8 @@ exch_cmpl_end:
 	snic_release_untagged_req(snic, rqi);
 
 	SNIC_HOST_INFO(snic->shost, "Exch_cmpl Done, hdr_stat %d.\n", hdr_stat);
+
+	return ret;
 } /* end of snic_io_exch_ver_cmpl_handler */
 
 /*

@@ -28,9 +28,7 @@ static void prom_console_write(struct console *co, const char *s,
 
 static int prom_console_setup(struct console *co, char *options)
 {
-	if (prom_flags & PROM_FLAG_USE_AS_CONSOLE)
-		return 0;
-	return -ENODEV;
+	return !(prom_flags & PROM_FLAG_USE_AS_CONSOLE);
 }
 
 static struct console arc_cons = {

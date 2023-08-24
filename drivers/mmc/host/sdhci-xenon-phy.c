@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * PHY support for Xenon SDHC
  *
@@ -6,6 +5,10 @@
  *
  * Author:	Hu Ziji <huziji@marvell.com>
  * Date:	2016-8-24
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation version 2.
  */
 
 #include <linux/slab.h>
@@ -354,13 +357,9 @@ static int xenon_emmc_phy_enable_dll(struct sdhci_host *host)
 
 	/* Wait max 32 ms */
 	timeout = ktime_add_ms(ktime_get(), 32);
-	while (1) {
-		bool timedout = ktime_after(ktime_get(), timeout);
-
-		if (sdhci_readw(host, XENON_SLOT_EXT_PRESENT_STATE) &
-		    XENON_DLL_LOCK_STATE)
-			break;
-		if (timedout) {
+	while (!(sdhci_readw(host, XENON_SLOT_EXT_PRESENT_STATE) &
+		XENON_DLL_LOCK_STATE)) {
+		if (ktime_after(ktime_get(), timeout)) {
 			dev_err(mmc_dev(host->mmc), "Wait for DLL Lock time-out\n");
 			return -ETIMEDOUT;
 		}
@@ -527,7 +526,7 @@ static bool xenon_emmc_phy_slow_mode(struct sdhci_host *host,
 			ret = true;
 			break;
 		}
-		fallthrough;
+		/* else: fall through */
 	default:
 		reg &= ~XENON_TIMING_ADJUST_SLOW_MODE;
 		ret = false;

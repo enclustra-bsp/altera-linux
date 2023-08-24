@@ -96,7 +96,7 @@ struct rave_sp_deframer {
  * @data:	Buffer to store reply payload in
  * @code:	Expected reply code
  * @ackid:	Expected reply ACK ID
- * @received:   Successful reply reception completion
+ * @completion: Successful reply reception completion
  */
 struct rave_sp_reply {
 	size_t length;
@@ -109,7 +109,7 @@ struct rave_sp_reply {
 /**
  * struct rave_sp_checksum - Variant specific checksum implementation details
  *
- * @length:	Calculated checksum length
+ * @length:	Caculated checksum length
  * @subroutine:	Utilized checksum algorithm implementation
  */
 struct rave_sp_checksum {
@@ -270,7 +270,7 @@ static void *stuff(unsigned char *dest, const unsigned char *src, size_t n)
 		case RAVE_SP_ETX:
 		case RAVE_SP_DLE:
 			*dest++ = RAVE_SP_DLE;
-			fallthrough;
+			/* FALLTHROUGH */
 		default:
 			*dest++ = byte;
 		}
@@ -541,7 +541,7 @@ static int rave_sp_receive_buf(struct serdev_device *serdev,
 			 * deframer buffer
 			 */
 
-			fallthrough;
+			/* FALLTHROUGH */
 
 		case RAVE_SP_EXPECT_ESCAPED_DATA:
 			if (deframer->length == sizeof(deframer->data)) {

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /* align.c - handle alignment exceptions for the Power PC.
  *
  * Copyright (c) 1996 Paul Mackerras <paulus@cs.anu.edu.au>
@@ -11,6 +10,11 @@
  * Copyright (c) 2005 Benjamin Herrenschmidt, IBM Corp
  *                    <benh@kernel.crashing.org>
  *   Merge ppc32 and ppc64 implementations
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version
+ * 2 of the License, or (at your option) any later version.
  */
 
 #include <linux/kernel.h>
@@ -24,7 +28,6 @@
 #include <asm/disassemble.h>
 #include <asm/cpu_has_feature.h>
 #include <asm/sstep.h>
-#include <asm/inst.h>
 
 struct aligninfo {
 	unsigned char len;
@@ -105,7 +108,7 @@ static struct aligninfo spe_aligninfo[32] = {
  * so we don't need the address swizzling.
  */
 static int emulate_spe(struct pt_regs *regs, unsigned int reg,
-		       struct ppc_inst ppc_instr)
+		       unsigned int instr)
 {
 	int ret;
 	union {
@@ -116,9 +119,8 @@ static int emulate_spe(struct pt_regs *regs, unsigned int reg,
 	} data, temp;
 	unsigned char __user *p, *addr;
 	unsigned long *evr = &current->thread.evr[reg];
-	unsigned int nb, flags, instr;
+	unsigned int nb, flags;
 
-	instr = ppc_inst_val(ppc_instr);
 	instr = (instr >> 1) & 0x1f;
 
 	/* DAR has the operand effective address */
@@ -129,7 +131,8 @@ static int emulate_spe(struct pt_regs *regs, unsigned int reg,
 
 	/* Verify the address of the operand */
 	if (unlikely(user_mode(regs) &&
-		     !access_ok(addr, nb)))
+		     !access_ok((flags & ST ? VERIFY_WRITE : VERIFY_READ),
+				addr, nb)))
 		return -EFAULT;
 
 	/* userland only */
@@ -178,11 +181,9 @@ static int emulate_spe(struct pt_regs *regs, unsigned int reg,
 			ret |= __get_user_inatomic(temp.v[1], p++);
 			ret |= __get_user_inatomic(temp.v[2], p++);
 			ret |= __get_user_inatomic(temp.v[3], p++);
-			fallthrough;
 		case 4:
 			ret |= __get_user_inatomic(temp.v[4], p++);
 			ret |= __get_user_inatomic(temp.v[5], p++);
-			fallthrough;
 		case 2:
 			ret |= __get_user_inatomic(temp.v[6], p++);
 			ret |= __get_user_inatomic(temp.v[7], p++);
@@ -263,11 +264,9 @@ static int emulate_spe(struct pt_regs *regs, unsigned int reg,
 			ret |= __put_user_inatomic(data.v[1], p++);
 			ret |= __put_user_inatomic(data.v[2], p++);
 			ret |= __put_user_inatomic(data.v[3], p++);
-			fallthrough;
 		case 4:
 			ret |= __put_user_inatomic(data.v[4], p++);
 			ret |= __put_user_inatomic(data.v[5], p++);
-			fallthrough;
 		case 2:
 			ret |= __put_user_inatomic(data.v[6], p++);
 			ret |= __put_user_inatomic(data.v[7], p++);
@@ -295,7 +294,7 @@ static int emulate_spe(struct pt_regs *regs, unsigned int reg,
 
 int fix_alignment(struct pt_regs *regs)
 {
-	struct ppc_inst instr;
+	unsigned int instr;
 	struct instruction_op op;
 	int r, type;
 
@@ -305,18 +304,18 @@ int fix_alignment(struct pt_regs *regs)
 	 */
 	CHECK_FULL_REGS(regs);
 
-	if (unlikely(__get_user_instr(instr, (void __user *)regs->nip)))
+	if (unlikely(__get_user(instr, (unsigned int __user *)regs->nip)))
 		return -EFAULT;
 	if ((regs->msr & MSR_LE) != (MSR_KERNEL & MSR_LE)) {
 		/* We don't handle PPC little-endian any more... */
 		if (cpu_has_feature(CPU_FTR_PPC_LE))
 			return -EIO;
-		instr = ppc_inst_swab(instr);
+		instr = swab32(instr);
 	}
 
 #ifdef CONFIG_SPE
-	if (ppc_inst_primary_opcode(instr) == 0x4) {
-		int reg = (ppc_inst_val(instr) >> 21) & 0x1f;
+	if ((instr >> 26) == 0x4) {
+		int reg = (instr >> 21) & 0x1f;
 		PPC_WARN_ALIGNMENT(spe, regs);
 		return emulate_spe(regs, reg, instr);
 	}
@@ -333,7 +332,7 @@ int fix_alignment(struct pt_regs *regs)
 	 * when pasting to a co-processor. Furthermore, paste_last is the
 	 * synchronisation point for preceding copy/paste sequences.
 	 */
-	if ((ppc_inst_val(instr) & 0xfc0006fe) == (PPC_INST_COPY & 0xfc0006fe))
+	if ((instr & 0xfc0006fe) == (PPC_INST_COPY & 0xfc0006fe))
 		return -EIO;
 
 	r = analyse_instr(&op, regs, instr);

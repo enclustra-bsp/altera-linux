@@ -73,6 +73,7 @@ struct cdrom_device_ops {
 	int (*drive_status) (struct cdrom_device_info *, int);
 	unsigned int (*check_events) (struct cdrom_device_info *cdi,
 				      unsigned int clearing, int slot);
+	int (*media_changed) (struct cdrom_device_info *, int);
 	int (*tray_move) (struct cdrom_device_info *, int);
 	int (*lock_door) (struct cdrom_device_info *, int);
 	int (*select_speed) (struct cdrom_device_info *, int);
@@ -93,11 +94,6 @@ struct cdrom_device_ops {
 			       struct packet_command *);
 };
 
-int cdrom_multisession(struct cdrom_device_info *cdi,
-		struct cdrom_multisession *info);
-int cdrom_read_tocentry(struct cdrom_device_info *cdi,
-		struct cdrom_tocentry *entry);
-
 /* the general block_device operations structure: */
 extern int cdrom_open(struct cdrom_device_info *cdi, struct block_device *bdev,
 			fmode_t mode);
@@ -106,8 +102,9 @@ extern int cdrom_ioctl(struct cdrom_device_info *cdi, struct block_device *bdev,
 		       fmode_t mode, unsigned int cmd, unsigned long arg);
 extern unsigned int cdrom_check_events(struct cdrom_device_info *cdi,
 				       unsigned int clearing);
+extern int cdrom_media_changed(struct cdrom_device_info *);
 
-extern int register_cdrom(struct gendisk *disk, struct cdrom_device_info *cdi);
+extern int register_cdrom(struct cdrom_device_info *cdi);
 extern void unregister_cdrom(struct cdrom_device_info *cdi);
 
 typedef struct {

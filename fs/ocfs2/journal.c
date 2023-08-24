@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /* -*- mode: c; c-basic-offset: 8; -*-
  * vim: noexpandtab sw=8 ts=8 sts=0:
  *
@@ -7,6 +6,21 @@
  * Defines functions of journalling api
  *
  * Copyright (C) 2003, 2004 Oracle.  All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public
+ * License as published by the Free Software Foundation; either
+ * version 2 of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public
+ * License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 021110-1307, USA.
  */
 
 #include <linux/fs.h>
@@ -91,7 +105,7 @@ enum ocfs2_replay_state {
 struct ocfs2_replay_map {
 	unsigned int rm_slots;
 	enum ocfs2_replay_state rm_state;
-	unsigned char rm_replay_slots[];
+	unsigned char rm_replay_slots[0];
 };
 
 static void ocfs2_replay_map_set_state(struct ocfs2_super *osb, int state)
@@ -217,8 +231,7 @@ void ocfs2_recovery_exit(struct ocfs2_super *osb)
 	/* At this point, we know that no more recovery threads can be
 	 * launched, so wait for any recovery completion work to
 	 * complete. */
-	if (osb->ocfs2_wq)
-		flush_workqueue(osb->ocfs2_wq);
+	flush_workqueue(osb->ocfs2_wq);
 
 	/*
 	 * Now that recovery is shut down, and the osb is about to be
@@ -420,14 +433,14 @@ int ocfs2_extend_trans(handle_t *handle, int nblocks)
 	if (!nblocks)
 		return 0;
 
-	old_nblocks = jbd2_handle_buffer_credits(handle);
+	old_nblocks = handle->h_buffer_credits;
 
 	trace_ocfs2_extend_trans(old_nblocks, nblocks);
 
 #ifdef CONFIG_OCFS2_DEBUG_FS
 	status = 1;
 #else
-	status = jbd2_journal_extend(handle, nblocks, 0);
+	status = jbd2_journal_extend(handle, nblocks);
 	if (status < 0) {
 		mlog_errno(status);
 		goto bail;
@@ -461,13 +474,13 @@ int ocfs2_allocate_extend_trans(handle_t *handle, int thresh)
 
 	BUG_ON(!handle);
 
-	old_nblks = jbd2_handle_buffer_credits(handle);
+	old_nblks = handle->h_buffer_credits;
 	trace_ocfs2_allocate_extend_trans(old_nblks, thresh);
 
 	if (old_nblks < thresh)
 		return 0;
 
-	status = jbd2_journal_extend(handle, OCFS2_MAX_TRANS_DATA, 0);
+	status = jbd2_journal_extend(handle, OCFS2_MAX_TRANS_DATA);
 	if (status < 0) {
 		mlog_errno(status);
 		goto bail;
@@ -877,16 +890,12 @@ int ocfs2_journal_init(struct ocfs2_journal *journal, int *dirty)
 		goto done;
 	}
 
-	trace_ocfs2_journal_init_maxlen(j_journal->j_total_len);
+	trace_ocfs2_journal_init_maxlen(j_journal->j_maxlen);
 
 	*dirty = (le32_to_cpu(di->id1.journal1.ij_flags) &
 		  OCFS2_JOURNAL_DIRTY_FL);
 
 	journal->j_journal = j_journal;
-	journal->j_journal->j_submit_inode_data_buffers =
-		jbd2_journal_submit_inode_data_buffers;
-	journal->j_journal->j_finish_inode_data_buffers =
-		jbd2_journal_finish_inode_data_buffers;
 	journal->j_inode = inode;
 	journal->j_bh = bh;
 
@@ -1008,8 +1017,7 @@ void ocfs2_journal_shutdown(struct ocfs2_super *osb)
 			mlog_errno(status);
 	}
 
-	/* Shutdown the kernel journal system */
-	if (!jbd2_journal_destroy(journal->j_journal) && !status) {
+	if (status == 0) {
 		/*
 		 * Do not toggle if flush was unsuccessful otherwise
 		 * will leave dirty metadata in a "clean" journal
@@ -1018,6 +1026,9 @@ void ocfs2_journal_shutdown(struct ocfs2_super *osb)
 		if (status < 0)
 			mlog_errno(status);
 	}
+
+	/* Shutdown the kernel journal system */
+	jbd2_journal_destroy(journal->j_journal);
 	journal->j_journal = NULL;
 
 	OCFS2_I(inode)->ip_open_count--;
@@ -1069,14 +1080,6 @@ int ocfs2_journal_load(struct ocfs2_journal *journal, int local, int replayed)
 	}
 
 	ocfs2_clear_journal_error(osb->sb, journal->j_journal, osb->slot_num);
-
-	if (replayed) {
-		jbd2_journal_lock_updates(journal->j_journal);
-		status = jbd2_journal_flush(journal->j_journal);
-		jbd2_journal_unlock_updates(journal->j_journal);
-		if (status < 0)
-			mlog_errno(status);
-	}
 
 	status = ocfs2_journal_toggle_dirty(osb, 1, replayed);
 	if (status < 0) {

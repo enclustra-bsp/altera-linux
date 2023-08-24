@@ -1,8 +1,12 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /* /proc/net/ support for AF_RXRPC
  *
  * Copyright (C) 2007 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version
+ * 2 of the License, or (at your option) any later version.
  */
 
 #include <linux/module.h>
@@ -68,7 +72,7 @@ static int rxrpc_call_seq_show(struct seq_file *seq, void *v)
 			 "Proto Local                                          "
 			 " Remote                                         "
 			 " SvID ConnID   CallID   End Use State    Abort   "
-			 " DebugId  TxSeq    TW RxSeq    RW RxSerial RxTimo\n");
+			 " UserID           TxSeq    TW RxSeq    RW RxSerial RxTimo\n");
 		return 0;
 	}
 
@@ -100,7 +104,7 @@ static int rxrpc_call_seq_show(struct seq_file *seq, void *v)
 	rx_hard_ack = READ_ONCE(call->rx_hard_ack);
 	seq_printf(seq,
 		   "UDP   %-47.47s %-47.47s %4x %08x %08x %s %3u"
-		   " %-8.8s %08x %08x %08x %02x %08x %02x %08x %06lx\n",
+		   " %-8.8s %08x %lx %08x %02x %08x %02x %08x %06lx\n",
 		   lbuff,
 		   rbuff,
 		   call->service_id,
@@ -110,7 +114,7 @@ static int rxrpc_call_seq_show(struct seq_file *seq, void *v)
 		   atomic_read(&call->usage),
 		   rxrpc_call_states[call->state],
 		   call->abort_code,
-		   call->debug_id,
+		   call->user_call_ID,
 		   tx_hard_ack, READ_ONCE(call->tx_top) - tx_hard_ack,
 		   rx_hard_ack, READ_ONCE(call->rx_top) - rx_hard_ack,
 		   call->rx_serial,
@@ -165,7 +169,7 @@ static int rxrpc_connection_seq_show(struct seq_file *seq, void *v)
 			 "Proto Local                                          "
 			 " Remote                                         "
 			 " SvID ConnID   End Use State    Key     "
-			 " Serial   ISerial  CallId0  CallId1  CallId2  CallId3\n"
+			 " Serial   ISerial\n"
 			 );
 		return 0;
 	}
@@ -222,7 +226,7 @@ static int rxrpc_peer_seq_show(struct seq_file *seq, void *v)
 		seq_puts(seq,
 			 "Proto Local                                          "
 			 " Remote                                         "
-			 " Use  CW   MTU LastUse      RTT      RTO\n"
+			 " Use CW  MTU   LastUse          RTT Rc\n"
 			 );
 		return 0;
 	}
@@ -236,15 +240,15 @@ static int rxrpc_peer_seq_show(struct seq_file *seq, void *v)
 	now = ktime_get_seconds();
 	seq_printf(seq,
 		   "UDP   %-47.47s %-47.47s %3u"
-		   " %3u %5u %6llus %8u %8u\n",
+		   " %3u %5u %6llus %12llu %2u\n",
 		   lbuff,
 		   rbuff,
 		   atomic_read(&peer->usage),
 		   peer->cong_cwnd,
 		   peer->mtu,
 		   now - peer->last_tx_at,
-		   peer->srtt_us >> 3,
-		   jiffies_to_usecs(peer->rto_j));
+		   peer->rtt,
+		   peer->rtt_cursor);
 
 	return 0;
 }

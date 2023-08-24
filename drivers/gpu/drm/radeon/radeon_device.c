@@ -25,23 +25,16 @@
  *          Alex Deucher
  *          Jerome Glisse
  */
-
 #include <linux/console.h>
-#include <linux/efi.h>
-#include <linux/pci.h>
-#include <linux/pm_runtime.h>
 #include <linux/slab.h>
-#include <linux/vga_switcheroo.h>
-#include <linux/vgaarb.h>
-
-#include <drm/drm_cache.h>
+#include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
-#include <drm/drm_debugfs.h>
-#include <drm/drm_device.h>
-#include <drm/drm_file.h>
-#include <drm/drm_probe_helper.h>
+#include <drm/drm_cache.h>
 #include <drm/radeon_drm.h>
-
+#include <linux/pm_runtime.h>
+#include <linux/vgaarb.h>
+#include <linux/vga_switcheroo.h>
+#include <linux/efi.h>
 #include "radeon_reg.h"
 #include "radeon.h"
 #include "atom.h"
@@ -1263,7 +1256,7 @@ static bool radeon_switcheroo_can_switch(struct pci_dev *pdev)
 	 * locking inversion with the driver load path. And the access here is
 	 * completely racy anyway. So don't bother with locking for now.
 	 */
-	return atomic_read(&dev->open_count) == 0;
+	return dev->open_count == 0;
 }
 
 static const struct vga_switcheroo_client_ops radeon_switcheroo_ops = {
@@ -1325,6 +1318,8 @@ int radeon_device_init(struct radeon_device *rdev,
 	init_rwsem(&rdev->pm.mclk_lock);
 	init_rwsem(&rdev->exclusive_lock);
 	init_waitqueue_head(&rdev->irq.vblank_queue);
+	mutex_init(&rdev->mn_lock);
+	hash_init(rdev->mn_hash);
 	r = radeon_gem_init(rdev);
 	if (r)
 		return r;
@@ -1363,29 +1358,36 @@ int radeon_device_init(struct radeon_device *rdev,
 	else
 		rdev->mc.mc_mask = 0xffffffffULL; /* 32 bit MC */
 
-	/* set DMA mask.
+	/* set DMA mask + need_dma32 flags.
 	 * PCIE - can handle 40-bits.
 	 * IGP - can handle 40-bits
 	 * AGP - generally dma32 is safest
 	 * PCI - dma32 for legacy pci gart, 40 bits on newer asics
 	 */
-	dma_bits = 40;
+	rdev->need_dma32 = false;
 	if (rdev->flags & RADEON_IS_AGP)
-		dma_bits = 32;
+		rdev->need_dma32 = true;
 	if ((rdev->flags & RADEON_IS_PCI) &&
 	    (rdev->family <= CHIP_RS740))
-		dma_bits = 32;
+		rdev->need_dma32 = true;
 #ifdef CONFIG_PPC64
 	if (rdev->family == CHIP_CEDAR)
-		dma_bits = 32;
+		rdev->need_dma32 = true;
 #endif
 
-	r = dma_set_mask_and_coherent(&rdev->pdev->dev, DMA_BIT_MASK(dma_bits));
+	dma_bits = rdev->need_dma32 ? 32 : 40;
+	r = pci_set_dma_mask(rdev->pdev, DMA_BIT_MASK(dma_bits));
 	if (r) {
+		rdev->need_dma32 = true;
+		dma_bits = 32;
 		pr_warn("radeon: No suitable DMA available\n");
-		return r;
 	}
-	rdev->need_swiotlb = drm_need_swiotlb(dma_bits);
+	r = pci_set_consistent_dma_mask(rdev->pdev, DMA_BIT_MASK(dma_bits));
+	if (r) {
+		pci_set_consistent_dma_mask(rdev->pdev, DMA_BIT_MASK(32));
+		pr_warn("radeon: No coherent DMA available\n");
+	}
+	rdev->need_swiotlb = drm_get_max_iomem() > ((u64)1 << dma_bits);
 
 	/* Registers mapping */
 	/* TODO: block userspace mapping of io register */

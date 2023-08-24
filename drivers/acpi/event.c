@@ -19,6 +19,9 @@
 
 #include "internal.h"
 
+#define _COMPONENT		ACPI_SYSTEM_COMPONENT
+ACPI_MODULE_NAME("event");
+
 /* ACPI notifier chain */
 static BLOCKING_NOTIFIER_HEAD(acpi_chain_head);
 
@@ -31,7 +34,7 @@ int acpi_notifier_call_chain(struct acpi_device *dev, u32 type, u32 data)
 	event.type = type;
 	event.data = data;
 	return (blocking_notifier_call_chain(&acpi_chain_head, 0, (void *)&event)
-			== NOTIFY_BAD) ? -EINVAL : 0;
+                        == NOTIFY_BAD) ? -EINVAL : 0;
 }
 EXPORT_SYMBOL(acpi_notifier_call_chain);
 
@@ -128,8 +131,8 @@ int acpi_bus_generate_netlink_event(const char *device_class,
 	event = nla_data(attr);
 	memset(event, 0, sizeof(struct acpi_genl_event));
 
-	strscpy(event->device_class, device_class, sizeof(event->device_class));
-	strscpy(event->bus_id, bus_id, sizeof(event->bus_id));
+	strcpy(event->device_class, device_class);
+	strcpy(event->bus_id, bus_id);
 	event->type = type;
 	event->data = data;
 

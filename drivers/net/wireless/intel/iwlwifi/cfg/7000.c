@@ -8,7 +8,7 @@
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH
  * Copyright(c) 2015        Intel Deutschland GmbH
- * Copyright(c) 2018 - 2019 Intel Corporation
+ * Copyright(c) 2018        Intel Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of version 2 of the GNU General Public License as
@@ -31,7 +31,7 @@
  * Copyright(c) 2012 - 2014 Intel Corporation. All rights reserved.
  * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH
  * Copyright(c) 2015        Intel Deutschland GmbH
- * Copyright(c) 2018 - 2019 Intel Corporation
+ * Copyright(c) 2018        Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -80,11 +80,17 @@
 
 /* NVM versions */
 #define IWL7260_NVM_VERSION		0x0a1d
+#define IWL7260_TX_POWER_VERSION	0xffff /* meaningless */
 #define IWL3160_NVM_VERSION		0x709
+#define IWL3160_TX_POWER_VERSION	0xffff /* meaningless */
 #define IWL3165_NVM_VERSION		0x709
+#define IWL3165_TX_POWER_VERSION	0xffff /* meaningless */
 #define IWL3168_NVM_VERSION		0xd01
+#define IWL3168_TX_POWER_VERSION	0xffff /* meaningless */
 #define IWL7265_NVM_VERSION		0x0a1d
+#define IWL7265_TX_POWER_VERSION	0xffff /* meaningless */
 #define IWL7265D_NVM_VERSION		0x0c11
+#define IWL7265_TX_POWER_VERSION	0xffff /* meaningless */
 
 /* DCCM offsets and lengths */
 #define IWL7000_DCCM_OFFSET		0x800000
@@ -107,8 +113,10 @@
 #define IWL7265D_FW_PRE "iwlwifi-7265D-"
 #define IWL7265D_MODULE_FIRMWARE(api) IWL7265D_FW_PRE __stringify(api) ".ucode"
 
+#define NVM_HW_SECTION_NUM_FAMILY_7000		0
+
 static const struct iwl_base_params iwl7000_base_params = {
-	.eeprom_size = OTP_LOW_IMAGE_SIZE_16K,
+	.eeprom_size = OTP_LOW_IMAGE_SIZE_FAMILY_7000,
 	.num_of_queues = 31,
 	.max_tfd_queue_size = 256,
 	.shadow_ram_support = true,
@@ -148,13 +156,14 @@ static const struct iwl_ht_params iwl7000_ht_params = {
 };
 
 #define IWL_DEVICE_7000_COMMON					\
-	.trans.device_family = IWL_DEVICE_FAMILY_7000,		\
-	.trans.base_params = &iwl7000_base_params,		\
+	.device_family = IWL_DEVICE_FAMILY_7000,		\
+	.base_params = &iwl7000_base_params,			\
 	.led_mode = IWL_LED_RF_STATE,				\
-	.nvm_hw_section_num = 0,				\
+	.nvm_hw_section_num = NVM_HW_SECTION_NUM_FAMILY_7000,	\
 	.non_shared_ant = ANT_A,				\
 	.max_ht_ampdu_exponent = IEEE80211_HT_MAX_AMPDU_64K,	\
-	.dccm_offset = IWL7000_DCCM_OFFSET
+	.dccm_offset = IWL7000_DCCM_OFFSET,			\
+	.csr = &iwl_csr_v1
 
 #define IWL_DEVICE_7000						\
 	IWL_DEVICE_7000_COMMON,					\
@@ -182,6 +191,7 @@ const struct iwl_cfg iwl7260_2ac_cfg = {
 	IWL_DEVICE_7000,
 	.ht_params = &iwl7000_ht_params,
 	.nvm_ver = IWL7260_NVM_VERSION,
+	.nvm_calib_ver = IWL7260_TX_POWER_VERSION,
 	.host_interrupt_operation_mode = true,
 	.lp_xtal_workaround = true,
 	.dccm_len = IWL7260_DCCM_LEN,
@@ -193,6 +203,7 @@ const struct iwl_cfg iwl7260_2ac_cfg_high_temp = {
 	IWL_DEVICE_7000,
 	.ht_params = &iwl7000_ht_params,
 	.nvm_ver = IWL7260_NVM_VERSION,
+	.nvm_calib_ver = IWL7260_TX_POWER_VERSION,
 	.high_temp = true,
 	.host_interrupt_operation_mode = true,
 	.lp_xtal_workaround = true,
@@ -206,6 +217,7 @@ const struct iwl_cfg iwl7260_2n_cfg = {
 	IWL_DEVICE_7000,
 	.ht_params = &iwl7000_ht_params,
 	.nvm_ver = IWL7260_NVM_VERSION,
+	.nvm_calib_ver = IWL7260_TX_POWER_VERSION,
 	.host_interrupt_operation_mode = true,
 	.lp_xtal_workaround = true,
 	.dccm_len = IWL7260_DCCM_LEN,
@@ -217,6 +229,7 @@ const struct iwl_cfg iwl7260_n_cfg = {
 	IWL_DEVICE_7000,
 	.ht_params = &iwl7000_ht_params,
 	.nvm_ver = IWL7260_NVM_VERSION,
+	.nvm_calib_ver = IWL7260_TX_POWER_VERSION,
 	.host_interrupt_operation_mode = true,
 	.lp_xtal_workaround = true,
 	.dccm_len = IWL7260_DCCM_LEN,
@@ -228,6 +241,7 @@ const struct iwl_cfg iwl3160_2ac_cfg = {
 	IWL_DEVICE_7000,
 	.ht_params = &iwl7000_ht_params,
 	.nvm_ver = IWL3160_NVM_VERSION,
+	.nvm_calib_ver = IWL3160_TX_POWER_VERSION,
 	.host_interrupt_operation_mode = true,
 	.dccm_len = IWL3160_DCCM_LEN,
 };
@@ -238,6 +252,7 @@ const struct iwl_cfg iwl3160_2n_cfg = {
 	IWL_DEVICE_7000,
 	.ht_params = &iwl7000_ht_params,
 	.nvm_ver = IWL3160_NVM_VERSION,
+	.nvm_calib_ver = IWL3160_TX_POWER_VERSION,
 	.host_interrupt_operation_mode = true,
 	.dccm_len = IWL3160_DCCM_LEN,
 };
@@ -248,6 +263,7 @@ const struct iwl_cfg iwl3160_n_cfg = {
 	IWL_DEVICE_7000,
 	.ht_params = &iwl7000_ht_params,
 	.nvm_ver = IWL3160_NVM_VERSION,
+	.nvm_calib_ver = IWL3160_TX_POWER_VERSION,
 	.host_interrupt_operation_mode = true,
 	.dccm_len = IWL3160_DCCM_LEN,
 };
@@ -275,6 +291,7 @@ const struct iwl_cfg iwl3165_2ac_cfg = {
 	IWL_DEVICE_7005D,
 	.ht_params = &iwl7000_ht_params,
 	.nvm_ver = IWL3165_NVM_VERSION,
+	.nvm_calib_ver = IWL3165_TX_POWER_VERSION,
 	.pwr_tx_backoffs = iwl7265_pwr_tx_backoffs,
 	.dccm_len = IWL7265_DCCM_LEN,
 };
@@ -285,6 +302,7 @@ const struct iwl_cfg iwl3168_2ac_cfg = {
 	IWL_DEVICE_3008,
 	.ht_params = &iwl7000_ht_params,
 	.nvm_ver = IWL3168_NVM_VERSION,
+	.nvm_calib_ver = IWL3168_TX_POWER_VERSION,
 	.pwr_tx_backoffs = iwl7265_pwr_tx_backoffs,
 	.dccm_len = IWL7265_DCCM_LEN,
 	.nvm_type = IWL_NVM_SDP,
@@ -296,6 +314,7 @@ const struct iwl_cfg iwl7265_2ac_cfg = {
 	IWL_DEVICE_7005,
 	.ht_params = &iwl7265_ht_params,
 	.nvm_ver = IWL7265_NVM_VERSION,
+	.nvm_calib_ver = IWL7265_TX_POWER_VERSION,
 	.pwr_tx_backoffs = iwl7265_pwr_tx_backoffs,
 	.dccm_len = IWL7265_DCCM_LEN,
 };
@@ -306,6 +325,7 @@ const struct iwl_cfg iwl7265_2n_cfg = {
 	IWL_DEVICE_7005,
 	.ht_params = &iwl7265_ht_params,
 	.nvm_ver = IWL7265_NVM_VERSION,
+	.nvm_calib_ver = IWL7265_TX_POWER_VERSION,
 	.pwr_tx_backoffs = iwl7265_pwr_tx_backoffs,
 	.dccm_len = IWL7265_DCCM_LEN,
 };
@@ -316,6 +336,7 @@ const struct iwl_cfg iwl7265_n_cfg = {
 	IWL_DEVICE_7005,
 	.ht_params = &iwl7265_ht_params,
 	.nvm_ver = IWL7265_NVM_VERSION,
+	.nvm_calib_ver = IWL7265_TX_POWER_VERSION,
 	.pwr_tx_backoffs = iwl7265_pwr_tx_backoffs,
 	.dccm_len = IWL7265_DCCM_LEN,
 };
@@ -326,6 +347,7 @@ const struct iwl_cfg iwl7265d_2ac_cfg = {
 	IWL_DEVICE_7005D,
 	.ht_params = &iwl7265_ht_params,
 	.nvm_ver = IWL7265D_NVM_VERSION,
+	.nvm_calib_ver = IWL7265_TX_POWER_VERSION,
 	.pwr_tx_backoffs = iwl7265_pwr_tx_backoffs,
 	.dccm_len = IWL7265_DCCM_LEN,
 };
@@ -336,6 +358,7 @@ const struct iwl_cfg iwl7265d_2n_cfg = {
 	IWL_DEVICE_7005D,
 	.ht_params = &iwl7265_ht_params,
 	.nvm_ver = IWL7265D_NVM_VERSION,
+	.nvm_calib_ver = IWL7265_TX_POWER_VERSION,
 	.pwr_tx_backoffs = iwl7265_pwr_tx_backoffs,
 	.dccm_len = IWL7265_DCCM_LEN,
 };
@@ -346,6 +369,7 @@ const struct iwl_cfg iwl7265d_n_cfg = {
 	IWL_DEVICE_7005D,
 	.ht_params = &iwl7265_ht_params,
 	.nvm_ver = IWL7265D_NVM_VERSION,
+	.nvm_calib_ver = IWL7265_TX_POWER_VERSION,
 	.pwr_tx_backoffs = iwl7265_pwr_tx_backoffs,
 	.dccm_len = IWL7265_DCCM_LEN,
 };

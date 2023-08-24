@@ -24,18 +24,10 @@
 #include "ior.h"
 
 void
-gf119_hda_device_entry(struct nvkm_ior *ior, int head)
+gf119_hda_eld(struct nvkm_ior *ior, u8 *data, u8 size)
 {
 	struct nvkm_device *device = ior->disp->engine.subdev.device;
-	const u32 hoff = 0x800 * head;
-	nvkm_mask(device, 0x616548 + hoff, 0x00000070, head << 4);
-}
-
-void
-gf119_hda_eld(struct nvkm_ior *ior, int head, u8 *data, u8 size)
-{
-	struct nvkm_device *device = ior->disp->engine.subdev.device;
-	const u32 soff = 0x030 * ior->id + (head * 0x04);
+	const u32 soff = 0x030 * ior->id;
 	int i;
 
 	for (i = 0; i < size; i++)
@@ -49,14 +41,14 @@ void
 gf119_hda_hpd(struct nvkm_ior *ior, int head, bool present)
 {
 	struct nvkm_device *device = ior->disp->engine.subdev.device;
-	const u32 soff = 0x030 * ior->id + (head * 0x04);
+	const u32 hoff = 0x800 * head;
 	u32 data = 0x80000000;
 	u32 mask = 0x80000001;
 	if (present) {
-		ior->func->hda.device_entry(ior, head);
+		nvkm_mask(device, 0x616548 + hoff, 0x00000070, 0x00000000);
 		data |= 0x00000001;
 	} else {
 		mask |= 0x00000002;
 	}
-	nvkm_mask(device, 0x10ec10 + soff, mask, data);
+	nvkm_mask(device, 0x10ec10 + ior->id * 0x030, mask, data);
 }

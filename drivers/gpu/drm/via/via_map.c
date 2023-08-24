@@ -21,13 +21,8 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
-
-#include <linux/pci.h>
-
-#include <drm/drm_device.h>
-#include <drm/drm_vblank.h>
+#include <drm/drmP.h>
 #include <drm/via_drm.h>
-
 #include "via_drv.h"
 
 static int via_do_init_map(struct drm_device *dev, drm_via_init_t *init)

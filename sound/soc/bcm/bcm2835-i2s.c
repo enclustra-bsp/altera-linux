@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ALSA SoC I2S Audio Layer for Broadcom BCM2835 SoC
  *
@@ -21,6 +20,15 @@
  *	Freescale SSI ALSA SoC Digital Audio Interface (DAI) driver
  *	Author: Timur Tabi <timur@freescale.com>
  *	Copyright 2007-2010 Freescale Semiconductor, Inc.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
  */
 
 #include <linux/bitops.h>
@@ -653,7 +661,7 @@ static void bcm2835_i2s_stop(struct bcm2835_i2s_dev *dev,
 			BCM2835_I2S_CS_A_REG, mask, 0);
 
 	/* Stop also the clock when not SND_SOC_DAIFMT_CONT */
-	if (!snd_soc_dai_active(dai) && !(dev->fmt & SND_SOC_DAIFMT_CONT))
+	if (!dai->active && !(dev->fmt & SND_SOC_DAIFMT_CONT))
 		bcm2835_i2s_stop_clock(dev);
 }
 
@@ -695,7 +703,7 @@ static int bcm2835_i2s_startup(struct snd_pcm_substream *substream,
 {
 	struct bcm2835_i2s_dev *dev = snd_soc_dai_get_drvdata(dai);
 
-	if (snd_soc_dai_active(dai))
+	if (dai->active)
 		return 0;
 
 	/* Should this still be running stop it */
@@ -723,7 +731,7 @@ static void bcm2835_i2s_shutdown(struct snd_pcm_substream *substream,
 	bcm2835_i2s_stop(dev, substream, dai);
 
 	/* If both streams are stopped, disable module and clock */
-	if (snd_soc_dai_active(dai))
+	if (dai->active)
 		return;
 
 	/* Disable the module */
@@ -828,6 +836,7 @@ static int bcm2835_i2s_probe(struct platform_device *pdev)
 {
 	struct bcm2835_i2s_dev *dev;
 	int ret;
+	struct resource *mem;
 	void __iomem *base;
 	const __be32 *addr;
 	dma_addr_t dma_base;
@@ -841,16 +850,14 @@ static int bcm2835_i2s_probe(struct platform_device *pdev)
 	dev->clk_prepared = false;
 	dev->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(dev->clk)) {
-		ret = PTR_ERR(dev->clk);
-		if (ret == -EPROBE_DEFER)
-			dev_dbg(&pdev->dev, "could not get clk: %d\n", ret);
-		else
-			dev_err(&pdev->dev, "could not get clk: %d\n", ret);
-		return ret;
+		dev_err(&pdev->dev, "could not get clk: %ld\n",
+			PTR_ERR(dev->clk));
+		return PTR_ERR(dev->clk);
 	}
 
 	/* Request ioarea */
-	base = devm_platform_ioremap_resource(pdev, 0);
+	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	base = devm_ioremap_resource(&pdev->dev, mem);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
 

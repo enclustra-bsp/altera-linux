@@ -1,4 +1,3 @@
-; SPDX-License-Identifier: GPL-2.0-only
 ;
 ;  linux/arch/c6x/lib/csum_64plus.s
 ;
@@ -7,11 +6,15 @@
 ;  Copyright (C) 2006, 2009, 2010, 2011 Texas Instruments Incorporated
 ;  Author: Aurelien Jacquiot (aurelien.jacquiot@jaluna.com)
 ;
+;  This program is free software; you can redistribute it and/or modify
+;  it under the terms of the GNU General Public License version 2 as
+;  published by the Free Software Foundation.
+;
 #include <linux/linkage.h>
 
 ;
-;unsigned int csum_partial_copy_nocheck(const char *src, char * dst,
-;					int len, int sum)
+;unsigned int csum_partial_copy(const char *src, char * dst,
+;				int len, int sum)
 ;
 ; A4:	src
 ; B4:	dst
@@ -21,9 +24,10 @@
 ;
 
 	.text
-ENTRY(csum_partial_copy_nocheck)
+ENTRY(csum_partial_copy)
 	MVC	.S2	ILC,B30
 
+	MV	.D1X	B6,A31		; given csum
 	ZERO	.D1	A9		; csum (a side)
 ||	ZERO	.D2	B9		; csum (b side)
 ||	SHRU	.S2X	A6,2,B5		; len / 4
@@ -143,11 +147,12 @@ L91:	SHRU	.S2X	A9,16,B4
 	SHRU	.S1	A9,16,A0
    [A0]	BNOP	.S1	L91,5
 
-L10:	MV	.D1	A9,A4
+L10:	ADD	.D1	A31,A9,A9
+	MV	.D1	A9,A4
 
 	BNOP	.S2	B3,4
 	MVC	.S2	B30,ILC
-ENDPROC(csum_partial_copy_nocheck)
+ENDPROC(csum_partial_copy)
 
 ;
 ;unsigned short

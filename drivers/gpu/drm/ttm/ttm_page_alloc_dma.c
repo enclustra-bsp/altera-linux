@@ -33,6 +33,7 @@
  *   when freed).
  */
 
+#if defined(CONFIG_SWIOTLB) || defined(CONFIG_INTEL_IOMMU)
 #define pr_fmt(fmt) "[TTM] " fmt
 
 #include <linux/dma-mapping.h>
@@ -284,13 +285,9 @@ static int ttm_set_pages_caching(struct dma_pool *pool,
 
 static void __ttm_dma_free_page(struct dma_pool *pool, struct dma_page *d_page)
 {
-	unsigned long attrs = 0;
 	dma_addr_t dma = d_page->dma;
 	d_page->vaddr &= ~VADDR_FLAG_HUGE_POOL;
-	if (pool->type & IS_HUGE)
-		attrs = DMA_ATTR_NO_WARN;
-
-	dma_free_attrs(pool->dev, pool->size, (void *)d_page->vaddr, dma, attrs);
+	dma_free_coherent(pool->dev, pool->size, (void *)d_page->vaddr, dma);
 
 	kfree(d_page);
 	d_page = NULL;
@@ -604,7 +601,7 @@ static struct dma_pool *ttm_dma_pool_init(struct device *dev, gfp_t flags,
 	p = pool->name;
 	for (i = 0; i < ARRAY_SIZE(t); i++) {
 		if (type & t[i]) {
-			p += scnprintf(p, sizeof(pool->name) - (p - pool->name),
+			p += snprintf(p, sizeof(pool->name) - (p - pool->name),
 				      "%s", n[i]);
 		}
 	}
@@ -885,8 +882,8 @@ static gfp_t ttm_dma_pool_gfp_flags(struct ttm_dma_tt *ttm_dma, bool huge)
 int ttm_dma_populate(struct ttm_dma_tt *ttm_dma, struct device *dev,
 			struct ttm_operation_ctx *ctx)
 {
-	struct ttm_mem_global *mem_glob = &ttm_mem_glob;
 	struct ttm_tt *ttm = &ttm_dma->ttm;
+	struct ttm_mem_global *mem_glob = ttm->bdev->glob->mem_glob;
 	unsigned long num_pages = ttm->num_pages;
 	struct dma_pool *pool;
 	struct dma_page *d_page;
@@ -894,7 +891,7 @@ int ttm_dma_populate(struct ttm_dma_tt *ttm_dma, struct device *dev,
 	unsigned i;
 	int ret;
 
-	if (ttm_tt_is_populated(ttm))
+	if (ttm->state != tt_unpopulated)
 		return 0;
 
 	if (ttm_check_under_lowerlimit(mem_glob, num_pages, ctx))
@@ -982,7 +979,7 @@ skip_huge:
 		}
 	}
 
-	ttm_tt_set_populated(ttm);
+	ttm->state = tt_unbound;
 	return 0;
 }
 EXPORT_SYMBOL_GPL(ttm_dma_populate);
@@ -990,8 +987,8 @@ EXPORT_SYMBOL_GPL(ttm_dma_populate);
 /* Put all pages in pages list to correct pool to wait for reuse */
 void ttm_dma_unpopulate(struct ttm_dma_tt *ttm_dma, struct device *dev)
 {
-	struct ttm_mem_global *mem_glob = &ttm_mem_glob;
 	struct ttm_tt *ttm = &ttm_dma->ttm;
+	struct ttm_mem_global *mem_glob = ttm->bdev->glob->mem_glob;
 	struct dma_pool *pool;
 	struct dma_page *d_page, *next;
 	enum pool_type type;
@@ -1076,7 +1073,7 @@ void ttm_dma_unpopulate(struct ttm_dma_tt *ttm_dma, struct device *dev)
 	/* shrink pool if necessary (only on !is_cached pools)*/
 	if (npages)
 		ttm_dma_page_pool_free(pool, npages, false);
-	ttm_tt_set_unpopulated(ttm);
+	ttm->state = tt_unpopulated;
 }
 EXPORT_SYMBOL_GPL(ttm_dma_unpopulate);
 
@@ -1237,3 +1234,5 @@ int ttm_dma_page_alloc_debugfs(struct seq_file *m, void *data)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(ttm_dma_page_alloc_debugfs);
+
+#endif

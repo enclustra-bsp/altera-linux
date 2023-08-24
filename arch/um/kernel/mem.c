@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2000 - 2007 Jeff Dike (jdike@{addtoit,linux.intel}.com)
+ * Licensed under the GPL
  */
 
 #include <linux/stddef.h>
@@ -31,7 +31,6 @@ pgd_t swapper_pg_dir[PTRS_PER_PGD];
 
 /* Initialized at boot time, and readonly after that */
 unsigned long long highmem;
-EXPORT_SYMBOL(highmem);
 int kmalloc_ok = 0;
 
 /* Used during early boot */
@@ -52,8 +51,8 @@ void __init mem_init(void)
 
 	/* this will put all low memory onto the freelists */
 	memblock_free_all();
-	max_low_pfn = totalram_pages();
-	max_pfn = max_low_pfn;
+	max_low_pfn = totalram_pages;
+	max_pfn = totalram_pages;
 	mem_init_print_info(NULL);
 	kmalloc_ok = 1;
 }
@@ -67,10 +66,6 @@ static void __init one_page_table_init(pmd_t *pmd)
 	if (pmd_none(*pmd)) {
 		pte_t *pte = (pte_t *) memblock_alloc_low(PAGE_SIZE,
 							  PAGE_SIZE);
-		if (!pte)
-			panic("%s: Failed to allocate %lu bytes align=%lx\n",
-			      __func__, PAGE_SIZE, PAGE_SIZE);
-
 		set_pmd(pmd, __pmd(_KERNPG_TABLE +
 					   (unsigned long) __pa(pte)));
 		if (pte != pte_offset_kernel(pmd, 0))
@@ -82,10 +77,6 @@ static void __init one_md_table_init(pud_t *pud)
 {
 #ifdef CONFIG_3_LEVEL_PGTABLES
 	pmd_t *pmd_table = (pmd_t *) memblock_alloc_low(PAGE_SIZE, PAGE_SIZE);
-	if (!pmd_table)
-		panic("%s: Failed to allocate %lu bytes align=%lx\n",
-		      __func__, PAGE_SIZE, PAGE_SIZE);
-
 	set_pud(pud, __pud(_KERNPG_TABLE + (unsigned long) __pa(pmd_table)));
 	if (pmd_table != pmd_offset(pud, 0))
 		BUG();
@@ -96,7 +87,6 @@ static void __init fixrange_init(unsigned long start, unsigned long end,
 				 pgd_t *pgd_base)
 {
 	pgd_t *pgd;
-	p4d_t *p4d;
 	pud_t *pud;
 	pmd_t *pmd;
 	int i, j;
@@ -108,8 +98,7 @@ static void __init fixrange_init(unsigned long start, unsigned long end,
 	pgd = pgd_base + i;
 
 	for ( ; (i < PTRS_PER_PGD) && (vaddr < end); pgd++, i++) {
-		p4d = p4d_offset(pgd, vaddr);
-		pud = pud_offset(p4d, vaddr);
+		pud = pud_offset(pgd, vaddr);
 		if (pud_none(*pud))
 			one_md_table_init(pud);
 		pmd = pmd_offset(pud, vaddr);
@@ -125,6 +114,9 @@ static void __init fixaddr_user_init( void)
 {
 #ifdef CONFIG_ARCH_REUSE_HOST_VSYSCALL_AREA
 	long size = FIXADDR_USER_END - FIXADDR_USER_START;
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
 	pte_t *pte;
 	phys_t p;
 	unsigned long v, vaddr = FIXADDR_USER_START;
@@ -134,15 +126,14 @@ static void __init fixaddr_user_init( void)
 
 	fixrange_init( FIXADDR_USER_START, FIXADDR_USER_END, swapper_pg_dir);
 	v = (unsigned long) memblock_alloc_low(size, PAGE_SIZE);
-	if (!v)
-		panic("%s: Failed to allocate %lu bytes align=%lx\n",
-		      __func__, size, PAGE_SIZE);
-
 	memcpy((void *) v , (void *) FIXADDR_USER_START, size);
 	p = __pa(v);
 	for ( ; size > 0; size -= PAGE_SIZE, vaddr += PAGE_SIZE,
 		      p += PAGE_SIZE) {
-		pte = virt_to_kpte(vaddr);
+		pgd = swapper_pg_dir + pgd_index(vaddr);
+		pud = pud_offset(pgd, vaddr);
+		pmd = pmd_offset(pud, vaddr);
+		pte = pte_offset_kernel(pmd, vaddr);
 		pte_set_val(*pte, p, PAGE_READONLY);
 	}
 #endif
@@ -150,17 +141,17 @@ static void __init fixaddr_user_init( void)
 
 void __init paging_init(void)
 {
-	unsigned long max_zone_pfn[MAX_NR_ZONES] = { 0 };
-	unsigned long vaddr;
+	unsigned long zones_size[MAX_NR_ZONES], vaddr;
+	int i;
 
 	empty_zero_page = (unsigned long *) memblock_alloc_low(PAGE_SIZE,
 							       PAGE_SIZE);
-	if (!empty_zero_page)
-		panic("%s: Failed to allocate %lu bytes align=%lx\n",
-		      __func__, PAGE_SIZE, PAGE_SIZE);
+	for (i = 0; i < ARRAY_SIZE(zones_size); i++)
+		zones_size[i] = 0;
 
-	max_zone_pfn[ZONE_NORMAL] = end_iomem >> PAGE_SHIFT;
-	free_area_init(max_zone_pfn);
+	zones_size[ZONE_NORMAL] = (end_iomem >> PAGE_SHIFT) -
+		(uml_physmem >> PAGE_SHIFT);
+	free_area_init(zones_size);
 
 	/*
 	 * Fixed mappings, only the page table structure has to be
@@ -181,6 +172,13 @@ void free_initmem(void)
 {
 }
 
+#ifdef CONFIG_BLK_DEV_INITRD
+void free_initrd_mem(unsigned long start, unsigned long end)
+{
+	free_reserved_area((void *)start, (void *)end, -1, "initrd");
+}
+#endif
+
 /* Allocate and free page tables. */
 
 pgd_t *pgd_alloc(struct mm_struct *mm)
@@ -195,6 +193,45 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 	}
 	return pgd;
 }
+
+void pgd_free(struct mm_struct *mm, pgd_t *pgd)
+{
+	free_page((unsigned long) pgd);
+}
+
+pte_t *pte_alloc_one_kernel(struct mm_struct *mm, unsigned long address)
+{
+	pte_t *pte;
+
+	pte = (pte_t *)__get_free_page(GFP_KERNEL|__GFP_ZERO);
+	return pte;
+}
+
+pgtable_t pte_alloc_one(struct mm_struct *mm, unsigned long address)
+{
+	struct page *pte;
+
+	pte = alloc_page(GFP_KERNEL|__GFP_ZERO);
+	if (!pte)
+		return NULL;
+	if (!pgtable_page_ctor(pte)) {
+		__free_page(pte);
+		return NULL;
+	}
+	return pte;
+}
+
+#ifdef CONFIG_3_LEVEL_PGTABLES
+pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long address)
+{
+	pmd_t *pmd = (pmd_t *) __get_free_page(GFP_KERNEL);
+
+	if (pmd)
+		memset(pmd, 0, PAGE_SIZE);
+
+	return pmd;
+}
+#endif
 
 void *uml_kmalloc(int size, int flags)
 {

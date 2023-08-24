@@ -646,9 +646,8 @@ static int twl_allocate_memory(TW_Device_Extension *tw_dev, int size, int which)
 	unsigned long *cpu_addr;
 	int retval = 1;
 
-	cpu_addr = dma_alloc_coherent(&tw_dev->tw_pci_dev->dev,
-				      size * TW_Q_LENGTH, &dma_handle,
-				      GFP_KERNEL);
+	cpu_addr = dma_zalloc_coherent(&tw_dev->tw_pci_dev->dev,
+			size * TW_Q_LENGTH, &dma_handle, GFP_KERNEL);
 	if (!cpu_addr) {
 		TW_PRINTK(tw_dev->host, TW_DRIVER, 0x5, "Memory allocation failed");
 		goto out;
@@ -1551,6 +1550,7 @@ static struct scsi_host_template driver_template = {
 	.sg_tablesize		= TW_LIBERATOR_MAX_SGL_LENGTH,
 	.max_sectors		= TW_MAX_SECTORS,
 	.cmd_per_lun		= TW_MAX_CMDS_PER_LUN,
+	.use_clustering		= ENABLE_CLUSTERING,
 	.shost_attrs		= twl_host_attrs,
 	.emulated		= 1,
 	.no_write_same		= 1,
@@ -1573,10 +1573,8 @@ static int twl_probe(struct pci_dev *pdev, const struct pci_device_id *dev_id)
 	pci_set_master(pdev);
 	pci_try_set_mwi(pdev);
 
-	retval = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
-	if (retval)
-		retval = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
-	if (retval) {
+	if (dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64)) ||
+	    dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32))) {
 		TW_PRINTK(host, TW_DRIVER, 0x18, "Failed to set dma mask");
 		retval = -ENODEV;
 		goto out_disable_device;
@@ -1807,10 +1805,8 @@ static int twl_resume(struct pci_dev *pdev)
 	pci_set_master(pdev);
 	pci_try_set_mwi(pdev);
 
-	retval = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
-	if (retval)
-		retval = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
-	if (retval) {
+	if (dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64)) ||
+	    dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32))) {
 		TW_PRINTK(host, TW_DRIVER, 0x25, "Failed to set dma mask during resume");
 		retval = -ENODEV;
 		goto out_disable_device;

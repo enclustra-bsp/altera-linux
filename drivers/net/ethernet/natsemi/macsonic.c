@@ -51,8 +51,8 @@
 #include <linux/dma-mapping.h>
 #include <linux/bitrev.h>
 #include <linux/slab.h>
-#include <linux/pgtable.h>
 
+#include <asm/pgtable.h>
 #include <asm/io.h>
 #include <asm/hwtest.h>
 #include <asm/dma.h>
@@ -114,6 +114,17 @@ static inline void bit_reverse_addr(unsigned char addr[6])
 		addr[i] = bitrev8(addr[i]);
 }
 
+static irqreturn_t macsonic_interrupt(int irq, void *dev_id)
+{
+	irqreturn_t result;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	result = sonic_interrupt(irq, dev_id);
+	local_irq_restore(flags);
+	return result;
+}
+
 static int macsonic_open(struct net_device* dev)
 {
 	int retval;
@@ -124,12 +135,12 @@ static int macsonic_open(struct net_device* dev)
 				dev->name, dev->irq);
 		goto err;
 	}
-	/* Under the A/UX interrupt scheme, the onboard SONIC interrupt gets
-	 * moved from level 2 to level 3. Unfortunately we still get some
-	 * level 2 interrupts so register the handler for both.
+	/* Under the A/UX interrupt scheme, the onboard SONIC interrupt comes
+	 * in at priority level 3. However, we sometimes get the level 2 inter-
+	 * rupt as well, which must prevent re-entrance of the sonic handler.
 	 */
 	if (dev->irq == IRQ_AUTO_3) {
-		retval = request_irq(IRQ_NUBUS_9, sonic_interrupt, 0,
+		retval = request_irq(IRQ_NUBUS_9, macsonic_interrupt, 0,
 				     "sonic", dev);
 		if (retval) {
 			printk(KERN_ERR "%s: unable to get IRQ %d.\n",
@@ -175,10 +186,33 @@ static const struct net_device_ops macsonic_netdev_ops = {
 static int macsonic_init(struct net_device *dev)
 {
 	struct sonic_local* lp = netdev_priv(dev);
-	int err = sonic_alloc_descriptors(dev);
 
-	if (err)
-		return err;
+	/* Allocate the entire chunk of memory for the descriptors.
+           Note that this cannot cross a 64K boundary. */
+	lp->descriptors = dma_alloc_coherent(lp->device,
+					     SIZEOF_SONIC_DESC *
+					     SONIC_BUS_SCALE(lp->dma_bitmode),
+					     &lp->descriptors_laddr,
+					     GFP_KERNEL);
+	if (lp->descriptors == NULL)
+		return -ENOMEM;
+
+	/* Now set up the pointers to point to the appropriate places */
+	lp->cda = lp->descriptors;
+	lp->tda = lp->cda + (SIZEOF_SONIC_CDA
+	                     * SONIC_BUS_SCALE(lp->dma_bitmode));
+	lp->rda = lp->tda + (SIZEOF_SONIC_TD * SONIC_NUM_TDS
+	                     * SONIC_BUS_SCALE(lp->dma_bitmode));
+	lp->rra = lp->rda + (SIZEOF_SONIC_RD * SONIC_NUM_RDS
+	                     * SONIC_BUS_SCALE(lp->dma_bitmode));
+
+	lp->cda_laddr = lp->descriptors_laddr;
+	lp->tda_laddr = lp->cda_laddr + (SIZEOF_SONIC_CDA
+	                     * SONIC_BUS_SCALE(lp->dma_bitmode));
+	lp->rda_laddr = lp->tda_laddr + (SIZEOF_SONIC_TD * SONIC_NUM_TDS
+	                     * SONIC_BUS_SCALE(lp->dma_bitmode));
+	lp->rra_laddr = lp->rda_laddr + (SIZEOF_SONIC_RD * SONIC_NUM_RDS
+	                     * SONIC_BUS_SCALE(lp->dma_bitmode));
 
 	dev->netdev_ops = &macsonic_netdev_ops;
 	dev->watchdog_timeo = TX_TIMEOUT;
@@ -506,14 +540,10 @@ static int mac_sonic_platform_probe(struct platform_device *pdev)
 
 	err = register_netdev(dev);
 	if (err)
-		goto undo_probe;
+		goto out;
 
 	return 0;
 
-undo_probe:
-	dma_free_coherent(lp->device,
-			  SIZEOF_SONIC_DESC * SONIC_BUS_SCALE(lp->dma_bitmode),
-			  lp->descriptors, lp->descriptors_laddr);
 out:
 	free_netdev(dev);
 
@@ -588,16 +618,12 @@ static int mac_sonic_nubus_probe(struct nubus_board *board)
 
 	err = register_netdev(ndev);
 	if (err)
-		goto undo_probe;
+		goto out;
 
 	nubus_set_drvdata(board, ndev);
 
 	return 0;
 
-undo_probe:
-	dma_free_coherent(lp->device,
-			  SIZEOF_SONIC_DESC * SONIC_BUS_SCALE(lp->dma_bitmode),
-			  lp->descriptors, lp->descriptors_laddr);
 out:
 	free_netdev(ndev);
 	return err;

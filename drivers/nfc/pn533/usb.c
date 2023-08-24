@@ -1,9 +1,21 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Driver for NXP PN533 NFC Chip - USB transport layer
  *
  * Copyright (C) 2011 Instituto Nokia de Tecnologia
  * Copyright (C) 2012-2013 Tieto Poland
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <linux/device.h>
@@ -210,7 +222,7 @@ static void pn533_usb_abort_cmd(struct pn533 *dev, gfp_t flags)
 	usb_kill_urb(phy->in_urb);
 }
 
-/* ACR122 specific structs and functions */
+/* ACR122 specific structs and fucntions */
 
 /* ACS ACR122 pn533 frame definitions */
 #define PN533_ACR122_TX_FRAME_HEADER_LEN (sizeof(struct pn533_acr122_tx_frame) \
@@ -391,7 +403,7 @@ static int pn533_acr122_poweron_rdr(struct pn533_usb_phy *phy)
 		       cmd, sizeof(cmd), false);
 
 	rc = usb_bulk_msg(phy->udev, phy->out_urb->pipe, buffer, sizeof(cmd),
-			  &transferred, 5000);
+			  &transferred, 0);
 	kfree(buffer);
 	if (rc || (transferred != sizeof(cmd))) {
 		nfc_err(&phy->udev->dev,
@@ -534,9 +546,9 @@ static int pn533_usb_probe(struct usb_interface *interface,
 		goto error;
 	}
 
-	priv = pn53x_common_init(id->driver_info, protocol_type,
+	priv = pn533_register_device(id->driver_info, protocols, protocol_type,
 					phy, &usb_phy_ops, fops,
-					&phy->udev->dev);
+					&phy->udev->dev, &interface->dev);
 
 	if (IS_ERR(priv)) {
 		rc = PTR_ERR(priv);
@@ -547,28 +559,18 @@ static int pn533_usb_probe(struct usb_interface *interface,
 
 	rc = pn533_finalize_setup(priv);
 	if (rc)
-		goto err_clean;
+		goto error;
 
 	usb_set_intfdata(interface, phy);
-	rc = pn53x_register_nfc(priv, protocols, &interface->dev);
-	if (rc)
-		goto err_clean;
 
 	return 0;
 
-err_clean:
-	pn53x_common_clean(priv);
 error:
-	usb_kill_urb(phy->in_urb);
-	usb_kill_urb(phy->out_urb);
-	usb_kill_urb(phy->ack_urb);
-
 	usb_free_urb(phy->in_urb);
 	usb_free_urb(phy->out_urb);
 	usb_free_urb(phy->ack_urb);
 	usb_put_dev(phy->udev);
 	kfree(in_buf);
-	kfree(phy->ack_buffer);
 
 	return rc;
 }
@@ -580,8 +582,7 @@ static void pn533_usb_disconnect(struct usb_interface *interface)
 	if (!phy)
 		return;
 
-	pn53x_unregister_nfc(phy->priv);
-	pn53x_common_clean(phy->priv);
+	pn533_unregister_device(phy->priv);
 
 	usb_set_intfdata(interface, NULL);
 

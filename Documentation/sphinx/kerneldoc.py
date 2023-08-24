@@ -37,19 +37,7 @@ import glob
 from docutils import nodes, statemachine
 from docutils.statemachine import ViewList
 from docutils.parsers.rst import directives, Directive
-
-#
-# AutodocReporter is only good up to Sphinx 1.7
-#
-import sphinx
-
-Use_SSI = sphinx.__version__[:3] >= '1.7'
-if Use_SSI:
-    from sphinx.util.docutils import switch_source_input
-else:
-    from sphinx.ext.autodoc import AutodocReporter
-
-import kernellog
+from sphinx.ext.autodoc import AutodocReporter
 
 __version__  = '1.0'
 
@@ -59,22 +47,15 @@ class KernelDocDirective(Directive):
     optional_arguments = 4
     option_spec = {
         'doc': directives.unchanged_required,
+        'functions': directives.unchanged,
         'export': directives.unchanged,
         'internal': directives.unchanged,
-        'identifiers': directives.unchanged,
-        'no-identifiers': directives.unchanged,
-        'functions': directives.unchanged,
     }
     has_content = False
 
     def run(self):
         env = self.state.document.settings.env
         cmd = [env.config.kerneldoc_bin, '-rst', '-enable-lineno']
-
-	# Pass the version string to kernel-doc, as it needs to use a different
-	# dialect, depending what the C domain supports for each specific
-	# Sphinx versions
-        cmd += ['-sphinx-version', sphinx.__version__]
 
         filename = env.config.kerneldoc_srctree + '/' + self.arguments[0]
         export_file_patterns = []
@@ -83,10 +64,6 @@ class KernelDocDirective(Directive):
         env.note_dependency(os.path.abspath(filename))
 
         tab_width = self.options.get('tab-width', self.state.document.settings.tab_width)
-
-        # 'function' is an alias of 'identifiers'
-        if 'functions' in self.options:
-            self.options['identifiers'] = self.options.get('functions')
 
         # FIXME: make this nicer and more robust against errors
         if 'export' in self.options:
@@ -97,19 +74,13 @@ class KernelDocDirective(Directive):
             export_file_patterns = str(self.options.get('internal')).split()
         elif 'doc' in self.options:
             cmd += ['-function', str(self.options.get('doc'))]
-        elif 'identifiers' in self.options:
-            identifiers = self.options.get('identifiers').split()
-            if identifiers:
-                for i in identifiers:
-                    cmd += ['-function', i]
+        elif 'functions' in self.options:
+            functions = self.options.get('functions').split()
+            if functions:
+                for f in functions:
+                    cmd += ['-function', f]
             else:
                 cmd += ['-no-doc-sections']
-
-        if 'no-identifiers' in self.options:
-            no_identifiers = self.options.get('no-identifiers').split()
-            if no_identifiers:
-                for i in no_identifiers:
-                    cmd += ['-nosymbol', i]
 
         for pattern in export_file_patterns:
             for f in glob.glob(env.config.kerneldoc_srctree + '/' + pattern):
@@ -119,8 +90,7 @@ class KernelDocDirective(Directive):
         cmd += [filename]
 
         try:
-            kernellog.verbose(env.app,
-                              'calling kernel-doc \'%s\'' % (" ".join(cmd)))
+            env.app.verbose('calling kernel-doc \'%s\'' % (" ".join(cmd)))
 
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = p.communicate()
@@ -130,8 +100,7 @@ class KernelDocDirective(Directive):
             if p.returncode != 0:
                 sys.stderr.write(err)
 
-                kernellog.warn(env.app,
-                               'kernel-doc \'%s\' failed with return code %d' % (" ".join(cmd), p.returncode))
+                env.app.warn('kernel-doc \'%s\' failed with return code %d' % (" ".join(cmd), p.returncode))
                 return [nodes.error(None, nodes.paragraph(text = "kernel-doc missing"))]
             elif env.config.kerneldoc_verbosity > 0:
                 sys.stderr.write(err)
@@ -148,33 +117,24 @@ class KernelDocDirective(Directive):
                     lineoffset = int(match.group(1)) - 1
                     # we must eat our comments since the upset the markup
                 else:
-                    doc = env.srcdir + "/" + env.docname + ":" + str(self.lineno)
-                    result.append(line, doc + ": " + filename, lineoffset)
+                    result.append(line, filename, lineoffset)
                     lineoffset += 1
 
             node = nodes.section()
-            self.do_parse(result, node)
-
-            return node.children
-
-        except Exception as e:  # pylint: disable=W0703
-            kernellog.warn(env.app, 'kernel-doc \'%s\' processing failed with: %s' %
-                           (" ".join(cmd), str(e)))
-            return [nodes.error(None, nodes.paragraph(text = "kernel-doc missing"))]
-
-    def do_parse(self, result, node):
-        if Use_SSI:
-            with switch_source_input(self.state, result):
-                self.state.nested_parse(result, 0, node, match_titles=1)
-        else:
-            save = self.state.memo.title_styles, self.state.memo.section_level, self.state.memo.reporter
+            buf = self.state.memo.title_styles, self.state.memo.section_level, self.state.memo.reporter
             self.state.memo.reporter = AutodocReporter(result, self.state.memo.reporter)
             self.state.memo.title_styles, self.state.memo.section_level = [], 0
             try:
                 self.state.nested_parse(result, 0, node, match_titles=1)
             finally:
-                self.state.memo.title_styles, self.state.memo.section_level, self.state.memo.reporter = save
+                self.state.memo.title_styles, self.state.memo.section_level, self.state.memo.reporter = buf
 
+            return node.children
+
+        except Exception as e:  # pylint: disable=W0703
+            env.app.warn('kernel-doc \'%s\' processing failed with: %s' %
+                         (" ".join(cmd), str(e)))
+            return [nodes.error(None, nodes.paragraph(text = "kernel-doc missing"))]
 
 def setup(app):
     app.add_config_value('kerneldoc_bin', None, 'env')

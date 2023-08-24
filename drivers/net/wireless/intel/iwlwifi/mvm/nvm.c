@@ -178,8 +178,8 @@ static int iwl_nvm_read_chunk(struct iwl_mvm *mvm, u16 section,
 		} else {
 			IWL_DEBUG_EEPROM(mvm->trans->dev,
 					 "NVM access command failed with status %d (device: %s)\n",
-					 ret, mvm->trans->name);
-			ret = -ENODATA;
+					 ret, mvm->cfg->name);
+			ret = -EIO;
 		}
 		goto exit;
 	}
@@ -249,7 +249,7 @@ static int iwl_nvm_read_section(struct iwl_mvm *mvm, u16 section,
 	while (ret == length) {
 		/* Check no memory assumptions fail and cause an overflow */
 		if ((size_read + offset + length) >
-		    mvm->trans->trans_cfg->base_params->eeprom_size) {
+		    mvm->cfg->base_params->eeprom_size) {
 			IWL_ERR(mvm, "EEPROM size is too small for NVM\n");
 			return -ENOBUFS;
 		}
@@ -277,10 +277,11 @@ iwl_parse_nvm_sections(struct iwl_mvm *mvm)
 	struct iwl_nvm_section *sections = mvm->nvm_sections;
 	const __be16 *hw;
 	const __le16 *sw, *calib, *regulatory, *mac_override, *phy_sku;
+	bool lar_enabled;
 	int regulatory_type;
 
 	/* Checking for required sections */
-	if (mvm->trans->cfg->nvm_type == IWL_NVM) {
+	if (mvm->trans->cfg->nvm_type != IWL_NVM_EXT) {
 		if (!mvm->nvm_sections[NVM_SECTION_TYPE_SW].data ||
 		    !mvm->nvm_sections[mvm->cfg->nvm_hw_section_num].data) {
 			IWL_ERR(mvm, "Can't parse empty OTP/NVM sections\n");
@@ -308,8 +309,7 @@ iwl_parse_nvm_sections(struct iwl_mvm *mvm)
 		}
 
 		/* PHY_SKU section is mandatory in B0 */
-		if (mvm->trans->cfg->nvm_type == IWL_NVM_EXT &&
-		    !mvm->nvm_sections[NVM_SECTION_TYPE_PHY_SKU].data) {
+		if (!mvm->nvm_sections[NVM_SECTION_TYPE_PHY_SKU].data) {
 			IWL_ERR(mvm,
 				"Can't parse phy_sku in B0, empty sections\n");
 			return NULL;
@@ -327,9 +327,14 @@ iwl_parse_nvm_sections(struct iwl_mvm *mvm)
 		(const __le16 *)sections[NVM_SECTION_TYPE_REGULATORY_SDP].data :
 		(const __le16 *)sections[NVM_SECTION_TYPE_REGULATORY].data;
 
-	return iwl_parse_nvm_data(mvm->trans, mvm->cfg, mvm->fw, hw, sw, calib,
+	lar_enabled = !iwlwifi_mod_params.lar_disable &&
+		      fw_has_capa(&mvm->fw->ucode_capa,
+				  IWL_UCODE_TLV_CAPA_LAR_SUPPORT);
+
+	return iwl_parse_nvm_data(mvm->trans, mvm->cfg, hw, sw, calib,
 				  regulatory, mac_override, phy_sku,
-				  mvm->fw->valid_tx_ant, mvm->fw->valid_rx_ant);
+				  mvm->fw->valid_tx_ant, mvm->fw->valid_rx_ant,
+				  lar_enabled);
 }
 
 /* Loads the NVM data stored in mvm->nvm_sections into the NIC */
@@ -367,7 +372,7 @@ int iwl_nvm_init(struct iwl_mvm *mvm)
 	/* Read From FW NVM */
 	IWL_DEBUG_EEPROM(mvm->trans->dev, "Read from NVM\n");
 
-	nvm_buffer = kmalloc(mvm->trans->trans_cfg->base_params->eeprom_size,
+	nvm_buffer = kmalloc(mvm->cfg->base_params->eeprom_size,
 			     GFP_KERNEL);
 	if (!nvm_buffer)
 		return -ENOMEM;
@@ -375,12 +380,8 @@ int iwl_nvm_init(struct iwl_mvm *mvm)
 		/* we override the constness for initial read */
 		ret = iwl_nvm_read_section(mvm, section, nvm_buffer,
 					   size_read);
-		if (ret == -ENODATA) {
-			ret = 0;
-			continue;
-		}
 		if (ret < 0)
-			break;
+			continue;
 		size_read += ret;
 		temp = kmemdup(nvm_buffer, ret, GFP_KERNEL);
 		if (!temp) {
@@ -410,11 +411,6 @@ int iwl_nvm_init(struct iwl_mvm *mvm)
 		case NVM_SECTION_TYPE_PHY_SKU:
 			mvm->nvm_phy_sku_blob.data = temp;
 			mvm->nvm_phy_sku_blob.size  = ret;
-			break;
-		case NVM_SECTION_TYPE_REGULATORY_SDP:
-		case NVM_SECTION_TYPE_REGULATORY:
-			mvm->nvm_reg_blob.data = temp;
-			mvm->nvm_reg_blob.size  = ret;
 			break;
 		default:
 			if (section == mvm->cfg->nvm_hw_section_num) {
@@ -458,7 +454,7 @@ int iwl_nvm_init(struct iwl_mvm *mvm)
 	IWL_DEBUG_EEPROM(mvm->trans->dev, "nvm version = %x\n",
 			 mvm->nvm_data->nvm_version);
 
-	return ret < 0 ? ret : 0;
+	return 0;
 }
 
 struct iwl_mcc_update_resp *
@@ -615,7 +611,6 @@ void iwl_mvm_rx_chub_update_mcc(struct iwl_mvm *mvm,
 	enum iwl_mcc_source src;
 	char mcc[3];
 	struct ieee80211_regdomain *regd;
-	int wgds_tbl_idx;
 
 	lockdep_assert_held(&mvm->mutex);
 
@@ -638,14 +633,6 @@ void iwl_mvm_rx_chub_update_mcc(struct iwl_mvm *mvm,
 	regd = iwl_mvm_get_regdomain(mvm->hw->wiphy, mcc, src, NULL);
 	if (IS_ERR_OR_NULL(regd))
 		return;
-
-	wgds_tbl_idx = iwl_mvm_get_sar_geo_profile(mvm);
-	if (wgds_tbl_idx < 0)
-		IWL_DEBUG_INFO(mvm, "SAR WGDS is disabled (%d)\n",
-			       wgds_tbl_idx);
-	else
-		IWL_DEBUG_INFO(mvm, "SAR WGDS: geo profile %d is configured\n",
-			       wgds_tbl_idx);
 
 	regulatory_set_wiphy_regd(mvm->hw->wiphy, regd);
 	kfree(regd);

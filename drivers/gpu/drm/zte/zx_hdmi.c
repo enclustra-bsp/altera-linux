@@ -1,7 +1,11 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright 2016 Linaro Ltd.
  * Copyright 2016 ZTE Corporation.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
  */
 
 #include <linux/clk.h>
@@ -16,11 +20,10 @@
 #include <linux/of_device.h>
 
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_crtc_helper.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_of.h>
-#include <drm/drm_probe_helper.h>
-#include <drm/drm_print.h>
-#include <drm/drm_simple_kms_helper.h>
+#include <drm/drmP.h>
 
 #include <sound/hdmi-codec.h>
 
@@ -122,9 +125,7 @@ static int zx_hdmi_config_video_avi(struct zx_hdmi *hdmi,
 	union hdmi_infoframe frame;
 	int ret;
 
-	ret = drm_hdmi_avi_infoframe_from_display_mode(&frame.avi,
-						       &hdmi->connector,
-						       mode);
+	ret = drm_hdmi_avi_infoframe_from_display_mode(&frame.avi, mode, false);
 	if (ret) {
 		DRM_DEV_ERROR(hdmi->dev, "failed to get avi infoframe: %d\n",
 			      ret);
@@ -255,6 +256,10 @@ static const struct drm_encoder_helper_funcs zx_hdmi_encoder_helper_funcs = {
 	.mode_set = zx_hdmi_encoder_mode_set,
 };
 
+static const struct drm_encoder_funcs zx_hdmi_encoder_funcs = {
+	.destroy = drm_encoder_cleanup,
+};
+
 static int zx_hdmi_connector_get_modes(struct drm_connector *connector)
 {
 	struct zx_hdmi *hdmi = to_zx_hdmi(connector);
@@ -310,15 +315,14 @@ static int zx_hdmi_register(struct drm_device *drm, struct zx_hdmi *hdmi)
 
 	encoder->possible_crtcs = VOU_CRTC_MASK;
 
-	drm_simple_encoder_init(drm, encoder, DRM_MODE_ENCODER_TMDS);
+	drm_encoder_init(drm, encoder, &zx_hdmi_encoder_funcs,
+			 DRM_MODE_ENCODER_TMDS, NULL);
 	drm_encoder_helper_add(encoder, &zx_hdmi_encoder_helper_funcs);
 
 	hdmi->connector.polled = DRM_CONNECTOR_POLL_HPD;
 
-	drm_connector_init_with_ddc(drm, &hdmi->connector,
-				    &zx_hdmi_connector_funcs,
-				    DRM_MODE_CONNECTOR_HDMIA,
-				    &hdmi->ddc->adap);
+	drm_connector_init(drm, &hdmi->connector, &zx_hdmi_connector_funcs,
+			   DRM_MODE_CONNECTOR_HDMIA);
 	drm_connector_helper_add(&hdmi->connector,
 				 &zx_hdmi_connector_helper_funcs);
 
@@ -439,8 +443,8 @@ static int zx_hdmi_audio_hw_params(struct device *dev,
 	return zx_hdmi_infoframe_trans(hdmi, &frame, FSEL_AUDIO);
 }
 
-static int zx_hdmi_audio_mute(struct device *dev, void *data,
-			      bool enable, int direction)
+static int zx_hdmi_audio_digital_mute(struct device *dev, void *data,
+				      bool enable)
 {
 	struct zx_hdmi *hdmi = dev_get_drvdata(dev);
 
@@ -468,9 +472,8 @@ static const struct hdmi_codec_ops zx_hdmi_codec_ops = {
 	.audio_startup = zx_hdmi_audio_startup,
 	.hw_params = zx_hdmi_audio_hw_params,
 	.audio_shutdown = zx_hdmi_audio_shutdown,
-	.mute_stream = zx_hdmi_audio_mute,
+	.digital_mute = zx_hdmi_audio_digital_mute,
 	.get_eld = zx_hdmi_audio_get_eld,
-	.no_capture_mute = 1,
 };
 
 static struct hdmi_codec_pdata zx_hdmi_codec_pdata = {

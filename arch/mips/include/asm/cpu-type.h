@@ -17,16 +17,16 @@ static inline int __pure __get_cpu_type(const int cpu_type)
 	switch (cpu_type) {
 #if defined(CONFIG_SYS_HAS_CPU_LOONGSON2E) || \
     defined(CONFIG_SYS_HAS_CPU_LOONGSON2F)
-	case CPU_LOONGSON2EF:
+	case CPU_LOONGSON2:
 #endif
 
-#ifdef CONFIG_SYS_HAS_CPU_LOONGSON64
-	case CPU_LOONGSON64:
+#ifdef CONFIG_SYS_HAS_CPU_LOONGSON3
+	case CPU_LOONGSON3:
 #endif
 
 #if defined(CONFIG_SYS_HAS_CPU_LOONGSON1B) || \
     defined(CONFIG_SYS_HAS_CPU_LOONGSON1C)
-	case CPU_LOONGSON32:
+	case CPU_LOONGSON1:
 #endif
 
 #ifdef CONFIG_SYS_HAS_CPU_MIPS32_R1
@@ -38,7 +38,7 @@ static inline int __pure __get_cpu_type(const int cpu_type)
 #if defined(CONFIG_SYS_HAS_CPU_MIPS32_R1) || \
     defined(CONFIG_SYS_HAS_CPU_MIPS32_R2)
 	case CPU_4KEC:
-	case CPU_XBURST:
+	case CPU_JZRISC:
 #endif
 
 #ifdef CONFIG_SYS_HAS_CPU_MIPS32_R2
@@ -47,23 +47,17 @@ static inline int __pure __get_cpu_type(const int cpu_type)
 	case CPU_34K:
 	case CPU_1004K:
 	case CPU_74K:
-	case CPU_1074K:
 	case CPU_M14KC:
 	case CPU_M14KEC:
 	case CPU_INTERAPTIV:
 	case CPU_PROAPTIV:
-#endif
-
-#ifdef CONFIG_SYS_HAS_CPU_MIPS32_R5
-	case CPU_M5150:
 	case CPU_P5600:
+	case CPU_M5150:
 #endif
 
 #if defined(CONFIG_SYS_HAS_CPU_MIPS32_R2) || \
-    defined(CONFIG_SYS_HAS_CPU_MIPS32_R5) || \
     defined(CONFIG_SYS_HAS_CPU_MIPS32_R6) || \
     defined(CONFIG_SYS_HAS_CPU_MIPS64_R2) || \
-    defined(CONFIG_SYS_HAS_CPU_MIPS64_R5) || \
     defined(CONFIG_SYS_HAS_CPU_MIPS64_R6)
 	case CPU_QEMU_GENERIC:
 #endif
@@ -122,6 +116,11 @@ static inline int __pure __get_cpu_type(const int cpu_type)
 	case CPU_VR4181A:
 #endif
 
+#ifdef CONFIG_SYS_HAS_CPU_R4300
+	case CPU_R4300:
+	case CPU_R4310:
+#endif
+
 #ifdef CONFIG_SYS_HAS_CPU_R4X00
 	case CPU_R4000PC:
 	case CPU_R4000SC:
@@ -144,12 +143,20 @@ static inline int __pure __get_cpu_type(const int cpu_type)
 	case CPU_R5000:
 #endif
 
+#ifdef CONFIG_SYS_HAS_CPU_R5432
+	case CPU_R5432:
+#endif
+
 #ifdef CONFIG_SYS_HAS_CPU_R5500
 	case CPU_R5500:
 #endif
 
 #ifdef CONFIG_SYS_HAS_CPU_NEVADA
 	case CPU_NEVADA:
+#endif
+
+#ifdef CONFIG_SYS_HAS_CPU_R8000
+	case CPU_R8000:
 #endif
 
 #ifdef CONFIG_SYS_HAS_CPU_R10000

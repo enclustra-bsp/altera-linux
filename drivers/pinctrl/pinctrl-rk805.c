@@ -1,10 +1,14 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Pinctrl driver for Rockchip RK805 PMIC
  *
  * Copyright (c) 2017, Fuzhou Rockchip Electronics Co., Ltd
  *
  * Author: Joseph Chen <chenjh@rock-chips.com>
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under  the terms of the GNU General  Public License as published by the
+ * Free Software Foundation;  either version 2 of the License, or (at your
+ * option) any later version.
  *
  * Based on the pinctrl-as3722 driver
  */
@@ -73,7 +77,7 @@ struct rk805_pctrl_info {
 	int num_pin_groups;
 	const struct pinctrl_pin_desc *pins;
 	unsigned int num_pins;
-	const struct rk805_pin_config *pin_cfg;
+	struct rk805_pin_config *pin_cfg;
 };
 
 enum rk805_pinmux_option {
@@ -121,7 +125,7 @@ static const struct rk805_pin_group rk805_pin_groups[] = {
 #define RK805_GPIO0_VAL_MSK	BIT(0)
 #define RK805_GPIO1_VAL_MSK	BIT(1)
 
-static const struct rk805_pin_config rk805_gpio_cfgs[] = {
+static struct rk805_pin_config rk805_gpio_cfgs[] = {
 	{
 		.reg = RK805_OUT_REG,
 		.val_msk = RK805_GPIO0_VAL_MSK,
@@ -184,7 +188,7 @@ static int rk805_gpio_get_direction(struct gpio_chip *chip, unsigned int offset)
 
 	/* default output*/
 	if (!pci->pin_cfg[offset].dir_msk)
-		return GPIO_LINE_DIRECTION_OUT;
+		return 0;
 
 	ret = regmap_read(pci->rk808->regmap,
 			  pci->pin_cfg[offset].reg,
@@ -194,13 +198,10 @@ static int rk805_gpio_get_direction(struct gpio_chip *chip, unsigned int offset)
 		return ret;
 	}
 
-	if (val & pci->pin_cfg[offset].dir_msk)
-		return GPIO_LINE_DIRECTION_OUT;
-
-	return GPIO_LINE_DIRECTION_IN;
+	return !(val & pci->pin_cfg[offset].dir_msk);
 }
 
-static const struct gpio_chip rk805_gpio_chip = {
+static struct gpio_chip rk805_gpio_chip = {
 	.label			= "rk805-gpio",
 	.request		= gpiochip_generic_request,
 	.free			= gpiochip_generic_free,
@@ -407,7 +408,7 @@ static const struct pinconf_ops rk805_pinconf_ops = {
 	.pin_config_set = rk805_pinconf_set,
 };
 
-static const struct pinctrl_desc rk805_pinctrl_desc = {
+static struct pinctrl_desc rk805_pinctrl_desc = {
 	.name = "rk805-pinctrl",
 	.pctlops = &rk805_pinctrl_ops,
 	.pmxops = &rk805_pinmux_ops,

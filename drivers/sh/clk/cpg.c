@@ -36,6 +36,21 @@ static void sh_clk_write(int value, struct clk *clk)
 		iowrite32(value, clk->mapped_reg);
 }
 
+static unsigned int r8(const void __iomem *addr)
+{
+	return ioread8(addr);
+}
+
+static unsigned int r16(const void __iomem *addr)
+{
+	return ioread16(addr);
+}
+
+static unsigned int r32(const void __iomem *addr)
+{
+	return ioread32(addr);
+}
+
 static int sh_clk_mstp_enable(struct clk *clk)
 {
 	sh_clk_write(sh_clk_read(clk) & ~(1 << clk->enable_bit), clk);
@@ -46,11 +61,11 @@ static int sh_clk_mstp_enable(struct clk *clk)
 			(phys_addr_t)clk->enable_reg + clk->mapped_reg;
 
 		if (clk->flags & CLK_ENABLE_REG_8BIT)
-			read = ioread8;
+			read = r8;
 		else if (clk->flags & CLK_ENABLE_REG_16BIT)
-			read = ioread16;
+			read = r16;
 		else
-			read = ioread32;
+			read = r32;
 
 		for (i = 1000;
 		     (read(mapped_status) & (1 << clk->enable_bit)) && i;

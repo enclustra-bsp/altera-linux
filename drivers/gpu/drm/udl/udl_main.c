@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2012 Red Hat
  *
@@ -6,12 +5,13 @@
  * Copyright (C) 2009 Roberto De Ioris <roberto@unbit.it>
  * Copyright (C) 2009 Jaya Kumar <jayakumar.lkml@gmail.com>
  * Copyright (C) 2009 Bernie Thompson <bernie@plugable.com>
+ *
+ * This file is subject to the terms and conditions of the GNU General Public
+ * License v2. See the file COPYING in the main directory of this archive for
+ * more details.
  */
-
-#include <drm/drm.h>
-#include <drm/drm_print.h>
-#include <drm/drm_probe_helper.h>
-
+#include <drm/drmP.h>
+#include <drm/drm_crtc_helper.h>
 #include "udl_drv.h"
 
 /* -BULK_SIZE as per usb-skeleton. Can we get full page and avoid overhead? */
@@ -29,7 +29,7 @@
 static int udl_parse_vendor_descriptor(struct drm_device *dev,
 				       struct usb_device *usbdev)
 {
-	struct udl_device *udl = to_udl(dev);
+	struct udl_device *udl = dev->dev_private;
 	char *desc;
 	char *buf;
 	char *desc_end;
@@ -140,6 +140,7 @@ void udl_urb_completion(struct urb *urb)
 		    urb->status == -ESHUTDOWN)) {
 			DRM_ERROR("%s - nonzero write bulk status received: %d\n",
 				__func__, urb->status);
+			atomic_set(&udl->lost_pixels, 1);
 		}
 	}
 
@@ -164,7 +165,7 @@ void udl_urb_completion(struct urb *urb)
 
 static void udl_free_urb_list(struct drm_device *dev)
 {
-	struct udl_device *udl = to_udl(dev);
+	struct udl_device *udl = dev->dev_private;
 	int count = udl->urbs.count;
 	struct list_head *node;
 	struct urb_node *unode;
@@ -197,7 +198,7 @@ static void udl_free_urb_list(struct drm_device *dev)
 
 static int udl_alloc_urb_list(struct drm_device *dev, int count, size_t size)
 {
-	struct udl_device *udl = to_udl(dev);
+	struct udl_device *udl = dev->dev_private;
 	struct urb *urb;
 	struct urb_node *unode;
 	char *buf;
@@ -261,7 +262,7 @@ retry:
 
 struct urb *udl_get_urb(struct drm_device *dev)
 {
-	struct udl_device *udl = to_udl(dev);
+	struct udl_device *udl = dev->dev_private;
 	int ret = 0;
 	struct list_head *entry;
 	struct urb_node *unode;
@@ -270,6 +271,7 @@ struct urb *udl_get_urb(struct drm_device *dev)
 	/* Wait for an in-flight buffer to complete and get re-queued */
 	ret = down_timeout(&udl->urbs.limit_sem, GET_URB_TIMEOUT);
 	if (ret) {
+		atomic_set(&udl->lost_pixels, 1);
 		DRM_INFO("wait for urb interrupted: %x available: %d\n",
 		       ret, udl->urbs.available);
 		goto error;
@@ -293,7 +295,7 @@ error:
 
 int udl_submit_urb(struct drm_device *dev, struct urb *urb, size_t len)
 {
-	struct udl_device *udl = to_udl(dev);
+	struct udl_device *udl = dev->dev_private;
 	int ret;
 
 	BUG_ON(len > udl->urbs.size);
@@ -302,21 +304,26 @@ int udl_submit_urb(struct drm_device *dev, struct urb *urb, size_t len)
 	ret = usb_submit_urb(urb, GFP_ATOMIC);
 	if (ret) {
 		udl_urb_completion(urb); /* because no one else will */
+		atomic_set(&udl->lost_pixels, 1);
 		DRM_ERROR("usb_submit_urb error %x\n", ret);
 	}
 	return ret;
 }
 
-int udl_init(struct udl_device *udl)
+int udl_driver_load(struct drm_device *dev, unsigned long flags)
 {
-	struct drm_device *dev = &udl->drm;
+	struct usb_device *udev = (void*)flags;
+	struct udl_device *udl;
 	int ret = -ENOMEM;
 
 	DRM_DEBUG("\n");
+	udl = kzalloc(sizeof(struct udl_device), GFP_KERNEL);
+	if (!udl)
+		return -ENOMEM;
 
-	udl->dmadev = usb_intf_get_dma_device(to_usb_interface(dev->dev));
-	if (!udl->dmadev)
-		drm_warn(dev, "buffer sharing not supported"); /* not an error */
+	udl->udev = udev;
+	udl->ddev = dev;
+	dev->dev_private = udl;
 
 	mutex_init(&udl->gem_lock);
 
@@ -339,25 +346,43 @@ int udl_init(struct udl_device *udl)
 	if (ret)
 		goto err;
 
+	ret = udl_fbdev_init(dev);
+	if (ret)
+		goto err;
+
+	ret = drm_vblank_init(dev, 1);
+	if (ret)
+		goto err_fb;
+
 	drm_kms_helper_poll_init(dev);
 
 	return 0;
-
+err_fb:
+	udl_fbdev_cleanup(dev);
 err:
 	if (udl->urbs.count)
 		udl_free_urb_list(dev);
-	put_device(udl->dmadev);
+	kfree(udl);
 	DRM_ERROR("%d\n", ret);
 	return ret;
 }
 
 int udl_drop_usb(struct drm_device *dev)
 {
-	struct udl_device *udl = to_udl(dev);
-
 	udl_free_urb_list(dev);
-	put_device(udl->dmadev);
-	udl->dmadev = NULL;
-
 	return 0;
+}
+
+void udl_driver_unload(struct drm_device *dev)
+{
+	struct udl_device *udl = dev->dev_private;
+
+	drm_kms_helper_poll_fini(dev);
+
+	if (udl->urbs.count)
+		udl_free_urb_list(dev);
+
+	udl_fbdev_cleanup(dev);
+	udl_modeset_cleanup(dev);
+	kfree(udl);
 }

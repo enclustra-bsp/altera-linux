@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * System timer for CSR SiRFprimaII
  *
  * Copyright (c) 2011 Cambridge Silicon Radio Limited, a CSR plc group company.
+ *
+ * Licensed under GPLv2 or later.
  */
 
 #include <linux/kernel.h>
@@ -159,23 +160,29 @@ static struct clocksource sirfsoc_clocksource = {
 	.resume = sirfsoc_clocksource_resume,
 };
 
-static unsigned int sirfsoc_timer_irq, sirfsoc_timer1_irq;
+static struct irqaction sirfsoc_timer_irq = {
+	.name = "sirfsoc_timer0",
+	.flags = IRQF_TIMER | IRQF_NOBALANCING,
+	.handler = sirfsoc_timer_interrupt,
+};
+
+static struct irqaction sirfsoc_timer1_irq = {
+	.name = "sirfsoc_timer1",
+	.flags = IRQF_TIMER | IRQF_NOBALANCING,
+	.handler = sirfsoc_timer_interrupt,
+};
 
 static int sirfsoc_local_timer_starting_cpu(unsigned int cpu)
 {
 	struct clock_event_device *ce = per_cpu_ptr(sirfsoc_clockevent, cpu);
-	unsigned int irq;
-	const char *name;
+	struct irqaction *action;
 
-	if (cpu == 0) {
-		irq = sirfsoc_timer_irq;
-		name = "sirfsoc_timer0";
-	} else {
-		irq = sirfsoc_timer1_irq;
-		name = "sirfsoc_timer1";
-	}
+	if (cpu == 0)
+		action = &sirfsoc_timer_irq;
+	else
+		action = &sirfsoc_timer1_irq;
 
-	ce->irq = irq;
+	ce->irq = action->irq;
 	ce->name = "local_timer";
 	ce->features = CLOCK_EVT_FEAT_ONESHOT;
 	ce->rating = 200;
@@ -190,9 +197,9 @@ static int sirfsoc_local_timer_starting_cpu(unsigned int cpu)
 	ce->min_delta_ticks = 2;
 	ce->cpumask = cpumask_of(cpu);
 
-	BUG_ON(request_irq(ce->irq, sirfsoc_timer_interrupt,
-			   IRQF_TIMER | IRQF_NOBALANCING, name, ce));
-	irq_force_affinity(ce->irq, cpumask_of(cpu));
+	action->dev_id = ce;
+	BUG_ON(setup_irq(ce->irq, action));
+	irq_force_affinity(action->irq, cpumask_of(cpu));
 
 	clockevents_register_device(ce);
 	return 0;
@@ -200,14 +207,12 @@ static int sirfsoc_local_timer_starting_cpu(unsigned int cpu)
 
 static int sirfsoc_local_timer_dying_cpu(unsigned int cpu)
 {
-	struct clock_event_device *ce = per_cpu_ptr(sirfsoc_clockevent, cpu);
-
 	sirfsoc_timer_count_disable(1);
 
 	if (cpu == 0)
-		free_irq(sirfsoc_timer_irq, ce);
+		remove_irq(sirfsoc_timer_irq.irq, &sirfsoc_timer_irq);
 	else
-		free_irq(sirfsoc_timer1_irq, ce);
+		remove_irq(sirfsoc_timer1_irq.irq, &sirfsoc_timer1_irq);
 	return 0;
 }
 
@@ -264,14 +269,14 @@ static int __init sirfsoc_of_timer_init(struct device_node *np)
 		return -ENXIO;
 	}
 
-	sirfsoc_timer_irq = irq_of_parse_and_map(np, 0);
-	if (!sirfsoc_timer_irq) {
+	sirfsoc_timer_irq.irq = irq_of_parse_and_map(np, 0);
+	if (!sirfsoc_timer_irq.irq) {
 		pr_err("No irq passed for timer0 via DT\n");
 		return -EINVAL;
 	}
 
-	sirfsoc_timer1_irq = irq_of_parse_and_map(np, 1);
-	if (!sirfsoc_timer1_irq) {
+	sirfsoc_timer1_irq.irq = irq_of_parse_and_map(np, 1);
+	if (!sirfsoc_timer1_irq.irq) {
 		pr_err("No irq passed for timer1 via DT\n");
 		return -EINVAL;
 	}

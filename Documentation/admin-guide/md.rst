@@ -5,7 +5,7 @@ Boot time assembly of RAID arrays
 ---------------------------------
 
 Tools that manage md devices can be found at
-   https://www.kernel.org/pub/linux/utils/raid/
+   http://www.kernel.org/pub/linux/utils/raid/
 
 
 You can boot with your md device with the following kernel command
@@ -426,10 +426,6 @@ All md devices contain:
      The accepted values when writing to this file are ``ppl`` and ``resync``,
      used to enable and disable PPL.
 
-  uuid
-     This indicates the UUID of the array in the following format:
-     xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-
 
 As component devices are added to an md array, they appear in the ``md``
 directory as new directories named::
@@ -760,6 +756,3 @@ These currently include:
       The cache mode for raid5. raid5 could include an extra disk for
       caching. The mode can be "write-throuth" and "write-back". The
       default is "write-through".
-
-  ppl_write_hint
-      NVMe stream ID to be set for each PPL write request.

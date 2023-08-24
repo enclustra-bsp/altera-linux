@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  * spectrum management
  *
@@ -9,7 +8,11 @@
  * Copyright 2007, Michael Wu <flamingice@sourmilk.net>
  * Copyright 2007-2008, Intel Corporation
  * Copyright 2008, Johannes Berg <johannes@sipsolutions.net>
- * Copyright (C) 2018, 2020 Intel Corporation
+ * Copyright (C) 2018        Intel Corporation
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
  */
 
 #include <linux/ieee80211.h>
@@ -22,7 +25,6 @@
 int ieee80211_parse_ch_switch_ie(struct ieee80211_sub_if_data *sdata,
 				 struct ieee802_11_elems *elems,
 				 enum nl80211_band current_band,
-				 u32 vht_cap_info,
 				 u32 sta_flags, u8 *bssid,
 				 struct ieee80211_csa_ie *csa_ie)
 {
@@ -133,20 +135,16 @@ int ieee80211_parse_ch_switch_ie(struct ieee80211_sub_if_data *sdata,
 	}
 
 	if (wide_bw_chansw_ie) {
-		u8 new_seg1 = wide_bw_chansw_ie->new_center_freq_seg1;
 		struct ieee80211_vht_operation vht_oper = {
 			.chan_width =
 				wide_bw_chansw_ie->new_channel_width,
 			.center_freq_seg0_idx =
 				wide_bw_chansw_ie->new_center_freq_seg0,
-			.center_freq_seg1_idx = new_seg1,
+			.center_freq_seg1_idx =
+				wide_bw_chansw_ie->new_center_freq_seg1,
 			/* .basic_mcs_set doesn't matter */
 		};
-		struct ieee80211_ht_operation ht_oper = {
-			.operation_mode =
-				cpu_to_le16(new_seg1 <<
-					    IEEE80211_HT_OP_MODE_CCFS2_SHIFT),
-		};
+		struct ieee80211_ht_operation ht_oper = {};
 
 		/* default, for the case of IEEE80211_VHT_CHANWIDTH_USE_HT,
 		 * to the previously parsed chandef
@@ -155,7 +153,6 @@ int ieee80211_parse_ch_switch_ie(struct ieee80211_sub_if_data *sdata,
 
 		/* ignore if parsing fails */
 		if (!ieee80211_chandef_vht_oper(&sdata->local->hw,
-						vht_cap_info,
 						&vht_oper, &ht_oper,
 						&new_vht_chandef))
 			new_vht_chandef.chan = NULL;
@@ -179,12 +176,6 @@ int ieee80211_parse_ch_switch_ie(struct ieee80211_sub_if_data *sdata,
 		}
 		csa_ie->chandef = new_vht_chandef;
 	}
-
-	if (elems->max_channel_switch_time)
-		csa_ie->max_switch_time =
-			(elems->max_channel_switch_time[0] << 0) |
-			(elems->max_channel_switch_time[1] <<  8) |
-			(elems->max_channel_switch_time[2] << 16);
 
 	return 0;
 }

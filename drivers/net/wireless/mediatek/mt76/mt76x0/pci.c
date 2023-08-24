@@ -1,6 +1,17 @@
-// SPDX-License-Identifier: ISC
 /*
  * Copyright (C) 2016 Felix Fietkau <nbd@nbd.name>
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 #include <linux/kernel.h>
@@ -14,13 +25,17 @@ static int mt76x0e_start(struct ieee80211_hw *hw)
 {
 	struct mt76x02_dev *dev = hw->priv;
 
+	mutex_lock(&dev->mt76.mutex);
+
 	mt76x02_mac_start(dev);
 	mt76x0_phy_calibrate(dev, true);
-	ieee80211_queue_delayed_work(dev->mt76.hw, &dev->mt76.mac_work,
-				     MT_MAC_WORK_INTERVAL);
+	ieee80211_queue_delayed_work(dev->mt76.hw, &dev->mac_work,
+				     MT_CALIBRATE_INTERVAL);
 	ieee80211_queue_delayed_work(dev->mt76.hw, &dev->cal_work,
 				     MT_CALIBRATE_INTERVAL);
-	set_bit(MT76_STATE_RUNNING, &dev->mphy.state);
+	set_bit(MT76_STATE_RUNNING, &dev->mt76.state);
+
+	mutex_unlock(&dev->mt76.mutex);
 
 	return 0;
 }
@@ -28,8 +43,7 @@ static int mt76x0e_start(struct ieee80211_hw *hw)
 static void mt76x0e_stop_hw(struct mt76x02_dev *dev)
 {
 	cancel_delayed_work_sync(&dev->cal_work);
-	cancel_delayed_work_sync(&dev->mt76.mac_work);
-	clear_bit(MT76_RESTART, &dev->mphy.state);
+	cancel_delayed_work_sync(&dev->mac_work);
 
 	if (!mt76_poll(dev, MT_WPDMA_GLO_CFG, MT_WPDMA_GLO_CFG_TX_DMA_BUSY,
 		       0, 1000))
@@ -48,14 +62,10 @@ static void mt76x0e_stop(struct ieee80211_hw *hw)
 {
 	struct mt76x02_dev *dev = hw->priv;
 
-	clear_bit(MT76_STATE_RUNNING, &dev->mphy.state);
+	mutex_lock(&dev->mt76.mutex);
+	clear_bit(MT76_STATE_RUNNING, &dev->mt76.state);
 	mt76x0e_stop_hw(dev);
-}
-
-static void
-mt76x0e_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
-	      u32 queues, bool drop)
-{
+	mutex_unlock(&dev->mt76.mutex);
 }
 
 static const struct ieee80211_ops mt76x0e_ops = {
@@ -66,25 +76,15 @@ static const struct ieee80211_ops mt76x0e_ops = {
 	.remove_interface = mt76x02_remove_interface,
 	.config = mt76x0_config,
 	.configure_filter = mt76x02_configure_filter,
-	.bss_info_changed = mt76x02_bss_info_changed,
-	.sta_state = mt76_sta_state,
-	.sta_pre_rcu_remove = mt76_sta_pre_rcu_remove,
+	.sta_add = mt76x02_sta_add,
+	.sta_remove = mt76x02_sta_remove,
 	.set_key = mt76x02_set_key,
 	.conf_tx = mt76x02_conf_tx,
-	.sw_scan_start = mt76_sw_scan,
-	.sw_scan_complete = mt76x02_sw_scan_complete,
+	.sw_scan_start = mt76x0_sw_scan,
+	.sw_scan_complete = mt76x0_sw_scan_complete,
 	.ampdu_action = mt76x02_ampdu_action,
 	.sta_rate_tbl_update = mt76x02_sta_rate_tbl_update,
 	.wake_tx_queue = mt76_wake_tx_queue,
-	.get_survey = mt76_get_survey,
-	.get_txpower = mt76_get_txpower,
-	.flush = mt76x0e_flush,
-	.set_tim = mt76_set_tim,
-	.release_buffered_frames = mt76_release_buffered_frames,
-	.set_coverage_class = mt76x02_set_coverage_class,
-	.set_rts_threshold = mt76x02_set_rts_threshold,
-	.get_antenna = mt76_get_antenna,
-	.reconfig_complete = mt76x02_reconfig_complete,
 };
 
 static int mt76x0e_register_device(struct mt76x02_dev *dev)
@@ -108,8 +108,6 @@ static int mt76x0e_register_device(struct mt76x02_dev *dev)
 	if (err < 0)
 		return err;
 
-	mt76x02e_init_beacon_config(dev);
-
 	if (mt76_chip(&dev->mt76) == 0x7610) {
 		u16 val;
 
@@ -127,7 +125,7 @@ static int mt76x0e_register_device(struct mt76x02_dev *dev)
 	if (err < 0)
 		return err;
 
-	set_bit(MT76_STATE_INITIALIZED, &dev->mphy.state);
+	set_bit(MT76_STATE_INITIALIZED, &dev->mt76.state);
 
 	return 0;
 }
@@ -137,20 +135,12 @@ mt76x0e_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	static const struct mt76_driver_ops drv_ops = {
 		.txwi_size = sizeof(struct mt76x02_txwi),
-		.drv_flags = MT_DRV_TX_ALIGNED4_SKBS |
-			     MT_DRV_SW_RX_AIRTIME,
-		.survey_flags = SURVEY_INFO_TIME_TX,
-		.update_survey = mt76x02_update_channel,
 		.tx_prepare_skb = mt76x02_tx_prepare_skb,
 		.tx_complete_skb = mt76x02_tx_complete_skb,
 		.rx_skb = mt76x02_queue_rx_skb,
 		.rx_poll_complete = mt76x02_rx_poll_complete,
-		.sta_ps = mt76x02_sta_ps,
-		.sta_add = mt76x02_sta_add,
-		.sta_remove = mt76x02_sta_remove,
 	};
 	struct mt76x02_dev *dev;
-	struct mt76_dev *mdev;
 	int ret;
 
 	ret = pcim_enable_device(pdev);
@@ -167,22 +157,16 @@ mt76x0e_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (ret)
 		return ret;
 
-	mdev = mt76_alloc_device(&pdev->dev, sizeof(*dev), &mt76x0e_ops,
-				 &drv_ops);
-	if (!mdev)
+	dev = mt76x0_alloc_device(&pdev->dev, &drv_ops, &mt76x0e_ops);
+	if (!dev)
 		return -ENOMEM;
 
-	dev = container_of(mdev, struct mt76x02_dev, mt76);
-	mutex_init(&dev->phy_mutex);
+	mt76_mmio_init(&dev->mt76, pcim_iomap_table(pdev)[0]);
 
-	mt76_mmio_init(mdev, pcim_iomap_table(pdev)[0]);
+	dev->mt76.rev = mt76_rr(dev, MT_ASIC_VERSION);
+	dev_info(dev->mt76.dev, "ASIC revision: %08x\n", dev->mt76.rev);
 
-	mdev->rev = mt76_rr(dev, MT_ASIC_VERSION);
-	dev_info(mdev->dev, "ASIC revision: %08x\n", mdev->rev);
-
-	mt76_wr(dev, MT_INT_MASK_CSR, 0);
-
-	ret = devm_request_irq(mdev->dev, pdev->irq, mt76x02_irq_handler,
+	ret = devm_request_irq(dev->mt76.dev, pdev->irq, mt76x02_irq_handler,
 			       IRQF_SHARED, KBUILD_MODNAME, dev);
 	if (ret)
 		goto error;
@@ -194,18 +178,16 @@ mt76x0e_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	return 0;
 
 error:
-	mt76_free_device(&dev->mt76);
-
+	ieee80211_free_hw(mt76_hw(dev));
 	return ret;
 }
 
 static void mt76x0e_cleanup(struct mt76x02_dev *dev)
 {
-	clear_bit(MT76_STATE_INITIALIZED, &dev->mphy.state);
-	tasklet_disable(&dev->mt76.pre_tbtt_tasklet);
+	clear_bit(MT76_STATE_INITIALIZED, &dev->mt76.state);
 	mt76x0_chip_onoff(dev, false, false);
 	mt76x0e_stop_hw(dev);
-	mt76_dma_cleanup(&dev->mt76);
+	mt76x02_dma_cleanup(dev);
 	mt76x02_mcu_cleanup(dev);
 }
 
@@ -217,19 +199,16 @@ mt76x0e_remove(struct pci_dev *pdev)
 
 	mt76_unregister_device(mdev);
 	mt76x0e_cleanup(dev);
-	mt76_free_device(mdev);
+	ieee80211_free_hw(mdev->hw);
 }
 
 static const struct pci_device_id mt76x0e_device_table[] = {
-	{ PCI_DEVICE(0x14c3, 0x7610) },
 	{ PCI_DEVICE(0x14c3, 0x7630) },
 	{ PCI_DEVICE(0x14c3, 0x7650) },
 	{ },
 };
 
 MODULE_DEVICE_TABLE(pci, mt76x0e_device_table);
-MODULE_FIRMWARE(MT7610E_FIRMWARE);
-MODULE_FIRMWARE(MT7650E_FIRMWARE);
 MODULE_LICENSE("Dual BSD/GPL");
 
 static struct pci_driver mt76x0e_driver = {

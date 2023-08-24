@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/kernel/profile.c
  *  Simple profiling. Manages a direct-mapped profile hit count buffer,
@@ -41,8 +40,7 @@ struct profile_hit {
 #define NR_PROFILE_GRP		(NR_PROFILE_HIT/PROFILE_GRPSZ)
 
 static atomic_t *prof_buffer;
-static unsigned long prof_len;
-static unsigned short int prof_shift;
+static unsigned long prof_len, prof_shift;
 
 int prof_on __read_mostly;
 EXPORT_SYMBOL_GPL(prof_on);
@@ -68,8 +66,8 @@ int profile_setup(char *str)
 		if (str[strlen(sleepstr)] == ',')
 			str += strlen(sleepstr) + 1;
 		if (get_option(&str, &par))
-			prof_shift = clamp(par, 0, BITS_PER_LONG - 1);
-		pr_info("kernel sleep profiling enabled (shift: %u)\n",
+			prof_shift = par;
+		pr_info("kernel sleep profiling enabled (shift: %ld)\n",
 			prof_shift);
 #else
 		pr_warn("kernel sleep profiling requires CONFIG_SCHEDSTATS\n");
@@ -79,21 +77,21 @@ int profile_setup(char *str)
 		if (str[strlen(schedstr)] == ',')
 			str += strlen(schedstr) + 1;
 		if (get_option(&str, &par))
-			prof_shift = clamp(par, 0, BITS_PER_LONG - 1);
-		pr_info("kernel schedule profiling enabled (shift: %u)\n",
+			prof_shift = par;
+		pr_info("kernel schedule profiling enabled (shift: %ld)\n",
 			prof_shift);
 	} else if (!strncmp(str, kvmstr, strlen(kvmstr))) {
 		prof_on = KVM_PROFILING;
 		if (str[strlen(kvmstr)] == ',')
 			str += strlen(kvmstr) + 1;
 		if (get_option(&str, &par))
-			prof_shift = clamp(par, 0, BITS_PER_LONG - 1);
-		pr_info("kernel KVM profiling enabled (shift: %u)\n",
+			prof_shift = par;
+		pr_info("kernel KVM profiling enabled (shift: %ld)\n",
 			prof_shift);
 	} else if (get_option(&str, &par)) {
-		prof_shift = clamp(par, 0, BITS_PER_LONG - 1);
+		prof_shift = par;
 		prof_on = CPU_PROFILING;
-		pr_info("kernel profiling enabled (shift: %u)\n",
+		pr_info("kernel profiling enabled (shift: %ld)\n",
 			prof_shift);
 	}
 	return 1;
@@ -337,7 +335,7 @@ static int profile_dead_cpu(unsigned int cpu)
 	struct page *page;
 	int i;
 
-	if (cpumask_available(prof_cpu_mask))
+	if (prof_cpu_mask != NULL)
 		cpumask_clear_cpu(cpu, prof_cpu_mask);
 
 	for (i = 0; i < 2; i++) {
@@ -374,7 +372,7 @@ static int profile_prepare_cpu(unsigned int cpu)
 
 static int profile_online_cpu(unsigned int cpu)
 {
-	if (cpumask_available(prof_cpu_mask))
+	if (prof_cpu_mask != NULL)
 		cpumask_set_cpu(cpu, prof_cpu_mask);
 
 	return 0;
@@ -404,7 +402,7 @@ void profile_tick(int type)
 {
 	struct pt_regs *regs = get_irq_regs();
 
-	if (!user_mode(regs) && cpumask_available(prof_cpu_mask) &&
+	if (!user_mode(regs) && prof_cpu_mask != NULL &&
 	    cpumask_test_cpu(smp_processor_id(), prof_cpu_mask))
 		profile_hit(type, (void *)profile_pc(regs));
 }
@@ -443,18 +441,18 @@ static ssize_t prof_cpu_mask_proc_write(struct file *file,
 	return err;
 }
 
-static const struct proc_ops prof_cpu_mask_proc_ops = {
-	.proc_open	= prof_cpu_mask_proc_open,
-	.proc_read	= seq_read,
-	.proc_lseek	= seq_lseek,
-	.proc_release	= single_release,
-	.proc_write	= prof_cpu_mask_proc_write,
+static const struct file_operations prof_cpu_mask_proc_fops = {
+	.open		= prof_cpu_mask_proc_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+	.write		= prof_cpu_mask_proc_write,
 };
 
 void create_prof_cpu_mask(void)
 {
 	/* create /proc/irq/prof_cpu_mask */
-	proc_create("irq/prof_cpu_mask", 0600, NULL, &prof_cpu_mask_proc_ops);
+	proc_create("irq/prof_cpu_mask", 0600, NULL, &prof_cpu_mask_proc_fops);
 }
 
 /*
@@ -469,7 +467,7 @@ read_profile(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 	unsigned long p = *ppos;
 	ssize_t read;
 	char *pnt;
-	unsigned long sample_step = 1UL << prof_shift;
+	unsigned int sample_step = 1 << prof_shift;
 
 	profile_flip_buffers();
 	if (p >= (prof_len+1)*sizeof(unsigned int))
@@ -518,10 +516,10 @@ static ssize_t write_profile(struct file *file, const char __user *buf,
 	return count;
 }
 
-static const struct proc_ops profile_proc_ops = {
-	.proc_read	= read_profile,
-	.proc_write	= write_profile,
-	.proc_lseek	= default_llseek,
+static const struct file_operations proc_profile_operations = {
+	.read		= read_profile,
+	.write		= write_profile,
+	.llseek		= default_llseek,
 };
 
 int __ref create_proc_profile(void)
@@ -549,7 +547,7 @@ int __ref create_proc_profile(void)
 	err = 0;
 #endif
 	entry = proc_create("profile", S_IWUSR | S_IRUGO,
-			    NULL, &profile_proc_ops);
+			    NULL, &proc_profile_operations);
 	if (!entry)
 		goto err_state_onl;
 	proc_set_size(entry, (1 + prof_len) * sizeof(atomic_t));

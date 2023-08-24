@@ -1,8 +1,22 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*******************************************************************************
  *
  * Intel Ethernet Controller XL710 Family Linux Virtual Function Driver
  * Copyright(c) 2013 - 2014 Intel Corporation.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * The full GNU General Public License is included in this distribution in
+ * the file called "COPYING".
  *
  * Contact Information:
  * e1000-devel Mailing List <e1000-devel@lists.sourceforge.net>
@@ -61,14 +75,12 @@ enum virtchnl_status_code {
 #define VIRTCHNL_ERR_PARAM VIRTCHNL_STATUS_ERR_PARAM
 #define VIRTCHNL_STATUS_NOT_SUPPORTED VIRTCHNL_STATUS_ERR_NOT_SUPPORTED
 
-#define VIRTCHNL_LINK_SPEED_2_5GB_SHIFT		0x0
 #define VIRTCHNL_LINK_SPEED_100MB_SHIFT		0x1
 #define VIRTCHNL_LINK_SPEED_1000MB_SHIFT	0x2
 #define VIRTCHNL_LINK_SPEED_10GB_SHIFT		0x3
 #define VIRTCHNL_LINK_SPEED_40GB_SHIFT		0x4
 #define VIRTCHNL_LINK_SPEED_20GB_SHIFT		0x5
 #define VIRTCHNL_LINK_SPEED_25GB_SHIFT		0x6
-#define VIRTCHNL_LINK_SPEED_5GB_SHIFT		0x7
 
 enum virtchnl_link_speed {
 	VIRTCHNL_LINK_SPEED_UNKNOWN	= 0,
@@ -78,8 +90,6 @@ enum virtchnl_link_speed {
 	VIRTCHNL_LINK_SPEED_40GB	= BIT(VIRTCHNL_LINK_SPEED_40GB_SHIFT),
 	VIRTCHNL_LINK_SPEED_20GB	= BIT(VIRTCHNL_LINK_SPEED_20GB_SHIFT),
 	VIRTCHNL_LINK_SPEED_25GB	= BIT(VIRTCHNL_LINK_SPEED_25GB_SHIFT),
-	VIRTCHNL_LINK_SPEED_2_5GB	= BIT(VIRTCHNL_LINK_SPEED_2_5GB_SHIFT),
-	VIRTCHNL_LINK_SPEED_5GB		= BIT(VIRTCHNL_LINK_SPEED_5GB_SHIFT),
 };
 
 /* for hsplit_0 field of Rx HMC context */
@@ -161,7 +171,7 @@ struct virtchnl_msg {
 
 VIRTCHNL_CHECK_STRUCT_LEN(20, virtchnl_msg);
 
-/* Message descriptions and data structures. */
+/* Message descriptions and data structures.*/
 
 /* VIRTCHNL_OP_VERSION
  * VF posts its version number to the PF. PF responds with its version number
@@ -332,8 +342,6 @@ struct virtchnl_vsi_queue_config_info {
 	struct virtchnl_queue_pair_info qpair[1];
 };
 
-VIRTCHNL_CHECK_STRUCT_LEN(72, virtchnl_vsi_queue_config_info);
-
 /* VIRTCHNL_OP_REQUEST_QUEUES
  * VF sends this message to request the PF to allocate additional queues to
  * this VF.  Each VF gets a guaranteed number of queues on init but asking for
@@ -348,6 +356,8 @@ VIRTCHNL_CHECK_STRUCT_LEN(72, virtchnl_vsi_queue_config_info);
 struct virtchnl_vf_res_request {
 	u16 num_queue_pairs;
 };
+
+VIRTCHNL_CHECK_STRUCT_LEN(72, virtchnl_vsi_queue_config_info);
 
 /* VIRTCHNL_OP_CONFIG_IRQ_MAP
  * VF uses this message to map vectors to queues.
@@ -572,7 +582,6 @@ struct virtchnl_filter {
 	enum	virtchnl_action action;
 	u32	action_meta;
 	u8	field_flags;
-	u8	pad[3];
 };
 
 VIRTCHNL_CHECK_STRUCT_LEN(272, virtchnl_filter);
@@ -611,7 +620,6 @@ struct virtchnl_pf_event {
 			/* link_speed provided in Mbps */
 			u32 link_speed;
 			u8 link_status;
-			u8 pad[3];
 		} link_event_adv;
 	} event_data;
 
@@ -637,7 +645,6 @@ struct virtchnl_iwarp_qv_info {
 	u16 ceq_idx;
 	u16 aeq_idx;
 	u8 itr_idx;
-	u8 pad[3];
 };
 
 VIRTCHNL_CHECK_STRUCT_LEN(12, virtchnl_iwarp_qv_info);
@@ -812,8 +819,8 @@ virtchnl_vc_validate_vf_msg(struct virtchnl_version_info *ver, u32 v_opcode,
 		if (msglen >= valid_len) {
 			struct virtchnl_tc_info *vti =
 				(struct virtchnl_tc_info *)msg;
-			valid_len += (vti->num_tc - 1) *
-				     sizeof(struct virtchnl_channel_info);
+			valid_len += vti->num_tc *
+				sizeof(struct virtchnl_channel_info);
 			if (vti->num_tc == 0)
 				err_msg_format = true;
 		}

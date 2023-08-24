@@ -33,6 +33,8 @@ enum wb_congested_state {
 	WB_sync_congested,	/* The sync queue is getting full */
 };
 
+typedef int (congested_fn)(void *, int);
+
 enum wb_stat_item {
 	WB_RECLAIMABLE,
 	WB_WRITEBACK,
@@ -52,6 +54,7 @@ enum wb_reason {
 	WB_REASON_SYNC,
 	WB_REASON_PERIODIC,
 	WB_REASON_LAPTOP_TIMER,
+	WB_REASON_FREE_MORE_MEM,
 	WB_REASON_FS_FREE_SPACE,
 	/*
 	 * There is no bdi forker thread any more and works are done
@@ -60,30 +63,29 @@ enum wb_reason {
 	 * so it has a mismatch name.
 	 */
 	WB_REASON_FORKER_THREAD,
-	WB_REASON_FOREIGN_FLUSH,
 
 	WB_REASON_MAX,
 };
 
-struct wb_completion {
-	atomic_t		cnt;
-	wait_queue_head_t	*waitq;
-};
-
-#define __WB_COMPLETION_INIT(_waitq)	\
-	(struct wb_completion){ .cnt = ATOMIC_INIT(1), .waitq = (_waitq) }
-
 /*
- * If one wants to wait for one or more wb_writeback_works, each work's
- * ->done should be set to a wb_completion defined using the following
- * macro.  Once all work items are issued with wb_queue_work(), the caller
- * can wait for the completion of all using wb_wait_for_completion().  Work
- * items which are waited upon aren't freed automatically on completion.
+ * For cgroup writeback, multiple wb's may map to the same blkcg.  Those
+ * wb's can operate mostly independently but should share the congested
+ * state.  To facilitate such sharing, the congested state is tracked using
+ * the following struct which is created on demand, indexed by blkcg ID on
+ * its bdi, and refcounted.
  */
-#define WB_COMPLETION_INIT(bdi)		__WB_COMPLETION_INIT(&(bdi)->wb_waitq)
+struct bdi_writeback_congested {
+	unsigned long state;		/* WB_[a]sync_congested flags */
+	refcount_t refcnt;		/* nr of attached wb's and blkg */
 
-#define DEFINE_WB_COMPLETION(cmpl, bdi)	\
-	struct wb_completion cmpl = WB_COMPLETION_INIT(bdi)
+#ifdef CONFIG_CGROUP_WRITEBACK
+	struct backing_dev_info *__bdi;	/* the associated bdi, set to NULL
+					 * on bdi unregistration. For memcg-wb
+					 * internal use only! */
+	int blkcg_id;			/* ID of the associated blkcg */
+	struct rb_node rb_node;		/* on bdi->cgwb_congestion_tree */
+#endif
+};
 
 /*
  * Each wb (bdi_writeback) can perform writeback operations, is measured
@@ -118,7 +120,7 @@ struct bdi_writeback {
 
 	struct percpu_counter stat[NR_WB_STAT_ITEMS];
 
-	unsigned long congested;	/* WB_[a]sync_congested flags */
+	struct bdi_writeback_congested *congested;
 
 	unsigned long bw_time_stamp;	/* last time write bw is updated */
 	unsigned long dirtied_stamp;
@@ -163,11 +165,13 @@ struct bdi_writeback {
 };
 
 struct backing_dev_info {
-	u64 id;
-	struct rb_node rb_node; /* keyed by ->id */
 	struct list_head bdi_list;
 	unsigned long ra_pages;	/* max readahead in PAGE_SIZE units */
 	unsigned long io_pages;	/* max allowed IO size */
+	congested_fn *congested_fn; /* Function pointer if device is md/dm */
+	void *congested_data;	/* Pointer to aux data for congested func */
+
+	const char *name;
 
 	struct kref refcnt;	/* Reference counter for the structure */
 	unsigned int capabilities; /* Device capabilities */
@@ -184,19 +188,21 @@ struct backing_dev_info {
 	struct list_head wb_list; /* list of all wbs */
 #ifdef CONFIG_CGROUP_WRITEBACK
 	struct radix_tree_root cgwb_tree; /* radix tree of active cgroup wbs */
+	struct rb_root cgwb_congested_tree; /* their congested states */
 	struct mutex cgwb_release_mutex;  /* protect shutdown of wb structs */
-	struct rw_semaphore wb_switch_rwsem; /* no cgwb switch while syncing */
+#else
+	struct bdi_writeback_congested *wb_congested;
 #endif
 	wait_queue_head_t wb_waitq;
 
 	struct device *dev;
-	char dev_name[64];
 	struct device *owner;
 
 	struct timer_list laptop_mode_wb_timer;
 
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debug_dir;
+	struct dentry *debug_stats;
 #endif
 };
 
@@ -205,8 +211,18 @@ enum {
 	BLK_RW_SYNC	= 1,
 };
 
-void clear_bdi_congested(struct backing_dev_info *bdi, int sync);
-void set_bdi_congested(struct backing_dev_info *bdi, int sync);
+void clear_wb_congested(struct bdi_writeback_congested *congested, int sync);
+void set_wb_congested(struct bdi_writeback_congested *congested, int sync);
+
+static inline void clear_bdi_congested(struct backing_dev_info *bdi, int sync)
+{
+	clear_wb_congested(bdi->wb.congested, sync);
+}
+
+static inline void set_bdi_congested(struct backing_dev_info *bdi, int sync)
+{
+	set_wb_congested(bdi->wb.congested, sync);
+}
 
 struct wb_lock_cookie {
 	bool locked;
@@ -242,14 +258,6 @@ static inline void wb_get(struct bdi_writeback *wb)
  */
 static inline void wb_put(struct bdi_writeback *wb)
 {
-	if (WARN_ON_ONCE(!wb->bdi)) {
-		/*
-		 * A driver bug might cause a file to be removed before bdi was
-		 * initialized.
-		 */
-		return;
-	}
-
 	if (wb != &wb->bdi->wb)
 		percpu_ref_put(&wb->refcnt);
 }

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /* Glue code for SHA256 hashing optimized for sparc64 crypto opcodes.
  *
  * This is based largely upon crypto/sha256_generic.c
@@ -15,6 +14,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/mm.h>
+#include <linux/cryptohash.h>
 #include <linux/types.h>
 #include <crypto/sha.h>
 
@@ -156,7 +156,7 @@ static int sha256_sparc64_import(struct shash_desc *desc, const void *in)
 	return 0;
 }
 
-static struct shash_alg sha256_alg = {
+static struct shash_alg sha256 = {
 	.digestsize	=	SHA256_DIGEST_SIZE,
 	.init		=	sha256_sparc64_init,
 	.update		=	sha256_sparc64_update,
@@ -174,7 +174,7 @@ static struct shash_alg sha256_alg = {
 	}
 };
 
-static struct shash_alg sha224_alg = {
+static struct shash_alg sha224 = {
 	.digestsize	=	SHA224_DIGEST_SIZE,
 	.init		=	sha224_sparc64_init,
 	.update		=	sha256_sparc64_update,
@@ -206,13 +206,13 @@ static bool __init sparc64_has_sha256_opcode(void)
 static int __init sha256_sparc64_mod_init(void)
 {
 	if (sparc64_has_sha256_opcode()) {
-		int ret = crypto_register_shash(&sha224_alg);
+		int ret = crypto_register_shash(&sha224);
 		if (ret < 0)
 			return ret;
 
-		ret = crypto_register_shash(&sha256_alg);
+		ret = crypto_register_shash(&sha256);
 		if (ret < 0) {
-			crypto_unregister_shash(&sha224_alg);
+			crypto_unregister_shash(&sha224);
 			return ret;
 		}
 
@@ -225,8 +225,8 @@ static int __init sha256_sparc64_mod_init(void)
 
 static void __exit sha256_sparc64_mod_fini(void)
 {
-	crypto_unregister_shash(&sha224_alg);
-	crypto_unregister_shash(&sha256_alg);
+	crypto_unregister_shash(&sha224);
+	crypto_unregister_shash(&sha256);
 }
 
 module_init(sha256_sparc64_mod_init);

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
  *  linux/fs/fat/misc.c
  *
@@ -65,7 +64,7 @@ int fat_clusters_flush(struct super_block *sb)
 	struct buffer_head *bh;
 	struct fat_boot_fsinfo *fsinfo;
 
-	if (!is_fat32(sbi))
+	if (sbi->fat_bits != 32)
 		return 0;
 
 	bh = sb_bread(sb, sbi->fsinfo_sector);
@@ -271,14 +270,6 @@ static inline struct timespec64 fat_timespec64_trunc_2secs(struct timespec64 ts)
 {
 	return (struct timespec64){ ts.tv_sec & ~1ULL, 0 };
 }
-
-static inline struct timespec64 fat_timespec64_trunc_10ms(struct timespec64 ts)
-{
-	if (ts.tv_nsec)
-		ts.tv_nsec -= ts.tv_nsec % 10000000UL;
-	return ts;
-}
-
 /*
  * truncate the various times with appropriate granularity:
  *   root inode:
@@ -316,7 +307,7 @@ int fat_truncate_time(struct inode *inode, struct timespec64 *now, int flags)
 	}
 	if (flags & S_CTIME) {
 		if (sbi->options.isvfat)
-			inode->i_ctime = fat_timespec64_trunc_10ms(*now);
+			inode->i_ctime = timespec64_trunc(*now, 10000000);
 		else
 			inode->i_ctime = fat_timespec64_trunc_2secs(*now);
 	}

@@ -96,7 +96,6 @@ void cifs_fscache_get_super_cookie(struct cifs_tcon *tcon)
 {
 	struct TCP_Server_Info *server = tcon->ses->server;
 	char *sharename;
-	struct cifs_fscache_super_auxdata auxdata;
 
 	sharename = extract_sharename(tcon->treeName);
 	if (IS_ERR(sharename)) {
@@ -105,16 +104,11 @@ void cifs_fscache_get_super_cookie(struct cifs_tcon *tcon)
 		return;
 	}
 
-	memset(&auxdata, 0, sizeof(auxdata));
-	auxdata.resource_id = tcon->resource_id;
-	auxdata.vol_create_time = tcon->vol_create_time;
-	auxdata.vol_serial_number = tcon->vol_serial_number;
-
 	tcon->fscache =
 		fscache_acquire_cookie(server->fscache,
 				       &cifs_fscache_super_index_def,
 				       sharename, strlen(sharename),
-				       &auxdata, sizeof(auxdata),
+				       &tcon->resource_id, sizeof(tcon->resource_id),
 				       tcon, 0, true);
 	kfree(sharename);
 	cifs_dbg(FYI, "%s: (0x%p/0x%p)\n",
@@ -123,15 +117,8 @@ void cifs_fscache_get_super_cookie(struct cifs_tcon *tcon)
 
 void cifs_fscache_release_super_cookie(struct cifs_tcon *tcon)
 {
-	struct cifs_fscache_super_auxdata auxdata;
-
-	memset(&auxdata, 0, sizeof(auxdata));
-	auxdata.resource_id = tcon->resource_id;
-	auxdata.vol_create_time = tcon->vol_create_time;
-	auxdata.vol_serial_number = tcon->vol_serial_number;
-
 	cifs_dbg(FYI, "%s: (0x%p)\n", __func__, tcon->fscache);
-	fscache_relinquish_cookie(tcon->fscache, &auxdata, false);
+	fscache_relinquish_cookie(tcon->fscache, &tcon->resource_id, false);
 	tcon->fscache = NULL;
 }
 
