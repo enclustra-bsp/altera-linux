@@ -505,7 +505,7 @@ config VCPU_STALL_DETECTOR
 config ALTERA_SYSID
 	tristate "Altera System ID"
 	help
-	This enables Altera System ID soft core driver.
+	  This enables Altera System ID soft core driver.
 
 config ALTERA_ILC
 	tristate "Altera Interrupt Latency Counter driver"

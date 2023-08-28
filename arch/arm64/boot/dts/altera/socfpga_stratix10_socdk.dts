@@ -65,6 +65,22 @@
 	};
 };
 
+&pinctrl0 {
+	i2c1_pmx_func: i2c1-pmx-func {
+		pinctrl-single,pins = <
+			0x78   0x4   /* I2C1_SDA (IO6-B) PIN30SEL) */
+			0x7c   0x4   /* I2C1_SCL (IO7-B) PIN31SEL */
+		>;
+	};
+
+	i2c1_pmx_func_gpio: i2c1-pmx-func-gpio {
+		pinctrl-single,pins = <
+			0x78   0x8   /* I2C1_SDA (IO6-B) PIN30SEL) */
+			0x7c   0x8   /* I2C1_SCL (IO7-B) PIN31SEL */
+		>;
+	};
+};
+
 &gpio1 {
 	status = "okay";
 };
@@ -130,6 +146,13 @@
 	i2c-sda-falling-time-ns = <890>;  /* hcnt */
 	i2c-sdl-falling-time-ns = <890>;  /* lcnt */
 
+	pinctrl-names = "default", "gpio";
+	pinctrl-0 = <&i2c1_pmx_func>;
+	pinctrl-1 = <&i2c1_pmx_func_gpio>;
+
+	scl-gpios = <&portb 6 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+	sda-gpios = <&portb 7 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+
 	adc@14 {
 		compatible = "lltc,ltc2497";
 		reg = <0x14>;
@@ -175,16 +198,49 @@
 			compatible = "fixed-partitions";
 			#address-cells = <1>;
 			#size-cells = <1>;
+			rsu-handle = <&qspi_boot>;
 
 			qspi_boot: partition@0 {
-				label = "Boot and fpga data";
-				reg = <0x0 0x03FE0000>;
+				label = "u-boot";
+				reg = <0x0 0x04200000>;
 			};
 
-			qspi_rootfs: partition@3FE0000 {
-				label = "Root Filesystem - JFFS2";
-				reg = <0x03FE0000 0x0C020000>;
+			root: partition@4200000  {
+				label = "root";
+				reg = <0x04200000 0x0BE00000>;
 			};
 		};
 	};
 };
+
+&temp_volt {
+	voltage {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		input@2 {
+			label = "0.8V VCC";
+			reg = <2>;
+		};
+
+		input@3 {
+			label = "1.0V VCCIO";
+			reg = <3>;
+		};
+
+		input@6 {
+			label = "0.9V VCCERAM";
+			reg = <6>;
+		};
+	};
+
+	temperature {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		input@0 {
+			label = "Main Die SDM";
+			reg = <0x0>;
+		};
+	};
+};
+

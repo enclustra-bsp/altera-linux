@@ -35,6 +35,7 @@
 #define DWMAC_CORE_5_10		0x51
 #define DWMAC_CORE_5_20		0x52
 #define DWXGMAC_CORE_2_10	0x21
+#define DWXGMAC_CORE_2_20	0x22
 #define DWXLGMAC_CORE_2_00	0x20
 
 /* Device ID */
@@ -534,6 +535,7 @@ struct mac_device_info {
 	unsigned int promisc;
 	bool vlan_fail_q_en;
 	u8 vlan_fail_q;
+	unsigned int double_vlan;
 };
 
 struct stmmac_rx_routing {

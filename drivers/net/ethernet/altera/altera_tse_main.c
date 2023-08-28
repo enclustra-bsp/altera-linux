@@ -18,15 +18,17 @@
  */
 
 #include <linux/atomic.h>
+#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/etherdevice.h>
+#include <linux/if_ether.h>
 #include <linux/if_vlan.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
-#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mii.h>
+#include <linux/net_tstamp.h>
 #include <linux/netdevice.h>
 #include <linux/of_device.h>
 #include <linux/of_mdio.h>
@@ -34,14 +36,17 @@
 #include <linux/of_platform.h>
 #include <linux/pcs-altera-tse.h>
 #include <linux/phy.h>
-#include <linux/platform_device.h>
+#include <linux/ptp_classify.h>
 #include <linux/skbuff.h>
 #include <asm/cacheflush.h>
 
 #include "altera_utils.h"
+#include "altera_eth_dma.h"
 #include "altera_tse.h"
 #include "altera_sgdma.h"
 #include "altera_msgdma.h"
+#include "intel_fpga_tod.h"
+#include "altera_msgdma_prefetcher.h"
 
 static atomic_t instance_count = ATOMIC_INIT(~0);
 /* Module parameters */
@@ -76,7 +81,7 @@ MODULE_PARM_DESC(dma_tx_num, "Number of descriptors in the TX list");
 /* Allow network stack to resume queuing packets after we've
  * finished transmitting at least 1/4 of the packets in the queue.
  */
-#define TSE_TX_THRESH(x)	(x->tx_ring_size / 4)
+#define TSE_TX_THRESH(x)	((x)->dma_priv.tx_ring_size / 4)
 
 #define TXQUEUESTOP_THRESHHOLD	2
 
@@ -84,7 +89,8 @@ static const struct of_device_id altera_tse_ids[];
 
 static inline u32 tse_tx_avail(struct altera_tse_private *priv)
 {
-	return priv->tx_cons + priv->tx_ring_size - priv->tx_prod - 1;
+	return priv->dma_priv.tx_cons + priv->dma_priv.tx_ring_size
+		- priv->dma_priv.tx_prod - 1;
 }
 
 /* MDIO specific functions
@@ -193,7 +199,7 @@ static void altera_tse_mdio_destroy(struct net_device *dev)
 }
 
 static int tse_init_rx_buffer(struct altera_tse_private *priv,
-			      struct tse_buffer *rxbuffer, int len)
+			      struct altera_dma_buffer *rxbuffer, int len)
 {
 	rxbuffer->skb = netdev_alloc_skb_ip_align(priv->dev, len);
 	if (!rxbuffer->skb)
@@ -214,7 +220,7 @@ static int tse_init_rx_buffer(struct altera_tse_private *priv,
 }
 
 static void tse_free_rx_buffer(struct altera_tse_private *priv,
-			       struct tse_buffer *rxbuffer)
+			       struct altera_dma_buffer *rxbuffer)
 {
 	dma_addr_t dma_addr = rxbuffer->dma_addr;
 	struct sk_buff *skb = rxbuffer->skb;
@@ -233,7 +239,7 @@ static void tse_free_rx_buffer(struct altera_tse_private *priv,
 /* Unmap and free Tx buffer resources
  */
 static void tse_free_tx_buffer(struct altera_tse_private *priv,
-			       struct tse_buffer *buffer)
+			       struct altera_dma_buffer *buffer)
 {
 	if (buffer->dma_addr) {
 		if (buffer->mapped_as_page)
@@ -252,44 +258,46 @@ static void tse_free_tx_buffer(struct altera_tse_private *priv,
 
 static int alloc_init_skbufs(struct altera_tse_private *priv)
 {
-	unsigned int rx_descs = priv->rx_ring_size;
-	unsigned int tx_descs = priv->tx_ring_size;
+	unsigned int rx_descs = priv->dma_priv.rx_ring_size;
+	unsigned int tx_descs = priv->dma_priv.tx_ring_size;
 	int ret = -ENOMEM;
 	int i;
 
 	/* Create Rx ring buffer */
-	priv->rx_ring = kcalloc(rx_descs, sizeof(struct tse_buffer),
-				GFP_KERNEL);
-	if (!priv->rx_ring)
+	priv->dma_priv.rx_ring = kcalloc(rx_descs,
+					 sizeof(struct altera_dma_private),
+					 GFP_KERNEL);
+	if (!priv->dma_priv.rx_ring)
 		goto err_rx_ring;
 
 	/* Create Tx ring buffer */
-	priv->tx_ring = kcalloc(tx_descs, sizeof(struct tse_buffer),
-				GFP_KERNEL);
-	if (!priv->tx_ring)
+	priv->dma_priv.tx_ring = kcalloc(tx_descs,
+					 sizeof(struct altera_dma_private),
+					 GFP_KERNEL);
+	if (!priv->dma_priv.tx_ring)
 		goto err_tx_ring;
 
-	priv->tx_cons = 0;
-	priv->tx_prod = 0;
+	priv->dma_priv.tx_cons = 0;
+	priv->dma_priv.tx_prod = 0;
 
 	/* Init Rx ring */
 	for (i = 0; i < rx_descs; i++) {
-		ret = tse_init_rx_buffer(priv, &priv->rx_ring[i],
-					 priv->rx_dma_buf_sz);
+		ret = tse_init_rx_buffer(priv, &priv->dma_priv.rx_ring[i],
+					 priv->dma_priv.rx_dma_buf_sz);
 		if (ret)
 			goto err_init_rx_buffers;
 	}
 
-	priv->rx_cons = 0;
-	priv->rx_prod = 0;
+	priv->dma_priv.rx_cons = 0;
+	priv->dma_priv.rx_prod = 0;
 
 	return 0;
 err_init_rx_buffers:
 	while (--i >= 0)
-		tse_free_rx_buffer(priv, &priv->rx_ring[i]);
-	kfree(priv->tx_ring);
+		tse_free_rx_buffer(priv, &priv->dma_priv.rx_ring[i]);
+	kfree(priv->dma_priv.tx_ring);
 err_tx_ring:
-	kfree(priv->rx_ring);
+	kfree(priv->dma_priv.rx_ring);
 err_rx_ring:
 	return ret;
 }
@@ -297,37 +305,39 @@ err_rx_ring:
 static void free_skbufs(struct net_device *dev)
 {
 	struct altera_tse_private *priv = netdev_priv(dev);
-	unsigned int rx_descs = priv->rx_ring_size;
-	unsigned int tx_descs = priv->tx_ring_size;
+	unsigned int rx_descs = priv->dma_priv.rx_ring_size;
+	unsigned int tx_descs = priv->dma_priv.tx_ring_size;
 	int i;
 
 	/* Release the DMA TX/RX socket buffers */
 	for (i = 0; i < rx_descs; i++)
-		tse_free_rx_buffer(priv, &priv->rx_ring[i]);
+		tse_free_rx_buffer(priv, &priv->dma_priv.rx_ring[i]);
 	for (i = 0; i < tx_descs; i++)
-		tse_free_tx_buffer(priv, &priv->tx_ring[i]);
+		tse_free_tx_buffer(priv, &priv->dma_priv.tx_ring[i]);
 
 
-	kfree(priv->tx_ring);
+	kfree(priv->dma_priv.tx_ring);
 }
 
 /* Reallocate the skb for the reception process
  */
 static inline void tse_rx_refill(struct altera_tse_private *priv)
 {
-	unsigned int rxsize = priv->rx_ring_size;
+	unsigned int rxsize = priv->dma_priv.rx_ring_size;
 	unsigned int entry;
 	int ret;
 
-	for (; priv->rx_cons - priv->rx_prod > 0;
-			priv->rx_prod++) {
-		entry = priv->rx_prod % rxsize;
-		if (likely(priv->rx_ring[entry].skb == NULL)) {
-			ret = tse_init_rx_buffer(priv, &priv->rx_ring[entry],
-				priv->rx_dma_buf_sz);
+	for (; priv->dma_priv.rx_cons - priv->dma_priv.rx_prod > 0;
+			priv->dma_priv.rx_prod++) {
+		entry = priv->dma_priv.rx_prod % rxsize;
+		if (likely(priv->dma_priv.rx_ring[entry].skb == NULL)) {
+			ret = tse_init_rx_buffer(priv,
+				&priv->dma_priv.rx_ring[entry],
+				priv->dma_priv.rx_dma_buf_sz);
 			if (unlikely(ret != 0))
 				break;
-			priv->dmaops->add_rx_desc(priv, &priv->rx_ring[entry]);
+			priv->dmaops->add_rx_desc(&priv->dma_priv,
+					&priv->dma_priv.rx_ring[entry]);
 		}
 	}
 }
@@ -352,10 +362,11 @@ static inline void tse_rx_vlan(struct net_device *dev, struct sk_buff *skb)
  */
 static int tse_rx(struct altera_tse_private *priv, int limit)
 {
-	unsigned int entry = priv->rx_cons % priv->rx_ring_size;
-	unsigned int next_entry;
 	unsigned int count = 0;
+	unsigned int next_entry;
 	struct sk_buff *skb;
+	unsigned int entry
+		= priv->dma_priv.rx_cons % priv->dma_priv.rx_ring_size;
 	u32 rxstatus;
 	u16 pktlength;
 	u16 pktstatus;
@@ -366,7 +377,7 @@ static int tse_rx(struct altera_tse_private *priv, int limit)
 	* (reading the last byte of the response pops the value from the fifo.)
 	*/
 	while ((count < limit) &&
-	       ((rxstatus = priv->dmaops->get_rx_status(priv)) != 0)) {
+	       ((rxstatus = priv->dmaops->get_rx_status(&priv->dma_priv)) != 0)) {
 		pktstatus = rxstatus >> 16;
 		pktlength = rxstatus & 0xffff;
 
@@ -382,9 +393,9 @@ static int tse_rx(struct altera_tse_private *priv, int limit)
 		pktlength -= 2;
 
 		count++;
-		next_entry = (++priv->rx_cons) % priv->rx_ring_size;
+		next_entry = (++priv->dma_priv.rx_cons) % priv->dma_priv.rx_ring_size;
 
-		skb = priv->rx_ring[entry].skb;
+		skb = priv->dma_priv.rx_ring[entry].skb;
 		if (unlikely(!skb)) {
 			netdev_err(priv->dev,
 				   "%s: Inconsistent Rx descriptor chain\n",
@@ -392,12 +403,14 @@ static int tse_rx(struct altera_tse_private *priv, int limit)
 			priv->dev->stats.rx_dropped++;
 			break;
 		}
-		priv->rx_ring[entry].skb = NULL;
+		priv->dma_priv.rx_ring[entry].skb = NULL;
 
 		skb_put(skb, pktlength);
 
-		dma_unmap_single(priv->device, priv->rx_ring[entry].dma_addr,
-				 priv->rx_ring[entry].len, DMA_FROM_DEVICE);
+		dma_unmap_single(priv->device,
+				 priv->dma_priv.rx_ring[entry].dma_addr,
+				 priv->dma_priv.rx_ring[entry].len,
+				 DMA_FROM_DEVICE);
 
 		if (netif_msg_pktdata(priv)) {
 			netdev_info(priv->dev, "frame received %d bytes\n",
@@ -428,30 +441,32 @@ static int tse_rx(struct altera_tse_private *priv, int limit)
  */
 static int tse_tx_complete(struct altera_tse_private *priv)
 {
-	unsigned int txsize = priv->tx_ring_size;
-	struct tse_buffer *tx_buff;
+	unsigned int txsize = priv->dma_priv.tx_ring_size;
+	struct altera_dma_buffer *tx_buff;
 	unsigned int entry;
+	
 	int txcomplete = 0;
 	u32 ready;
 
 	spin_lock(&priv->tx_lock);
 
-	ready = priv->dmaops->tx_completions(priv);
+	ready = priv->dmaops->tx_completions(&priv->dma_priv);
 
 	/* Free sent buffers */
-	while (ready && (priv->tx_cons != priv->tx_prod)) {
-		entry = priv->tx_cons % txsize;
-		tx_buff = &priv->tx_ring[entry];
+	while (ready && (priv->dma_priv.tx_cons != priv->dma_priv.tx_prod)) {
+		entry = priv->dma_priv.tx_cons % txsize;
+		tx_buff = &priv->dma_priv.tx_ring[entry];
 
 		if (netif_msg_tx_done(priv))
 			netdev_dbg(priv->dev, "%s: curr %d, dirty %d\n",
-				   __func__, priv->tx_prod, priv->tx_cons);
+				   __func__, priv->dma_priv.tx_prod,
+				   priv->dma_priv.tx_cons);
 
 		if (likely(tx_buff->skb))
 			priv->dev->stats.tx_packets++;
 
 		tse_free_tx_buffer(priv, tx_buff);
-		priv->tx_cons++;
+		priv->dma_priv.tx_cons++;
 
 		txcomplete++;
 		ready--;
@@ -494,8 +509,8 @@ static int tse_poll(struct napi_struct *napi, int budget)
 			   rxcomplete, budget);
 
 		spin_lock_irqsave(&priv->rxdma_irq_lock, flags);
-		priv->dmaops->enable_rxirq(priv);
-		priv->dmaops->enable_txirq(priv);
+		priv->dmaops->enable_rxirq(&priv->dma_priv);
+		priv->dmaops->enable_txirq(&priv->dma_priv);
 		spin_unlock_irqrestore(&priv->rxdma_irq_lock, flags);
 	}
 	return rxcomplete;
@@ -516,14 +531,14 @@ static irqreturn_t altera_isr(int irq, void *dev_id)
 
 	spin_lock(&priv->rxdma_irq_lock);
 	/* reset IRQs */
-	priv->dmaops->clear_rxirq(priv);
-	priv->dmaops->clear_txirq(priv);
+	priv->dmaops->clear_rxirq(&priv->dma_priv);
+	priv->dmaops->clear_txirq(&priv->dma_priv);
 	spin_unlock(&priv->rxdma_irq_lock);
 
 	if (likely(napi_schedule_prep(&priv->napi))) {
 		spin_lock(&priv->rxdma_irq_lock);
-		priv->dmaops->disable_rxirq(priv);
-		priv->dmaops->disable_txirq(priv);
+		priv->dmaops->disable_rxirq(&priv->dma_priv);
+		priv->dmaops->disable_txirq(&priv->dma_priv);
 		spin_unlock(&priv->rxdma_irq_lock);
 		__napi_schedule(&priv->napi);
 	}
@@ -543,9 +558,9 @@ static netdev_tx_t tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct altera_tse_private *priv = netdev_priv(dev);
 	unsigned int nopaged_len = skb_headlen(skb);
-	unsigned int txsize = priv->tx_ring_size;
+	unsigned int txsize = priv->dma_priv.tx_ring_size;
 	int nfrags = skb_shinfo(skb)->nr_frags;
-	struct tse_buffer *buffer = NULL;
+	struct altera_dma_buffer *buffer = NULL;
 	netdev_tx_t ret = NETDEV_TX_OK;
 	dma_addr_t dma_addr;
 	unsigned int entry;
@@ -565,8 +580,8 @@ static netdev_tx_t tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	/* Map the first skb fragment */
-	entry = priv->tx_prod % txsize;
-	buffer = &priv->tx_ring[entry];
+	entry = priv->dma_priv.tx_prod % txsize;
+	buffer = &priv->dma_priv.tx_ring[entry];
 
 	dma_addr = dma_map_single(priv->device, skb->data, nopaged_len,
 				  DMA_TO_DEVICE);
@@ -580,11 +595,17 @@ static netdev_tx_t tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	buffer->dma_addr = dma_addr;
 	buffer->len = nopaged_len;
 
-	priv->dmaops->tx_buffer(priv, buffer);
+	ret = priv->dmaops->tx_buffer(&priv->dma_priv, buffer);
+	if (ret)
+		goto out;
 
-	skb_tx_timestamp(skb);
+	if (unlikely((skb_shinfo(skb)->tx_flags & SKBTX_HW_TSTAMP) &&
+		     priv->dma_priv.hwts_tx_en))
+		skb_shinfo(skb)->tx_flags |= SKBTX_IN_PROGRESS;
+	else
+		skb_tx_timestamp(skb);
 
-	priv->tx_prod++;
+	priv->dma_priv.tx_prod++;
 	dev->stats.tx_bytes += skb->len;
 
 	if (unlikely(tse_tx_avail(priv) <= TXQUEUESTOP_THRESHHOLD)) {
@@ -872,6 +893,77 @@ static void tse_set_rx_mode(struct net_device *dev)
 	spin_unlock(&priv->mac_cfg_lock);
 }
 
+static struct phy_device *connect_local_phy(struct net_device *dev)
+{
+	struct altera_tse_private *priv = netdev_priv(dev);
+	struct phy_device *phydev = NULL;
+	char phy_id_fmt[MII_BUS_ID_SIZE + 3];
+	int addr = priv->phy_addr;
+
+	if (priv->phy_addr != POLL_PHY) {
+		snprintf(phy_id_fmt, MII_BUS_ID_SIZE + 3, PHY_ID_FMT,
+			 priv->mdio->id, priv->phy_addr);
+
+		netdev_dbg(dev, "trying to attach to %s\n", phy_id_fmt);
+
+		phydev = mdiobus_get_phy(priv->mdio, addr);
+		if (IS_ERR(phydev)) {
+			netdev_err(dev, "Could not attach to PHY\n");
+			phydev = NULL;
+		}
+	} else {
+		phydev = phy_find_first(priv->mdio);
+		if (!phydev) {
+			netdev_err(dev, "No PHY found\n");
+			return phydev;
+		}
+	}
+	return phydev;
+}
+
+/* Initialize driver's PHY state, and attach to the PHY
+ */
+static int init_phy(struct net_device *dev)
+{
+	struct altera_tse_private *priv = netdev_priv(dev);
+	struct phy_device *phydev = NULL;
+	int ret = 0;
+
+	/* Avoid init phy in case of no phy present */
+	if (!priv->phy_iface)
+		return 0;
+
+	priv->oldlink = 0;
+	priv->oldspeed = 0;
+	priv->oldduplex = -1;
+
+	ret = phylink_of_phy_connect(priv->phylink, priv->device->of_node, 0);
+
+	if (ret) {
+		netdev_dbg(dev, "no phy-handle found\n");
+		if (!priv->mdio) {
+			netdev_err(dev, "No phy-handle nor local mdio specified\n");
+			return -ENODEV;
+		}
+		phydev = connect_local_phy(dev);
+		if (phydev) {
+			ret = phylink_connect_phy(priv->phylink, phydev);
+			if (ret)
+				return -ENODEV;
+		}
+	}
+
+	if (!phydev) {
+		netdev_err(dev, "Could not find the PHY\n");
+		return -ENODEV;
+	}
+
+	netdev_dbg(dev, "attached to PHY %d UID 0x%08x Link = %d\n",
+		   phydev->mdio.addr, phydev->phy_id, phydev->link);
+
+	return 0;
+}
+
 /* Open and initialize the interface
  */
 static int tse_open(struct net_device *dev)
@@ -881,8 +973,12 @@ static int tse_open(struct net_device *dev)
 	int ret = 0;
 	int i;
 
+	/* set tx and rx ring size */
+	priv->dma_priv.rx_ring_size = dma_rx_num;
+	priv->dma_priv.tx_ring_size = dma_tx_num;
+
 	/* Reset and configure TSE MAC and probe associated PHY */
-	ret = priv->dmaops->init_dma(priv);
+	ret = priv->dmaops->init_dma(&priv->dma_priv);
 	if (ret != 0) {
 		netdev_err(dev, "Cannot initialize DMA\n");
 		goto phy_error;
@@ -912,11 +1008,9 @@ static int tse_open(struct net_device *dev)
 		goto alloc_skbuf_error;
 	}
 
-	priv->dmaops->reset_dma(priv);
+	priv->dmaops->reset_dma(&priv->dma_priv);
 
 	/* Create and initialize the TX/RX descriptors chains. */
-	priv->rx_ring_size = dma_rx_num;
-	priv->tx_ring_size = dma_tx_num;
 	ret = alloc_init_skbufs(priv);
 	if (ret) {
 		netdev_err(dev, "DMA descriptors initialization failed\n");
@@ -944,26 +1038,33 @@ static int tse_open(struct net_device *dev)
 
 	/* Enable DMA interrupts */
 	spin_lock_irqsave(&priv->rxdma_irq_lock, flags);
-	priv->dmaops->enable_rxirq(priv);
-	priv->dmaops->enable_txirq(priv);
+	priv->dmaops->enable_rxirq(&priv->dma_priv);
+	priv->dmaops->enable_txirq(&priv->dma_priv);
 
 	/* Setup RX descriptor chain */
-	for (i = 0; i < priv->rx_ring_size; i++)
-		priv->dmaops->add_rx_desc(priv, &priv->rx_ring[i]);
+	for (i = 0; i < priv->dma_priv.rx_ring_size; i++)
+		priv->dmaops->add_rx_desc(&priv->dma_priv,
+					  &priv->dma_priv.rx_ring[i]);
 
 	spin_unlock_irqrestore(&priv->rxdma_irq_lock, flags);
 
-	ret = phylink_of_phy_connect(priv->phylink, priv->device->of_node, 0);
+	ret = init_phy(dev);
 	if (ret) {
 		netdev_err(dev, "could not connect phylink (%d)\n", ret);
 		goto tx_request_irq_error;
 	}
 	phylink_start(priv->phylink);
 
+	priv->dma_priv.hwts_tx_en = 0;
+	priv->dma_priv.hwts_rx_en = 0;
+
 	napi_enable(&priv->napi);
 	netif_start_queue(dev);
 
-	priv->dmaops->start_rxdma(priv);
+	priv->dmaops->start_rxdma(&priv->dma_priv);
+
+	if (priv->dmaops->start_txdma)
+		priv->dmaops->start_txdma(&priv->dma_priv);
 
 	/* Start MAC Rx/Tx */
 	spin_lock(&priv->mac_cfg_lock);
@@ -996,8 +1097,8 @@ static int tse_shutdown(struct net_device *dev)
 
 	/* Disable DMA interrupts */
 	spin_lock_irqsave(&priv->rxdma_irq_lock, flags);
-	priv->dmaops->disable_rxirq(priv);
-	priv->dmaops->disable_txirq(priv);
+	priv->dmaops->disable_rxirq(&priv->dma_priv);
+	priv->dmaops->disable_txirq(&priv->dma_priv);
 	spin_unlock_irqrestore(&priv->rxdma_irq_lock, flags);
 
 	/* Free the IRQ lines */
@@ -1015,15 +1116,92 @@ static int tse_shutdown(struct net_device *dev)
 	 */
 	if (ret)
 		netdev_dbg(dev, "Cannot reset MAC core (error: %d)\n", ret);
-	priv->dmaops->reset_dma(priv);
+	priv->dmaops->reset_dma(&priv->dma_priv);
 	free_skbufs(dev);
 
 	spin_unlock(&priv->tx_lock);
 	spin_unlock(&priv->mac_cfg_lock);
 
-	priv->dmaops->uninit_dma(priv);
+	priv->dmaops->uninit_dma(&priv->dma_priv);
 
 	return 0;
+}
+
+/* ioctl to configure timestamping */
+static int tse_do_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+{
+	struct altera_tse_private *priv = netdev_priv(dev);
+	struct hwtstamp_config config;
+
+	if (!netif_running(dev))
+		return -EINVAL;
+
+	if (!priv->ptp_enable)	{
+		netdev_alert(priv->dev, "Timestamping not supported");
+		return -EOPNOTSUPP;
+	}
+
+	if (cmd == SIOCSHWTSTAMP) {
+		if (copy_from_user(&config, ifr->ifr_data,
+				   sizeof(struct hwtstamp_config)))
+			return -EFAULT;
+
+		if (config.flags)
+			return -EINVAL;
+
+		switch (config.tx_type) {
+		case HWTSTAMP_TX_OFF:
+			priv->dma_priv.hwts_tx_en = 0;
+			break;
+		case HWTSTAMP_TX_ON:
+			priv->dma_priv.hwts_tx_en = 1;
+			break;
+		default:
+			return -ERANGE;
+		}
+
+		switch (config.rx_filter) {
+		case HWTSTAMP_FILTER_NONE:
+			priv->dma_priv.hwts_rx_en = 0;
+			config.rx_filter = HWTSTAMP_FILTER_NONE;
+			break;
+		default:
+			priv->dma_priv.hwts_rx_en = 1;
+			config.rx_filter = HWTSTAMP_FILTER_ALL;
+			break;
+		}
+
+		if (copy_to_user(ifr->ifr_data, &config,
+				 sizeof(struct hwtstamp_config)))
+			return -EFAULT;
+		else
+			return 0;
+	}
+
+	if (cmd == SIOCGHWTSTAMP) {
+		config.flags = 0;
+
+		if (priv->dma_priv.hwts_tx_en)
+			config.tx_type = HWTSTAMP_TX_ON;
+		else
+			config.tx_type = HWTSTAMP_TX_OFF;
+
+		if (priv->dma_priv.hwts_rx_en)
+			config.rx_filter = HWTSTAMP_FILTER_ALL;
+		else
+			config.rx_filter = HWTSTAMP_FILTER_NONE;
+
+		if (copy_to_user(ifr->ifr_data, &config,
+				 sizeof(struct hwtstamp_config)))
+			return -EFAULT;
+		else
+			return 0;
+	}
+
+	if (!dev->phydev)
+		return -EINVAL;
+
+	return phy_mii_ioctl(dev->phydev, ifr, cmd);
 }
 
 static struct net_device_ops altera_tse_netdev_ops = {
@@ -1034,6 +1212,7 @@ static struct net_device_ops altera_tse_netdev_ops = {
 	.ndo_set_rx_mode	= tse_set_rx_mode,
 	.ndo_change_mtu		= tse_change_mtu,
 	.ndo_validate_addr	= eth_validate_addr,
+	.ndo_eth_ioctl		= tse_do_ioctl,
 };
 
 static void alt_tse_mac_an_restart(struct phylink_config *config)
@@ -1103,36 +1282,6 @@ static const struct phylink_mac_ops alt_tse_phylink_ops = {
 	.mac_link_up = alt_tse_mac_link_up,
 	.mac_select_pcs = alt_tse_select_pcs,
 };
-
-static int request_and_map(struct platform_device *pdev, const char *name,
-			   struct resource **res, void __iomem **ptr)
-{
-	struct device *device = &pdev->dev;
-	struct resource *region;
-
-	*res = platform_get_resource_byname(pdev, IORESOURCE_MEM, name);
-	if (*res == NULL) {
-		dev_err(device, "resource %s not defined\n", name);
-		return -ENODEV;
-	}
-
-	region = devm_request_mem_region(device, (*res)->start,
-					 resource_size(*res), dev_name(device));
-	if (region == NULL) {
-		dev_err(device, "unable to request %s\n", name);
-		return -EBUSY;
-	}
-
-	*ptr = devm_ioremap(device, region->start,
-				    resource_size(region));
-	if (*ptr == NULL) {
-		dev_err(device, "ioremap of %s failed!", name);
-		return -ENOMEM;
-	}
-
-	return 0;
-}
-
 /* Probe Altera TSE MAC device
  */
 static int altera_tse_probe(struct platform_device *pdev)
@@ -1140,10 +1289,8 @@ static int altera_tse_probe(struct platform_device *pdev)
 	const struct of_device_id *of_id = NULL;
 	struct altera_tse_private *priv;
 	struct resource *control_port;
-	struct resource *dma_res;
 	struct resource *pcs_res;
 	struct net_device *ndev;
-	void __iomem *descmap;
 	int pcs_reg_width = 2;
 	int ret = -ENODEV;
 
@@ -1157,73 +1304,23 @@ static int altera_tse_probe(struct platform_device *pdev)
 
 	priv = netdev_priv(ndev);
 	priv->device = &pdev->dev;
+	priv->dma_priv.device = &pdev->dev;
 	priv->dev = ndev;
+	priv->dma_priv.dev = ndev;
+	priv->ptp_priv.dev = ndev;
 	priv->msg_enable = netif_msg_init(debug, default_msg_level);
+	priv->dma_priv.msg_enable = netif_msg_init(debug, default_msg_level);
 
 	of_id = of_match_device(altera_tse_ids, &pdev->dev);
 
 	if (of_id)
 		priv->dmaops = (struct altera_dmaops *)of_id->data;
 
-
-	if (priv->dmaops &&
-	    priv->dmaops->altera_dtype == ALTERA_DTYPE_SGDMA) {
-		/* Get the mapped address to the SGDMA descriptor memory */
-		ret = request_and_map(pdev, "s1", &dma_res, &descmap);
-		if (ret)
-			goto err_free_netdev;
-
-		/* Start of that memory is for transmit descriptors */
-		priv->tx_dma_desc = descmap;
-
-		/* First half is for tx descriptors, other half for tx */
-		priv->txdescmem = resource_size(dma_res)/2;
-
-		priv->txdescmem_busaddr = (dma_addr_t)dma_res->start;
-
-		priv->rx_dma_desc = (void __iomem *)((uintptr_t)(descmap +
-						     priv->txdescmem));
-		priv->rxdescmem = resource_size(dma_res)/2;
-		priv->rxdescmem_busaddr = dma_res->start;
-		priv->rxdescmem_busaddr += priv->txdescmem;
-
-		if (upper_32_bits(priv->rxdescmem_busaddr)) {
-			dev_dbg(priv->device,
-				"SGDMA bus addresses greater than 32-bits\n");
-			ret = -EINVAL;
-			goto err_free_netdev;
-		}
-		if (upper_32_bits(priv->txdescmem_busaddr)) {
-			dev_dbg(priv->device,
-				"SGDMA bus addresses greater than 32-bits\n");
-			ret = -EINVAL;
-			goto err_free_netdev;
-		}
-	} else if (priv->dmaops &&
-		   priv->dmaops->altera_dtype == ALTERA_DTYPE_MSGDMA) {
-		ret = request_and_map(pdev, "rx_resp", &dma_res,
-				      &priv->rx_dma_resp);
-		if (ret)
-			goto err_free_netdev;
-
-		ret = request_and_map(pdev, "tx_desc", &dma_res,
-				      &priv->tx_dma_desc);
-		if (ret)
-			goto err_free_netdev;
-
-		priv->txdescmem = resource_size(dma_res);
-		priv->txdescmem_busaddr = dma_res->start;
-
-		ret = request_and_map(pdev, "rx_desc", &dma_res,
-				      &priv->rx_dma_desc);
-		if (ret)
-			goto err_free_netdev;
-
-		priv->rxdescmem = resource_size(dma_res);
-		priv->rxdescmem_busaddr = dma_res->start;
-
-	} else {
-		ret = -ENODEV;
+	/* Map DMA */
+	ret = altera_eth_dma_probe(pdev, &priv->dma_priv,
+				   priv->dmaops->altera_dtype);
+	if (ret) {
+		dev_err(&pdev->dev, "cannot map DMA\n");
 		goto err_free_netdev;
 	}
 
@@ -1242,20 +1339,6 @@ static int altera_tse_probe(struct platform_device *pdev)
 			      (void __iomem **)&priv->mac_dev);
 	if (ret)
 		goto err_free_netdev;
-
-	/* xSGDMA Rx Dispatcher address space */
-	ret = request_and_map(pdev, "rx_csr", &dma_res,
-			      &priv->rx_dma_csr);
-	if (ret)
-		goto err_free_netdev;
-
-
-	/* xSGDMA Tx Dispatcher address space */
-	ret = request_and_map(pdev, "tx_csr", &dma_res,
-			      &priv->tx_dma_csr);
-	if (ret)
-		goto err_free_netdev;
-
 	/* SGMII PCS address space. The location can vary depending on how the
 	 * IP is integrated. We can have a resource dedicated to it at a specific
 	 * address space, but if it's not the case, we fallback to the mdiophy0
@@ -1264,7 +1347,8 @@ static int altera_tse_probe(struct platform_device *pdev)
 	ret = request_and_map(pdev, "pcs", &pcs_res,
 			      &priv->pcs_base);
 	if (ret) {
-		priv->pcs_base = priv->mac_dev + tse_csroffs(mdio_phy0);
+		priv->pcs_base = (void __iomem *)((uintptr_t)(priv->mac_dev) +
+				tse_csroffs(mdio_phy0));
 		pcs_reg_width = 4;
 	}
 
@@ -1328,7 +1412,7 @@ static int altera_tse_probe(struct platform_device *pdev)
 	/* The DMA buffer size already accounts for an alignment bias
 	 * to avoid unaligned access exceptions for the NIOS processor,
 	 */
-	priv->rx_dma_buf_sz = ALTERA_RXDMABUFFER_SIZE;
+	priv->dma_priv.rx_dma_buf_sz = ALTERA_RXDMABUFFER_SIZE;
 
 	/* get default MAC address from device tree */
 	ret = of_get_ethdev_address(pdev->dev.of_node, ndev);
@@ -1416,6 +1500,26 @@ static int altera_tse_probe(struct platform_device *pdev)
 		goto err_init_phy;
 	}
 
+	priv->ptp_enable = of_property_read_bool(pdev->dev.of_node,
+						 "altr,has-ptp");
+	dev_info(&pdev->dev, "PTP Enable: %d\n", priv->ptp_enable);
+
+	if (priv->ptp_enable) {
+		/* MAP PTP */
+		ret = intel_fpga_tod_probe(pdev, &priv->ptp_priv);
+		if (ret) {
+			dev_err(&pdev->dev, "cannot map PTP\n");
+			goto err_init_phy;
+		}
+		ret = intel_fpga_tod_register(&priv->ptp_priv,
+					      priv->device);
+		if (ret) {
+			dev_err(&pdev->dev, "Failed to register PTP clock\n");
+			ret = -ENXIO;
+			goto err_init_phy;
+		}
+	}
+
 	return 0;
 
 err_init_phy:
@@ -1436,6 +1540,8 @@ static int altera_tse_remove(struct platform_device *pdev)
 	struct altera_tse_private *priv = netdev_priv(ndev);
 
 	platform_set_drvdata(pdev, NULL);
+	if (priv->ptp_enable)
+		intel_fpga_tod_unregister(&priv->ptp_priv);
 	altera_tse_mdio_destroy(ndev);
 	unregister_netdev(ndev);
 	phylink_destroy(priv->phylink);
@@ -1461,6 +1567,7 @@ static const struct altera_dmaops altera_dtype_sgdma = {
 	.init_dma = sgdma_initialize,
 	.uninit_dma = sgdma_uninitialize,
 	.start_rxdma = sgdma_start_rxdma,
+	.start_txdma = NULL,
 };
 
 static const struct altera_dmaops altera_dtype_msgdma = {
@@ -1480,9 +1587,32 @@ static const struct altera_dmaops altera_dtype_msgdma = {
 	.init_dma = msgdma_initialize,
 	.uninit_dma = msgdma_uninitialize,
 	.start_rxdma = msgdma_start_rxdma,
+	.start_txdma = NULL,
+};
+
+static const struct altera_dmaops altera_dtype_prefetcher = {
+	.altera_dtype = ALTERA_DTYPE_MSGDMA_PREF,
+	.dmamask = 64,
+	.reset_dma = msgdma_pref_reset,
+	.enable_txirq = msgdma_pref_enable_txirq,
+	.enable_rxirq = msgdma_pref_enable_rxirq,
+	.disable_txirq = msgdma_pref_disable_txirq,
+	.disable_rxirq = msgdma_pref_disable_rxirq,
+	.clear_txirq = msgdma_pref_clear_txirq,
+	.clear_rxirq = msgdma_pref_clear_rxirq,
+	.tx_buffer = msgdma_pref_tx_buffer,
+	.tx_completions = msgdma_pref_tx_completions,
+	.add_rx_desc = msgdma_pref_add_rx_desc,
+	.get_rx_status = msgdma_pref_rx_status,
+	.init_dma = msgdma_pref_initialize,
+	.uninit_dma = msgdma_pref_uninitialize,
+	.start_rxdma = msgdma_pref_start_rxdma,
+	.start_txdma = msgdma_pref_start_txdma,
 };
 
 static const struct of_device_id altera_tse_ids[] = {
+	{ .compatible = "altr,tse-msgdma-2.0",
+		.data = &altera_dtype_prefetcher, },
 	{ .compatible = "altr,tse-msgdma-1.0", .data = &altera_dtype_msgdma, },
 	{ .compatible = "altr,tse-1.0", .data = &altera_dtype_sgdma, },
 	{ .compatible = "ALTR,tse-1.0", .data = &altera_dtype_sgdma, },

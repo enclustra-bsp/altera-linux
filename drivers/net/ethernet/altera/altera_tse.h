@@ -29,6 +29,8 @@
 #include <linux/phy.h>
 #include <linux/phylink.h>
 
+#include "intel_fpga_tod.h"
+
 #define ALTERA_TSE_SW_RESET_WATCHDOG_CNTR	10000
 #define ALTERA_TSE_MAC_FIFO_WIDTH		4	/* TX/RX FIFO width in
 							 * bytes
@@ -355,41 +357,7 @@ struct altera_tse_mac {
 #define ALTERA_TSE_TX_CMD_STAT_TX_SHIFT16	BIT(18)
 #define ALTERA_TSE_RX_CMD_STAT_RX_SHIFT16	BIT(25)
 
-/* Wrapper around a pointer to a socket buffer,
- * so a DMA handle can be stored along with the buffer
- */
-struct tse_buffer {
-	struct list_head lh;
-	struct sk_buff *skb;
-	dma_addr_t dma_addr;
-	u32 len;
-	int mapped_as_page;
-};
-
 struct altera_tse_private;
-
-#define ALTERA_DTYPE_SGDMA 1
-#define ALTERA_DTYPE_MSGDMA 2
-
-/* standard DMA interface for SGDMA and MSGDMA */
-struct altera_dmaops {
-	int altera_dtype;
-	int dmamask;
-	void (*reset_dma)(struct altera_tse_private *);
-	void (*enable_txirq)(struct altera_tse_private *);
-	void (*enable_rxirq)(struct altera_tse_private *);
-	void (*disable_txirq)(struct altera_tse_private *);
-	void (*disable_rxirq)(struct altera_tse_private *);
-	void (*clear_txirq)(struct altera_tse_private *);
-	void (*clear_rxirq)(struct altera_tse_private *);
-	int (*tx_buffer)(struct altera_tse_private *, struct tse_buffer *);
-	u32 (*tx_completions)(struct altera_tse_private *);
-	void (*add_rx_desc)(struct altera_tse_private *, struct tse_buffer *);
-	u32 (*get_rx_status)(struct altera_tse_private *);
-	int (*init_dma)(struct altera_tse_private *);
-	void (*uninit_dma)(struct altera_tse_private *);
-	void (*start_rxdma)(struct altera_tse_private *);
-};
 
 /* This structure is private to each device.
  */
@@ -401,33 +369,18 @@ struct altera_tse_private {
 	/* MAC address space */
 	struct altera_tse_mac __iomem *mac_dev;
 
+	/* Shared DMA structure */
+	struct altera_dma_private dma_priv;
+
 	/* TSE Revision */
 	u32	revision;
 
-	/* mSGDMA Rx Dispatcher address space */
-	void __iomem *rx_dma_csr;
-	void __iomem *rx_dma_desc;
-	void __iomem *rx_dma_resp;
-
-	/* mSGDMA Tx Dispatcher address space */
-	void __iomem *tx_dma_csr;
-	void __iomem *tx_dma_desc;
-
+	/* Shared PTP structure */
+	struct intel_fpga_tod_private ptp_priv;
+	u32 ptp_enable;
 	/* SGMII PCS address space */
 	void __iomem *pcs_base;
 
-	/* Rx buffers queue */
-	struct tse_buffer *rx_ring;
-	u32 rx_cons;
-	u32 rx_prod;
-	u32 rx_ring_size;
-	u32 rx_dma_buf_sz;
-
-	/* Tx ring buffer */
-	struct tse_buffer *tx_ring;
-	u32 tx_prod;
-	u32 tx_cons;
-	u32 tx_ring_size;
 
 	/* Interrupts */
 	u32 tx_irq;
@@ -440,19 +393,6 @@ struct altera_tse_private {
 	/* Hash filter settings */
 	u32 hash_filter;
 	u32 added_unicast;
-
-	/* Descriptor memory info for managing SGDMA */
-	u32 txdescmem;
-	u32 rxdescmem;
-	dma_addr_t rxdescmem_busaddr;
-	dma_addr_t txdescmem_busaddr;
-	u32 txctrlreg;
-	u32 rxctrlreg;
-	dma_addr_t rxdescphys;
-	dma_addr_t txdescphys;
-
-	struct list_head txlisthd;
-	struct list_head rxlisthd;
 
 	/* MAC command_config register protection */
 	spinlock_t mac_cfg_lock;
@@ -482,50 +422,5 @@ struct altera_tse_private {
 /* Function prototypes
  */
 void altera_tse_set_ethtool_ops(struct net_device *);
-
-static inline
-u32 csrrd32(void __iomem *mac, size_t offs)
-{
-	void __iomem *paddr = (void __iomem *)((uintptr_t)mac + offs);
-	return readl(paddr);
-}
-
-static inline
-u16 csrrd16(void __iomem *mac, size_t offs)
-{
-	void __iomem *paddr = (void __iomem *)((uintptr_t)mac + offs);
-	return readw(paddr);
-}
-
-static inline
-u8 csrrd8(void __iomem *mac, size_t offs)
-{
-	void __iomem *paddr = (void __iomem *)((uintptr_t)mac + offs);
-	return readb(paddr);
-}
-
-static inline
-void csrwr32(u32 val, void __iomem *mac, size_t offs)
-{
-	void __iomem *paddr = (void __iomem *)((uintptr_t)mac + offs);
-
-	writel(val, paddr);
-}
-
-static inline
-void csrwr16(u16 val, void __iomem *mac, size_t offs)
-{
-	void __iomem *paddr = (void __iomem *)((uintptr_t)mac + offs);
-
-	writew(val, paddr);
-}
-
-static inline
-void csrwr8(u8 val, void __iomem *mac, size_t offs)
-{
-	void __iomem *paddr = (void __iomem *)((uintptr_t)mac + offs);
-
-	writeb(val, paddr);
-}
 
 #endif /* __ALTERA_TSE_H__ */

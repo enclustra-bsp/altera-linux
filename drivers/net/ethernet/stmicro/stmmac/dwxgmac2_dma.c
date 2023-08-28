@@ -31,6 +31,13 @@ static void dwxgmac2_dma_init(void __iomem *ioaddr,
 		value |= XGMAC_EAME;
 
 	writel(value, ioaddr + XGMAC_DMA_SYSBUS_MODE);
+
+	if (dma_cfg->multi_irq_en) {
+		value = readl(ioaddr + XGMAC_DMA_MODE);
+		value &= ~DMA_MODE_INTM_MASK;
+		value |= (DMA_MODE_INTM_MODE1 << DMA_MODE_INTM_SHIFT);
+		writel(value, ioaddr + XGMAC_DMA_MODE);
+	}
 }
 
 static void dwxgmac2_dma_init_chan(void __iomem *ioaddr,
@@ -352,17 +359,18 @@ static int dwxgmac2_dma_interrupt(void __iomem *ioaddr,
 	}
 
 	/* TX/RX NORMAL interrupts */
-	if (likely(intr_status & XGMAC_NIS)) {
+	if (likely(intr_status & XGMAC_NIS))
 		x->normal_irq_n++;
 
-		if (likely(intr_status & XGMAC_RI)) {
-			x->rx_normal_irq_n++;
-			ret |= handle_rx;
-		}
-		if (likely(intr_status & (XGMAC_TI | XGMAC_TBU))) {
-			x->tx_normal_irq_n++;
-			ret |= handle_tx;
-		}
+	if (likely(intr_status & XGMAC_RI)) {
+		x->rx_normal_irq_n++;
+		x->rxq_stats[chan].rx_normal_irq_n++;
+		ret |= handle_rx;
+	}
+	if (likely(intr_status & (XGMAC_TI | XGMAC_TBU))) {
+		x->tx_normal_irq_n++;
+		x->txq_stats[chan].tx_normal_irq_n++;
+		ret |= handle_tx;
 	}
 
 	/* Clear interrupts */
@@ -395,6 +403,11 @@ static int dwxgmac2_get_hw_feature(void __iomem *ioaddr,
 	/* MAC HW feature 1 */
 	hw_cap = readl(ioaddr + XGMAC_HW_FEATURE1);
 	dma_cap->l3l4fnum = (hw_cap & XGMAC_HWFEAT_L3L4FNUM) >> 27;
+	if (dma_cap->l3l4fnum > 9)
+		dma_cap->l3l4fnum = 32;
+	else if (dma_cap->l3l4fnum > 8)
+		dma_cap->l3l4fnum = 16;
+
 	dma_cap->hash_tb_sz = (hw_cap & XGMAC_HWFEAT_HASHTBLSZ) >> 24;
 	dma_cap->rssen = (hw_cap & XGMAC_HWFEAT_RSSEN) >> 20;
 	dma_cap->tsoen = (hw_cap & XGMAC_HWFEAT_TSOEN) >> 18;
