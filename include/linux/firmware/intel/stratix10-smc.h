@@ -661,8 +661,7 @@ INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FPGA_CONFIG_COMPLETED_WRITE)
  * a1: this register is optional. If used, it is the physical address for
  *     secure firmware to put output data
  * a2: this register is optional. If used, it is the size of output data
- * a3: this register is optional. Set to 0x00004F4E for asynchronous mode
- * a4-a7: not used
+ * a3-a7: not used
  *
  * Return status:
  * a0: INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_STATUS_ERROR,
@@ -689,33 +688,10 @@ INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FPGA_CONFIG_COMPLETED_WRITE)
  * Return status:
  * a0 INTEL_SIP_SMC_STATUS_OK or INTEL_SIP_SMC_STATUS_ERROR
  * a1 running firmware version
- * SMC call protocol for Mailbox, starting FUNCID from 60
- *
- * Call register usage:
- * a0 INTEL_SIP_SMC_MBOX_SEND_CMD
- * a1 mailbox command code
- * a2 physical address that contain mailbox command data (not include header)
- * a3 mailbox command data size in word
- * a4 set to 0 for CASUAL, set to 1 for URGENT
- * a5 physical address for secure firmware to put response data
- *    (not include header)
- * a6 maximum size in word of physical address to store response data
- * a7 not used
- *
- * Return status
- * a0 INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_STATUS_REJECTED or
- *    INTEL_SIP_SMC_STATUS_ERROR
- * a1 mailbox error code
- * a2 response data length in word
- * a3 not used
  */
 #define INTEL_SIP_SMC_FUNCID_FIRMWARE_VERSION 31
 #define INTEL_SIP_SMC_FIRMWARE_VERSION \
         INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FIRMWARE_VERSION)
-
-#define INTEL_SIP_SMC_FUNCID_MBOX_SEND_CMD 60
-#define INTEL_SIP_SMC_MBOX_SEND_CMD \
-	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_MBOX_SEND_CMD)
 
 /**
  * Request INTEL_SIP_SMC_SVC_VERSION
@@ -808,7 +784,7 @@ INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FPGA_CONFIG_COMPLETED_WRITE)
 
 /**
  * Request INTEL_SIP_SMC_FUNCID_FCS_SEND_CERTIFICATE
- * Async call to send a signed certificate
+ * Sync call to send a signed certificate
  *
  * Call register usage:
  * a0 INTEL_SIP_SMC_FCS_SEND_CERTIFICATE
@@ -817,7 +793,7 @@ INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FPGA_CONFIG_COMPLETED_WRITE)
  * a3-a7 not used
  *
  * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK or INTEL_SIP_SMC_REJECTED
+ * a0 INTEL_SIP_SMC_STATUS_OK or INTEL_SIP_SMC_FCS_REJECTED
  * a1-a3 not used
  */
 #define INTEL_SIP_SMC_FUNCID_FCS_SEND_CERTIFICATE 93
@@ -830,197 +806,17 @@ INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FPGA_CONFIG_COMPLETED_WRITE)
  *
  * Call register usage:
  * a0 INTEL_SIP_SMC_FCS_GET_PROVISION_DATA
- * a1-a7 not used
- *
- * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_STATUS_ERROR or
- *	INTEL_SIP_SMC_STATUS_REJECTED
- * a1-a3 not used
- *
- */
-#define INTEL_SIP_SMC_FUNCID_FCS_GET_PROVISION_DATA 94
-#define INTEL_SIP_SMC_FCS_GET_PROVISION_DATA \
-	INTEL_SIP_SMC_STD_CALL_VAL(INTEL_SIP_SMC_FUNCID_FCS_GET_PROVISION_DATA)
-
-/**
- * Request INTEL_SIP_SMC_FCS_COUNTER_SET_PREAUTHORIZED
- * Sync call to update counter value w/o signed certificate
- *
- * Call register usage:
- * a0 INTEL_SIP_SMC_FCS_COUNTER_SET_PREAUTHORIZED
- * a1 counter type
- * a2 counter value
- * a3 test bit
- * a3-a7 not used
- *
- * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK or INTEL_SIP_SMC_STATUS_ERROR
- * a1-a4 not used
- */
-#define INTEL_SIP_SMC_FUNCID_FCS_COUNTER_SET_PREAUTHORIZED 95
-#define INTEL_SIP_SMC_FCS_COUNTER_SET_PREAUTHORIZED \
-	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FCS_COUNTER_SET_PREAUTHORIZED)
-
-/**
- * Request INTEL_SIP_SMC_FCS_PSGSIGMA_TEARDOWN
- * Sync call to tear down all previous black key provision sessions and to
- * delete keys assicated with those sessions
- *
- * Call register usage:
- * a0 INTEL_SIP_SMC_FCS_PSGSIGMA_TEARDOWN
- * a1 the session ID
- * a2-a7 not used
- *
- * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_STATUS_ERROR or
- *    INTEL_SIP_SMC_STATUS_REJECTED
- * a1 mailbox error if a0 is INTEL_SIP_SMC_STATUS_ERROR,
- *    not used if a0 is INTEL_SIP_SMC_STATUS_OK or
- *    INTEL_SIP_SMC_STATUS_REJECTED
- * a2-a3 not used
- */
-#define INTEL_SIP_SMC_FUNCID_FCS_PSGSIGMA_TEARDOWN 100
-#define INTEL_SIP_SMC_FCS_PSGSIGMA_TEARDOWN \
-	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FCS_PSGSIGMA_TEARDOWN)
-
-/**
- * Request INTEL_SIP_SMC_FCS_CHIP_ID
- * Sync call to get the device ID
- *
- * Call register usage:
- * a0 INTEL_SIP_SMC_FCS_CHIP_ID
- * a1-a7 not used
- *
- * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_STATUS_ERROR or
- *    INTEL_SIP_SMC_STATUS_REJECTED
- * a1 mailbox error if a0 is INTEL_SIP_SMC_STATUS_ERROR
- * a2 retrieved chipID value low 32 bits
- * a3 retrieved chipID value high 32 bits
- */
-#define INTEL_SIP_SMC_FUNCID_FCS_CHIP_ID 101
-#define INTEL_SIP_SMC_FCS_CHIP_ID \
-	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FCS_CHIP_ID)
-
-/**
- * Request INTEL_SIP_SMC_FCS_ATTESTATION_SUBKEY
- * Sync call to the device attestation subkey
- *
- * Call register usage:
- * a0 INTEL_SIP_SMC_FCS_ATTESTATION_SUBKEY
- * a1 physical address of subkey command data
- * a2 subkey command data size
- * a3 physical address of to be filled subkey response data
- * a4 subkey response data size
- * a5-a7 not used
- *
- * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK, or INTEL_SIP_SMC_STATUS_ERROR
- * a1 mailbox error if a0 is INTEL_SIP_SMC_STATUS_ERROR
- * a2 physical address of the filled subkey response data
- * a3 size of the filled subkey response dat
- */
-#define INTEL_SIP_SMC_FUNCID_FCS_ATTESTATION_SUBKEY 102
-#define INTEL_SIP_SMC_FCS_ATTESTATION_SUBKEY \
-	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FCS_ATTESTATION_SUBKEY)
-
-/**
- * Request INTEL_SIP_SMC_FCS_ATTESTATION_MEASUREMENTS
- * Async call to get device attestation measurements
- *
- * Call register usage:
- * a0 INTEL_SIP_SMC_FCS_ATTESTATION_MEASUREMENTS
- * a1 physical address of measurement command data
- * a2 measurement command data size
- * a3 physical address of to be filled measurement response data
- * a4 measurement response data size
- *
- * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK, or INTEL_SIP_SMC_STATUS_ERROR
- * a1 mailbox error if a0 is INTEL_SIP_SMC_STATUS_ERROR
- * a2 physical address of the filled subkey measurement data
- * a3 size of the filled subkey measurement data
- */
-#define INTEL_SIP_SMC_FUNCID_FCS_ATTESTATION_MEASUREMENTS 103
-#define INTEL_SIP_SMC_FCS_ATTESTATION_MEASUREMENTS \
-	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FCS_ATTESTATION_MEASUREMENTS)
-
-/**
- * Request INTEL_SIP_SMC_FCS_GET_ATTESTATION_CERTIFICATE
- * Sync call to get device attestation certificate
- *
- * Call register usage:
- * a0 INTEL_SIP_SMC_FCS_GET_ATTESTATION_CERTIFICATE
- * a1 the type of certificate request
- * a2 the physical address which holds certificate response data
- * a3 the size of the certificate response data
- * a4-a7 not used
- *
- * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_STATUS_NOT_SUPPORTED or
- *    INTEL_SIP_SMC_STATUS_ERROR
- * a1 mailbox error if a0 is INTEL_SIP_SMC_STATUS_ERROR
- * a2 physical address of the requested certificate
- * a3 sized of the requested certificate
- */
-#define INTEL_SIP_SMC_FUNCID_FCS_GET_ATTESTATION_CERTIFICATE 104
-#define INTEL_SIP_SMC_FCS_GET_ATTESTATION_CERTIFICATE \
-	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FCS_GET_ATTESTATION_CERTIFICATE)
-
-/**
- * Request INTEL_SIP_SMC_FCS_CREATE_CERTIFICATE_ON_RELOAD
- * Sync call to specify what certificate is to be generated
- *
- * Call register usage:
- * a0 INTEL_SIP_SMC_FCS_CREATE_CERTIFICATE_ON_RELOAD
- * a1 the type of certificat request
- * a2-a7 not used
- *
- * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_STATUS_NOT_SUPPORTED or
- *    INTEL_SIP_SMC_STATUS_ERROR
- * a1 mailbox error if a0 is INTEL_SIP_SMC_STATUS_ERROR
- * a2-a3 not used
- */
-#define INTEL_SIP_SMC_FUNCID_FCS_CREATE_CERTIFICATE_ON_RELOAD 105
-#define INTEL_SIP_SMC_FCS_CREATE_CERTIFICATE_ON_RELOAD \
-	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FCS_CREATE_CERTIFICATE_ON_RELOAD)
-
-/**
- * Request INTEL_SIP_SMC_FCS_GET_ROM_PATCH_SHA384
- *
- * Sync call used to dump the SHA384 hash of the rom patch
- *
- * Call register usage:
- * a0 INTEL_SIP_SMC_FCS_GET_ROM_PATCH_SHA384
- * a1 the physical address for firmware to write generated SHA384 data
+ * a1 the physical address for firmware to write structure of fuse and
+ *    key hashes
  * a2-a7 not used
  *
  * Return status:
  * a0 INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_FCS_ERROR or
  *      INTEL_SIP_SMC_FCS_REJECTED
  * a1 mailbox error
- * a2 the physical address of the SHA384 checksum
- * a3 size of the SHA384 checksum
- */
-#define INTEL_SIP_SMC_FUNCID_FCS_GET_ROM_PATCH_SHA384 64
-#define INTEL_SIP_SMC_FCS_GET_ROM_PATCH_SHA384 \
-	INTEL_SIP_SMC_FAST_CALL_VAL(INTEL_SIP_SMC_FUNCID_FCS_GET_ROM_PATCH_SHA384)
-
-/**
- * Request INTEL_SIP_SMC_FCS_OPEN_CRYPTO_SERVICE_SESSION
- * Sync call to open and establish a crypto service session with firmware
+ * a2 physical address for the structure of fuse and key hashes
+ * a3 the size of structure
  *
- * Call register usage:
- * a0 INTEL_SIP_SMC_FCS_OPEN_CRYPTO_SERVICE_SESSION
- * a1-a7 not used
- *
- * Return status:
- * a0 INTEL_SIP_SMC_STATUS_OK, INTEL_SIP_SMC_STATUS_NOT_SUPPORTED or
- *    INTEL_SIP_SMC_STATUS_ERROR
- * a1 mailbox error if a0 is INTEL_SIP_SMC_STATUS_ERROR
- * a2 session ID
- * a3 not used
  */
 #define INTEL_SIP_SMC_FUNCID_FCS_GET_PROVISION_DATA 94
 #define INTEL_SIP_SMC_FCS_GET_PROVISION_DATA \

@@ -18,7 +18,7 @@
 #define SVC_CLIENT_FCS			"fcs"
 #define SVC_CLIENT_HWMON		"hwmon"
 
-/**
+/*
  * Status of the sent command, in bit number
  *
  * SVC_STATUS_OK:
@@ -324,9 +324,6 @@ enum stratix10_svc_command_code {
 	COMMAND_MBOX_SEND_CMD = 100,
 	/* Non-mailbox SMC Call*/
 	COMMAND_SMC_SVC_VERSION = 200,
-	/* for HWMON */
-	COMMAND_HWMON_READTEMP,
-	COMMAND_HWMON_READVOLT
 };
 
 /**

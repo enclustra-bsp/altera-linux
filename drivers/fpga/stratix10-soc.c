@@ -235,20 +235,20 @@ static int s10_ops_write_init(struct fpga_manager *mgr,
 			       &ctype, sizeof(ctype),
 			       s10_receive_callback);
 	if (ret < 0)
-		goto init_error;
+		goto init_done;
 
 	ret = wait_for_completion_timeout(
 		&priv->status_return_completion, S10_RECONFIG_TIMEOUT);
 	if (!ret) {
 		dev_err(dev, "timeout waiting for RECONFIG_REQUEST\n");
 		ret = -ETIMEDOUT;
-		goto init_error;
+		goto init_done;
 	}
 
 	ret = 0;
 	if (!test_and_clear_bit(SVC_STATUS_OK, &priv->status)) {
 		ret = -ETIMEDOUT;
-		goto init_error;
+		goto init_done;
 	}
 
 	/* Allocate buffers from the service layer's pool. */
@@ -264,11 +264,8 @@ static int s10_ops_write_init(struct fpga_manager *mgr,
 		priv->svc_bufs[i].lock = 0;
 	}
 
-	goto init_done;
-
-init_error:
-	stratix10_svc_done(priv->chan);
 init_done:
+	stratix10_svc_done(priv->chan);
 	return ret;
 }
 
@@ -378,9 +375,6 @@ static int s10_ops_write(struct fpga_manager *mgr, const char *buf,
 
 	if (!s10_free_buffers(mgr))
 		dev_err(dev, "%s not all buffers were freed\n", __func__);
-
-	if (ret < 0)
-		stratix10_svc_done(priv->chan);
 
 	return ret;
 }
