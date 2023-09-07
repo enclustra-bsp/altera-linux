@@ -1,0 +1,12 @@
+config ATSHA204_I2C
+	tristate "Driver for atmel ATSHA204A security eeprom"
+	default n
+	depends on I2C
+	help
+	  Driver for the Atmel ATSHA204A eeprom.
+
+	  This driver provides a char device for random data and a sysfs for
+	  configzone, serial number, otp, configzone_locked and datazone_locked
+
+	  It will probably also work for ATSHA204, ATECC108, ATECC108A, ATECC508,
+	  but this is untested
