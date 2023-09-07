@@ -1,0 +1,13 @@
+/ {
+	fs_loader0: fs-loader {
+		u-boot,dm-pre-reloc;
+		compatible = "u-boot,fs-loader";
+		phandlepart = <&mmc 1>;
+	};
+};
+
+&fpga_mgr {
+	u-boot,dm-pre-reloc;
+	firmware-loader = <&fs_loader0>;
+	altr,bitstream = "bitstream.itb";
+};

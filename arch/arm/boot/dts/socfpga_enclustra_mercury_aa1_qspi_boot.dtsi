@@ -1,0 +1,13 @@
+/ {
+	fs_loader0: fs-loader {
+		u-boot,dm-pre-reloc;
+		compatible = "u-boot,fs-loader";
+		sfconfig = <0 0 50000000 3>;
+	};
+};
+
+&fpga_mgr {
+	u-boot,dm-pre-reloc;
+	firmware-loader = <&fs_loader0>;
+	altr,bitstream = "300000";
+};

@@ -1,0 +1,10 @@
+/ {
+	model = "Mercury+ AA1";
+
+	/* The module is equipped with 4Gbyte RAM but U-Boot limits the size to 2 Gbyte */
+	memory@0 {
+		name = "memory";
+		device_type = "memory";
+		reg = <0x0 0xC0000000>;
+	};
+};
