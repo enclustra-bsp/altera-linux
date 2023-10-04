@@ -1,7 +1,7 @@
 / {
-	model = "Mercury+ AA1";
+	model = "Enclustra Mercury+ AA1";
+	compatible = "enclustra,mercury-aa1", "altr,socfpga-arria10", "altr,socfpga";
 
-	/* The module is equipped with 4Gbyte RAM but U-Boot limits the size to 2 Gbyte */
 	memory@0 {
 		name = "memory";
 		device_type = "memory";

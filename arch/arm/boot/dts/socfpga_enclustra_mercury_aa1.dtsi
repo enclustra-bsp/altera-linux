@@ -16,32 +16,7 @@
 	clock-frequency = <33330000>;
 };
 
-&l4_main_clk {
-	u-boot,dm-pre-reloc;
-};
-
-&qspi_clk {
-	u-boot,dm-pre-reloc;
-};
-
-&main_sdmmc_clk {
-	u-boot,dm-pre-reloc;
-};
-
-&sdmmc_clk {
-	u-boot,dm-pre-reloc;
-};
-
-&sdmmc_free_clk {
-	u-boot,dm-pre-reloc;
-};
-
-&peri_sdmmc_clk {
-	u-boot,dm-pre-reloc;
-};
-
 &uart1 {
-	u-boot,dm-pre-reloc;
 	status = "okay";
 };
 
@@ -60,7 +35,6 @@
 };
 
 &mmc {
-	u-boot,dm-pre-reloc;
 	status = "okay";
 	cap-sd-highspeed;
 	broken-cd;
@@ -80,11 +54,9 @@
 };
 
 &qspi {
-	u-boot,dm-pre-reloc;
 	status = "okay";
 
 	flash0: s25fl512s@0 {
-		u-boot,dm-pre-reloc;
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "spansion,s25fl512s", "jedec,spi-nor";
@@ -103,7 +75,6 @@
 };
 
 &watchdog1 {
-	u-boot,dm-pre-reloc;
 	status = "disabled";
 };
 
