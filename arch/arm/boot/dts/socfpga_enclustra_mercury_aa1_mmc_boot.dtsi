@@ -1,0 +1,11 @@
+/ {
+	fs_loader0: fs-loader {
+		compatible = "u-boot,fs-loader";
+		phandlepart = <&mmc 1>;
+	};
+};
+
+&fpga_mgr {
+	firmware-loader = <&fs_loader0>;
+	altr,bitstream = "bitstream.itb";
+};

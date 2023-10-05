@@ -1,0 +1,11 @@
+/ {
+	fs_loader0: fs-loader {
+		compatible = "u-boot,fs-loader";
+		sfconfig = <0 0 50000000 3>;
+	};
+};
+
+&fpga_mgr {
+	firmware-loader = <&fs_loader0>;
+	altr,bitstream = "300000";
+};

@@ -1,0 +1,9 @@
+/ {
+	model = "Mercury+ AA1";
+
+	memory@0 {
+		name = "memory";
+		device_type = "memory";
+		reg = <0x0 0x80000000>;
+	};
+};
