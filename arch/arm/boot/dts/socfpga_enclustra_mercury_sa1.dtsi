@@ -64,30 +64,30 @@
 &gmac1 {
 	status = "okay";
 	phy-mode = "rgmii";
-
-	/* Add 2ns RX clock delay (1.2ns + 0.78ns)*/
-	rxc-skew-ps = <1680>;
-	rxd0-skew-ps = <420>;
-	rxd1-skew-ps = <420>;
-	rxd2-skew-ps = <420>;
-	rxd3-skew-ps = <420>;
-	rxdv-skew-ps = <420>;
-
-	/* Add 1.38ns TX clock delay (0.96ns + 0.42ns)*/
-	txc-skew-ps = <1760>;
-	txd0-skew-ps = <0>;
-	txd1-skew-ps = <0>;
-	txd2-skew-ps = <0>;
-	txd3-skew-ps = <0>;
-	txen-skew-ps = <0>;
-
 	phy-handle = <&phy3>;
+
 	mdio0 {
 		#address-cells = <1>;
 		#size-cells = <0>;
 		compatible = "snps,dwmac-mdio";
 		phy3: ethernet-phy@3 {
 			reg = <3>;
+
+			/* Add 2ns RX clock delay (1.2ns + 0.78ns)*/
+			rxc-skew-ps = <1680>;
+			rxd0-skew-ps = <420>;
+			rxd1-skew-ps = <420>;
+			rxd2-skew-ps = <420>;
+			rxd3-skew-ps = <420>;
+			rxdv-skew-ps = <420>;
+
+			/* Add 1.38ns TX clock delay (0.96ns + 0.42ns)*/
+			txc-skew-ps = <1860>;
+			txd0-skew-ps = <0>;
+			txd1-skew-ps = <0>;
+			txd2-skew-ps = <0>;
+			txd3-skew-ps = <0>;
+			txen-skew-ps = <0>;
 		};
 	};
 };
