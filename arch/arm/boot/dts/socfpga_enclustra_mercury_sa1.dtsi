@@ -10,10 +10,6 @@
 	clock-frequency = <50000000>;
 };
 
-&watchdog0 {
-	status = "okay";
-};
-
 &uart0 {
 	clock-frequency = <100000000>;
 };
@@ -51,6 +47,12 @@
 &i2c0 {
 	status = "okay";
 	clock-frequency = <100000>;
+
+	isl12020: isl12020@6f {
+		status = "okay";
+		compatible = "isil,isl12022";
+		reg = <0x6f>;
+	};
 };
 
 &gpio0 {
@@ -70,6 +72,7 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 		compatible = "snps,dwmac-mdio";
+
 		phy3: ethernet-phy@3 {
 			reg = <3>;
 
