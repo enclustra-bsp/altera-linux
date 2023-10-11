@@ -1,0 +1,9 @@
+/ {
+	model = "Enclustra Mercury+ SA2";
+
+	memory {
+		name = "memory";
+		device_type = "memory";
+		reg = <0x0 0x80000000>; /* 2GB */
+	};
+};
