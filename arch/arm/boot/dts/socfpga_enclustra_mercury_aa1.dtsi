@@ -32,6 +32,11 @@
 		compatible = "atmel,atsha204a";
 		reg = <0x64>;
 	};
+
+	isl12022: isl12022@6f {
+		compatible = "isl,isl12022";
+		reg = <0x6f>;
+	};
 };
 
 &mmc {
@@ -54,24 +59,29 @@
 };
 
 &qspi {
-	status = "okay";
+        status = "okay";
 
-	flash0: s25fl512s@0 {
-		#address-cells = <1>;
-		#size-cells = <1>;
-		compatible = "spansion,s25fl512s", "jedec,spi-nor";
-		reg = <0>;
-		spi-max-frequency = <25000000>;
+        flash0: s25fl512s@0 {
+                u-boot,dm-pre-reloc;
+                #address-cells = <1>;
+                #size-cells = <1>;
+                compatible = "spansion,s25fl512s", "jedec,spi-nor";
+                reg = <0>;
+                spi-max-frequency = <10000000>;
 
-		page-size = <256>;
-		block-size = <16>; /* 2^16, 64KB */
-		cdns,page-size = <256>;
-		cdns,block-size = <16>;
-		cdns,tshsl-ns = <200>;
-		cdns,tsd2d-ns = <255>;
-		cdns,tchsh-ns = <20>;
-		cdns,tslch-ns = <20>;
-	};
+                page-size = <256>;
+                cdns,block-size = <16>; /* 2^16, 64KB */
+                cdns,read-delay = <4>;
+                cdns,tshsl-ns = <50>;
+                cdns,tsd2d-ns = <50>;
+                cdns,tchsh-ns = <4>;
+                cdns,tslch-ns = <4>;
+
+                partition@raw {
+                        label = "Flash Raw";
+                        reg = <0x0 0x4000000>;
+                };
+        };
 };
 
 &watchdog1 {

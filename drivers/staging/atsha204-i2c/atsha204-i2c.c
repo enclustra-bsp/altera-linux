@@ -144,7 +144,11 @@ int atsha204_i2c_wakeup(const struct i2c_client *client)
 		buf[0] = 0;
 		i2c_transfer(client->adapter, &msg, 1);
 		/* Delay for tWHI before reading the response. */
-		mdelay(client->addr == 0x60 ? ATECC108_W_HI : ATSHA204_W_HI);
+		if (client->addr == 0x60) {
+			udelay(ATECC108_W_HI);
+		} else {
+			usleep_range((ATSHA204_W_HI - 500), ATSHA204_W_HI);
+		}
 		/* Read the response. */
 		if (4 == i2c_master_recv(client, buf, 4)) {
 			dev_dbg(dev, "Chip is awake\n");
