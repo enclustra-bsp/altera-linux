@@ -4,6 +4,10 @@
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
+
+	aliases {
+		ethernet0 = &gmac1;
+	};
 };
 
 &osc1 {
@@ -71,6 +75,7 @@
 
 &gmac1 {
 	status = "okay";
+	/delete-property/ mac-address;
 	phy-mode = "rgmii";
 	phy-handle = <&phy3>;
 
