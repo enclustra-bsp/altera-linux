@@ -5,6 +5,7 @@
 		serial0 = &uart1;
 		spi0 = &qspi;
 		i2c0 = &i2c1;
+		ethernet0 = &gmac0;
 	};
 
 	chosen {
