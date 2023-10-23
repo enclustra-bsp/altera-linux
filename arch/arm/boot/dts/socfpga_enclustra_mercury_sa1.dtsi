@@ -102,4 +102,5 @@
 
 &usb1 {
 	status = "okay";
+	dr_mode = "host";
 };

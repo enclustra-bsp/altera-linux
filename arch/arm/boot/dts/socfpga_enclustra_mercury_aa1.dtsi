@@ -53,36 +53,36 @@
 		reg = <0xff8c2c00 0x400>;
 		altr,ecc-parent = <&mmc>;
 		interrupts = <15 IRQ_TYPE_LEVEL_HIGH>,
-			     <47 IRQ_TYPE_LEVEL_HIGH>,
-			     <16 IRQ_TYPE_LEVEL_HIGH>,
-			     <48 IRQ_TYPE_LEVEL_HIGH>;
+					 <47 IRQ_TYPE_LEVEL_HIGH>,
+					 <16 IRQ_TYPE_LEVEL_HIGH>,
+					 <48 IRQ_TYPE_LEVEL_HIGH>;
 	};
 };
 
 &qspi {
-        status = "okay";
+	status = "okay";
 
-        flash0: s25fl512s@0 {
-                u-boot,dm-pre-reloc;
-                #address-cells = <1>;
-                #size-cells = <1>;
-                compatible = "spansion,s25fl512s", "jedec,spi-nor";
-                reg = <0>;
-                spi-max-frequency = <10000000>;
+	flash0: s25fl512s@0 {
+		u-boot,dm-pre-reloc;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "spansion,s25fl512s", "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
 
-                page-size = <256>;
-                cdns,block-size = <16>; /* 2^16, 64KB */
-                cdns,read-delay = <4>;
-                cdns,tshsl-ns = <50>;
-                cdns,tsd2d-ns = <50>;
-                cdns,tchsh-ns = <4>;
-                cdns,tslch-ns = <4>;
+		page-size = <256>;
+		cdns,block-size = <16>; /* 2^16, 64KB */
+		cdns,read-delay = <4>;
+		cdns,tshsl-ns = <50>;
+		cdns,tsd2d-ns = <50>;
+		cdns,tchsh-ns = <4>;
+		cdns,tslch-ns = <4>;
 
-                partition@raw {
-                        label = "Flash Raw";
-                        reg = <0x0 0x4000000>;
-                };
-        };
+		partition@raw {
+			label = "Flash Raw";
+			reg = <0x0 0x4000000>;
+		};
+	};
 };
 
 &watchdog1 {
@@ -124,5 +124,5 @@
 
 &usb0 {
 	status = "okay";
+	dr_mode = "host";
 };
-
