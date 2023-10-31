@@ -22,8 +22,7 @@
 };
 
 &i2c1 {
-	/* Max value set according to HW spec */
-	i2c-scl-falling-time-ns = <300>;
+	i2c-sda-hold-time-ns = <300>;
 	status = "okay";
 
 	clock-frequency = <100000>;

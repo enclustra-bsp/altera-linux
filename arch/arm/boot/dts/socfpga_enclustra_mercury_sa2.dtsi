@@ -49,8 +49,9 @@
 };
 
 &i2c0 {
-	status = "okay";
+	i2c-sda-hold-time-ns = <300>;
 	clock-frequency = <100000>;
+	status = "okay";
 
 	isl12020: isl12020@6f {
 		status = "okay";
