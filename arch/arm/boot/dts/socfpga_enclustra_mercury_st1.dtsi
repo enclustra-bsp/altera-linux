@@ -4,7 +4,7 @@
  * <info@enclustra.com>
  */
 
-&i2c1 {
+&i2c_encl {
 	si5338@70 {
 		/* No driver available */
 		compatible = "silabs,si5338";

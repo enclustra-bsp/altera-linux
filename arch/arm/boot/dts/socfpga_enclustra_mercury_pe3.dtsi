@@ -4,7 +4,7 @@
  * <info@enclustra.com>
  */
 
-&i2c1 {
+&i2c_encl {
 
 	i2c-mux@74 {
 		status = "okay";

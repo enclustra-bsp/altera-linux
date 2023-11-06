@@ -8,6 +8,18 @@
 	aliases {
 		ethernet0 = &gmac1;
 	};
+
+	i2c_encl: i2c0 {
+		i2c-sda-hold-time-ns = <300>;
+		clock-frequency = <100000>;
+		status = "okay";
+
+		isl12020: isl12020@6f {
+			status = "okay";
+			compatible = "isil,isl12022";
+			reg = <0x6f>;
+		};
+	};
 };
 
 &osc1 {
@@ -45,18 +57,6 @@
 			label = "Flash Raw";
 			reg = <0x0 0x4000000>;
 		};
-	};
-};
-
-&i2c0 {
-	i2c-sda-hold-time-ns = <300>;
-	clock-frequency = <100000>;
-	status = "okay";
-
-	isl12020: isl12020@6f {
-		status = "okay";
-		compatible = "isil,isl12022";
-		reg = <0x6f>;
 	};
 };
 

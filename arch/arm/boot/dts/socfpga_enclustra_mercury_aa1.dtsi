@@ -11,6 +11,24 @@
 	chosen {
 		stdout-path = "serial0:115200n8";
 	};
+
+	i2c_encl: i2c1 {
+		i2c-sda-hold-time-ns = <300>;
+		status = "okay";
+
+		clock-frequency = <100000>;
+
+		atsha204a: atsha204a@64 {
+			status = "okay";
+			compatible = "atmel,atsha204a";
+			reg = <0x64>;
+		};
+
+		isl12022: isl12022@6f {
+			compatible = "isl,isl12022";
+			reg = <0x6f>;
+		};
+	};
 };
 
 &osc1 {
@@ -19,24 +37,6 @@
 
 &uart1 {
 	status = "okay";
-};
-
-&i2c1 {
-	i2c-sda-hold-time-ns = <300>;
-	status = "okay";
-
-	clock-frequency = <100000>;
-
-	atsha204a: atsha204a@64 {
-		status = "okay";
-		compatible = "atmel,atsha204a";
-		reg = <0x64>;
-	};
-
-	isl12022: isl12022@6f {
-		compatible = "isl,isl12022";
-		reg = <0x6f>;
-	};
 };
 
 &mmc {
