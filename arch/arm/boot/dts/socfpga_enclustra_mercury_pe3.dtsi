@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
- * Copyright (C) 2022 Enclustra GmbH
+ * Copyright (C) 2023 Enclustra GmbH
  * <info@enclustra.com>
  */
 
@@ -19,7 +19,6 @@
 			reg = <0>;
 
 			24aa128@56 {
-				status = "okay";
 				compatible = "microchip,24c128";
 				reg = <0x56>;
 				pagesize = <64>;
@@ -28,13 +27,11 @@
 			};
 
 			lm96080@2f {
-				status = "okay";
 				compatible = "national,lm80";
 				reg = <0x2f>;
 			};
 
 			pcal6416@20 {
-				status = "okay";
 				compatible = "nxp,pcal6416";
 				reg = <0x20>;
 				gpio-controller;
