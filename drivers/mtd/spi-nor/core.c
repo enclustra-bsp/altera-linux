@@ -2728,11 +2728,11 @@ static int spi_nor_clear_protection(struct spi_nor *nor)
 		if (ret)
 			return ret;
 
-		printk(KERN_WARNING "---------------- WARNING ---------------\n");
-		printk(KERN_WARNING "QSPI flash block protection bits cleared\n");
-		printk(KERN_WARNING "SR1 = %02x -> %02x\n", sr, sr_cr[0]);
-		printk(KERN_WARNING "CR1 = %02x -> %02x\n", cr, sr_cr[1]);
-		printk(KERN_WARNING "----------------------------------------\n");
+		dev_warn(nor->dev, "---------------- WARNING ---------------\n");
+		dev_warn(nor->dev, "QSPI flash block protection bits cleared\n");
+		dev_warn(nor->dev, "SR1 = %02x -> %02x\n", sr, sr_cr[0]);
+		dev_warn(nor->dev, "CR1 = %02x -> %02x\n", cr, sr_cr[1]);
+		dev_warn(nor->dev, "----------------------------------------\n");
 	}
 
 	return 0;
@@ -2757,7 +2757,7 @@ static int spi_nor_init(struct spi_nor *nor)
 	if (strcmp(nor->info->name, "s25fl512s") == 0) {
 		err = spi_nor_clear_protection(nor);
 		if (err) {
-			dev_dbg(nor->dev, "clearing block protection flags failed\n");
+			dev_err(nor->dev, "clearing block protection flags failed\n");
 			return err;
 		}
 	}
