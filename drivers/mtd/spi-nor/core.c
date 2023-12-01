@@ -2694,6 +2694,50 @@ static int spi_nor_quad_enable(struct spi_nor *nor)
 	return nor->params->quad_enable(nor);
 }
 
+static int spi_nor_clear_protection(struct spi_nor *nor)
+{
+	uint8_t *sr_cr = nor->bouncebuf;
+	uint8_t sr = 0;
+	uint8_t cr = 0;
+
+	int ret = spi_nor_read_sr(nor, &sr_cr[0]);
+	if (ret)
+		return ret;
+	sr = sr_cr[0];
+
+	ret = spi_nor_read_cr(nor, &sr_cr[1]);
+	if (ret)
+		return ret;
+	cr = sr_cr[1];
+
+	if (sr_cr[0] & 0x1c)
+	{
+		sr_cr[0] &= ~0x1c; // clear block protection
+		sr_cr[1] &= ~0xc0; // clear latency code bits
+
+		ret = spi_nor_write_sr(nor, sr_cr, 2);
+		if (ret)
+			return ret;
+
+		// read the written registers again to verify the content
+		ret = spi_nor_read_sr(nor, &sr_cr[0]);
+		if (ret)
+			return ret;
+
+		ret = spi_nor_read_cr(nor, &sr_cr[1]);
+		if (ret)
+			return ret;
+
+		dev_warn(nor->dev, "---------------- WARNING ---------------\n");
+		dev_warn(nor->dev, "QSPI flash block protection bits cleared\n");
+		dev_warn(nor->dev, "SR1 = %02x -> %02x\n", sr, sr_cr[0]);
+		dev_warn(nor->dev, "CR1 = %02x -> %02x\n", cr, sr_cr[1]);
+		dev_warn(nor->dev, "----------------------------------------\n");
+	}
+
+	return 0;
+}
+
 static int spi_nor_init(struct spi_nor *nor)
 {
 	int err;
@@ -2708,6 +2752,14 @@ static int spi_nor_init(struct spi_nor *nor)
 	if (err) {
 		dev_dbg(nor->dev, "quad mode not supported\n");
 		return err;
+	}
+
+	if (strcmp(nor->info->name, "s25fl512s") == 0) {
+		err = spi_nor_clear_protection(nor);
+		if (err) {
+			dev_err(nor->dev, "clearing block protection flags failed\n");
+			return err;
+		}
 	}
 
 	/*
