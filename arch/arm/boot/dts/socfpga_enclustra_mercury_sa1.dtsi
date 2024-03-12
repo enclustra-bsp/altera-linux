@@ -43,6 +43,8 @@
 
 &mmc0 {
 	status = "okay";
+	/delete-property/ cap-mmc-highspeed;
+	/delete-property/ cap-sd-highspeed;
 };
 
 &qspi {
