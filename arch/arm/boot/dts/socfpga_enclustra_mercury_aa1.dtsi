@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+ OR MIT
 /*
- * Copyright (C) 2023 Enclustra GmbH - https://www.enclustra.com
+ * Copyright (C) 2024 Enclustra GmbH - https://www.enclustra.com
  */
 
 / {
@@ -9,6 +9,9 @@
 	aliases {
 		serial0 = &uart1;
 		ethernet0 = &gmac0;
+		spi0 = &qspi;
+		i2c0 = &i2c1;
+		i2c1 = &i2c0;
 	};
 
 	chosen {
@@ -18,6 +21,8 @@
 	/* define i2c label to be used in baseboard dtsi */
 	soc {
 		i2c_encl: i2c@ffc02300 {
+		};
+		i2c_encl_fpga: i2c@ffc02200 {
 		};
 	};
 
@@ -42,6 +47,11 @@
 		compatible = "isl,isl12022";
 		reg = <0x6f>;
 	};
+};
+
+&i2c_encl_fpga {
+	i2c-sda-hold-time-ns = <300>;
+	status = "disabled";
 };
 
 &uart1 {
